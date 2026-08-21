@@ -1,0 +1,28 @@
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
+
+namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
+
+public sealed class ButterworthOrderCalculator : IFilterOrderCalculator
+{
+    public FilterApproximation Approximation => FilterApproximation.Butterworth;
+
+    public int CalculateMinimumOrder(double rp, double attenuation, double ratio)
+    {
+        Validate(rp, attenuation, ratio);
+        var epsilonSquared = Math.Pow(10, rp / 10) - 1;
+        var stopTerm = Math.Pow(10, attenuation / 10) - 1;
+        return Math.Max(1, (int)Math.Ceiling(Math.Log10(stopTerm / epsilonSquared) / (2 * Math.Log10(ratio))));
+    }
+
+    public double CalculateCutoffAngularFrequency(double wp, double rp, int order)
+    {
+        var epsilon = Math.Sqrt(Math.Pow(10, rp / 10) - 1);
+        return wp / Math.Pow(epsilon, 1.0 / order);
+    }
+
+    private static void Validate(double rp, double attenuation, double ratio)
+    {
+        if (rp <= 0 || attenuation <= rp || ratio <= 1)
+            throw new ArgumentException("Butterworth order calculation requires Rp > 0, As > Rp and stopband ratio > 1.");
+    }
+}

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/Lenovo/AppData/Local/Temp/claude/**)",
+      "Bash(powershell -NoProfile -Command \"Start-Process -FilePath 'd:/jzh_doc/circuit designer/bin/Debug/net10.0-windows/CircuitModuleDesigner.exe'\")",
+      "Bash(dotnet run *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Lenovo\\AppData\\Local\\Temp\\claude\\diag"
+    ]
+  }
+}

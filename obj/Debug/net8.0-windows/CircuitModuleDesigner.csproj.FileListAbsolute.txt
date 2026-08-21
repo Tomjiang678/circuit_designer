@@ -1,0 +1,14 @@
+D:\jzh_doc\circuit designer\bin\Debug\net8.0-windows\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\bin\Debug\net8.0-windows\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\bin\Debug\net8.0-windows\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\bin\Debug\net8.0-windows\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\bin\Debug\net8.0-windows\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.GeneratedMSBuildEditorConfig.editorconfig
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.AssemblyInfoInputs.cache
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.AssemblyInfo.cs
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.csproj.CoreCompileInputs.cache
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\refint\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\CircuitModuleDesigner.genruntimeconfig.cache
+D:\jzh_doc\circuit designer\obj\Debug\net8.0-windows\ref\CircuitModuleDesigner.dll
