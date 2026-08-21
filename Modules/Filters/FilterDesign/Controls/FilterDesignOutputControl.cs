@@ -73,15 +73,26 @@ public sealed class FilterDesignOutputControl : UserControl
     private static string BuildCalculations(FilterDesignResult result)
     {
         var text = new StringBuilder();
-        text.AppendLine(result.Message); text.AppendLine($"Required order: {result.RequiredOrder}"); text.AppendLine($"Prototype order: {result.PrototypeOrder}"); text.AppendLine($"Realized order: {result.RealizedOrder}"); text.AppendLine($"Meets requested order: {result.MeetsRequestedOrder}");
+        text.AppendLine(result.Message); text.AppendLine($"Required order: {result.RequiredOrder}"); text.AppendLine($"Prototype order: {result.PrototypeOrder}"); text.AppendLine($"Realized order: {result.RealizedOrder}"); text.AppendLine($"Meets requested order: {result.MeetsRequestedOrder}"); text.AppendLine($"Final circuit meets edge specifications: {result.MeetsSpecifications}");
         if (result.NormalizedSpecification != null)
         {
             if (result.NormalizedSpecification.CenterAngularFrequency > 0)
             {
                 text.AppendLine($"Center frequency: {result.NormalizedSpecification.CenterAngularFrequency / (2 * Math.PI):0.###} Hz");
-                text.AppendLine($"Passband bandwidth: {result.NormalizedSpecification.BandwidthAngularFrequency / (2 * Math.PI):0.###} Hz");
+                var passbandBandwidth = result.NormalizedSpecification.SpecificationBandwidthAngularFrequency > 0
+                    ? result.NormalizedSpecification.SpecificationBandwidthAngularFrequency
+                    : result.NormalizedSpecification.BandwidthAngularFrequency;
+                text.AppendLine($"Passband bandwidth: {passbandBandwidth / (2 * Math.PI):0.###} Hz");
+                if (Math.Abs(passbandBandwidth - result.NormalizedSpecification.BandwidthAngularFrequency) > passbandBandwidth * 1e-9)
+                    text.AppendLine($"Prototype transformation bandwidth: {result.NormalizedSpecification.BandwidthAngularFrequency / (2 * Math.PI):0.###} Hz");
             }
             else text.AppendLine($"Cutoff: {result.NormalizedSpecification.CutoffAngularFrequency / (2 * Math.PI):0.###} Hz");
+        }
+        if (result.SpecificationCompliance != null)
+        {
+            text.AppendLine(); text.AppendLine("Final circuit edge verification:");
+            foreach (var edge in result.SpecificationCompliance.Edges)
+                text.AppendLine($"  {edge.Label} = {edge.FrequencyHz:0.###} Hz: actual {edge.ActualMagnitudeDb:0.###} dB, {(edge.IsPassband ? "minimum" : "maximum")} {edge.LimitMagnitudeDb:0.###} dB, {(edge.MeetsLimit ? "PASS" : "FAIL")}");
         }
         text.AppendLine(); text.AppendLine("Prototype poles:"); foreach (var pole in result.PrototypePoles) text.AppendLine($"  {pole.Real,12:0.######} {pole.Imaginary,12:+0.######;-0.######}j");
         if (result.PrototypeElementValues.Count > 0) { text.AppendLine(); text.AppendLine("Normalized ladder g-values:"); for (var i=0;i<result.PrototypeElementValues.Count;i++) text.AppendLine($"  g{i} = {result.PrototypeElementValues[i]:0.######}"); }

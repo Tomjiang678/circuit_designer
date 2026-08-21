@@ -46,6 +46,10 @@ var tests = new (string Name, Action Run)[]
     ("Passive LC end-to-end", TestPassiveLcEndToEnd),
     ("Passive LC high-pass end-to-end", TestPassiveLcHighPassEndToEnd),
     ("Passive LC band-pass end-to-end", TestPassiveLcBandPassEndToEnd),
+    ("Passive LC band-edge attenuation", TestPassiveLcBandEdgeAttenuation),
+    ("Supported filter edge-spec audit", TestSupportedFilterEdgeSpecAudit),
+    ("Automatic-order active edge-spec audit", TestAutomaticOrderActiveEdgeSpecAudit),
+    ("Even-order Chebyshev passive LC edge audit", TestEvenOrderChebyshevPassiveLcEdgeAudit),
     ("Passive LC band-stop end-to-end", TestPassiveLcBandStopEndToEnd),
     ("Chebyshev-I passive LC end-to-end", TestChebyshevLcEndToEnd),
     ("LC band transformation resonance", TestLcBandTransformationResonance),
@@ -293,6 +297,13 @@ static void TestPassiveLcHighPassEndToEnd()
     Require(result.IsImplemented, result.Message); Equal(3, result.CircuitGraph!.Components.Count);
     Require(result.CircuitGraph.Components.Count(component => component.Type == ComponentType.Capacitor) == 2, "Third-order HP ladder requires two series capacitors.");
     Require(result.CircuitGraph.Components.Count(component => component.Type == ComponentType.Inductor) == 1, "Third-order HP ladder requires one shunt inductor.");
+    var epsilon = Math.Sqrt(Math.Pow(10, result.DesignRequest!.PassbandRippleDb / 10) - 1);
+    var expectedCutoffHz = result.DesignRequest.PassbandEdgeHz * Math.Pow(epsilon, 1d / result.PrototypeOrder);
+    Require(Nearly(result.NormalizedSpecification!.CutoffAngularFrequency / (2 * Math.PI), expectedCutoffHz, 1e-10),
+        "High-pass Butterworth cutoff scaling must place fc below fp.");
+    var atPassbandEdge = result.AnalysisResult!.Points.Single(point => Nearly(point.FrequencyHz, result.DesignRequest.PassbandEdgeHz, 1e-12));
+    Require(Math.Abs(atPassbandEdge.MagnitudeDb + result.DesignRequest.PassbandRippleDb) < .01,
+        $"Passive LC high-pass insertion gain at fp is {atPassbandEdge.MagnitudeDb:G6} dB instead of -Rp.");
 }
 
 static void TestPassiveLcBandPassEndToEnd()
@@ -300,6 +311,144 @@ static void TestPassiveLcBandPassEndToEnd()
     var result = new FilterDesignEngine().Design(Request(FilterMode.Passive, FilterResponseType.BandPass, FilterApproximation.Butterworth, FilterImplementationType.Lc, 1_000, 2_000, manualOrder: 3));
     Require(result.IsImplemented, result.Message); Equal(3, result.PrototypeOrder); Equal(6, result.RealizedOrder); Equal(6, result.CircuitGraph!.Components.Count);
     Require(result.CircuitGraph.GetNet("VIN").Pins.Count == 1, "BP ladder input must start with one series resonator branch.");
+}
+
+static void TestPassiveLcBandEdgeAttenuation()
+{
+    var request = Request(FilterMode.Passive, FilterResponseType.BandPass, FilterApproximation.Butterworth, FilterImplementationType.Lc, 1_000, 2_000);
+    var result = new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, result.Message);
+    var analysis = result.AnalysisResult ?? throw new InvalidOperationException("Passive LC band-pass analysis is missing.");
+    foreach (var frequency in new[] { request.PassbandLowerHz, request.PassbandUpperHz })
+    {
+        var point = analysis.Points.Single(value => Nearly(value.FrequencyHz, frequency, 1e-12));
+        Require(Math.Abs(point.MagnitudeDb + request.PassbandRippleDb) < .02,
+            $"Passive LC band-pass gain at fp={frequency:G6} Hz is {point.MagnitudeDb:G6} dB instead of -Rp.");
+    }
+    foreach (var frequency in new[] { request.StopbandLowerHz, request.StopbandUpperHz })
+    {
+        var point = analysis.Points.Single(value => Nearly(value.FrequencyHz, frequency, 1e-12));
+        Require(point.MagnitudeDb <= -request.StopbandAttenuationDb + .02,
+            $"Passive LC band-pass attenuation at fs={frequency:G6} Hz is only {-point.MagnitudeDb:G6} dB.");
+    }
+}
+
+static void TestSupportedFilterEdgeSpecAudit()
+{
+    var failures = new List<string>();
+    var engine = new FilterDesignEngine();
+    foreach (var approximation in Enum.GetValues<FilterApproximation>())
+    foreach (var response in Enum.GetValues<FilterResponseType>())
+    foreach (var topology in response == FilterResponseType.BandStop
+                 ? new[] { FilterImplementationType.BainterNotch }
+                 : new[] { FilterImplementationType.SallenKey, FilterImplementationType.MultipleFeedback })
+    {
+        var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
+        var request = WideRanges(Request(FilterMode.Active, response, approximation, topology, fp, fs, manualOrder: 3) with
+        {
+            StopbandAttenuationDb = 20,
+            PassbandGain = 1
+        });
+        AuditEdgeSpecification(engine.Design(request), failures, $"Active/{approximation}/{response}/{topology}", true);
+    }
+
+    foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI })
+    foreach (var response in Enum.GetValues<FilterResponseType>())
+    {
+        var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
+        var request = Request(FilterMode.Passive, response, approximation, FilterImplementationType.Lc, fp, fs, manualOrder: 3) with
+        {
+            StopbandAttenuationDb = 20
+        };
+        AuditEdgeSpecification(engine.Design(request), failures, $"Passive/{approximation}/{response}/LC", true);
+    }
+    foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI, FilterApproximation.Bessel })
+    foreach (var response in new[] { FilterResponseType.LowPass, FilterResponseType.HighPass })
+    {
+        var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
+        var request = Request(FilterMode.Passive, response, approximation, FilterImplementationType.Rc, fp, fs, manualOrder: 1) with
+        {
+            StopbandAttenuationDb = 20
+        };
+        AuditEdgeSpecification(engine.Design(request), failures, $"Passive/{approximation}/{response}/RC", false);
+    }
+    Require(failures.Count == 0, "Edge specification audit failed:\n  " + string.Join("\n  ", failures));
+}
+
+static void TestAutomaticOrderActiveEdgeSpecAudit()
+{
+    var failures = new List<string>();
+    var engine = new FilterDesignEngine();
+    foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI })
+    foreach (var response in Enum.GetValues<FilterResponseType>())
+    foreach (var topology in response == FilterResponseType.BandStop
+                 ? new[] { FilterImplementationType.BainterNotch }
+                 : new[] { FilterImplementationType.SallenKey, FilterImplementationType.MultipleFeedback })
+    {
+        var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
+        var request = WideRanges(Request(FilterMode.Active, response, approximation, topology, fp, fs));
+        var result = engine.Design(request);
+        AuditEdgeSpecification(result, failures, $"Auto/Active/{approximation}/{response}/{topology}", true);
+        if (result.IsImplemented && !result.MeetsSpecifications)
+            failures.Add($"Auto/Active/{approximation}/{response}/{topology}: engine compliance flag is false");
+    }
+    Require(failures.Count == 0, "Automatic-order active audit failed:\n  " + string.Join("\n  ", failures));
+}
+
+static void TestEvenOrderChebyshevPassiveLcEdgeAudit()
+{
+    var failures = new List<string>();
+    var engine = new FilterDesignEngine();
+    var loadRatio = new ChebyshevPrototypeDesigner().Design(2, 1).LadderGValues[^1];
+    foreach (var response in Enum.GetValues<FilterResponseType>())
+    {
+        var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
+        var request = Request(FilterMode.Passive, response, FilterApproximation.ChebyshevTypeI,
+            FilterImplementationType.Lc, fp, fs, manualOrder: 2) with
+        {
+            StopbandAttenuationDb = 20,
+            LoadResistanceOhm = 50 * loadRatio
+        };
+        AuditEdgeSpecification(engine.Design(request), failures, $"Passive/Chebyshev-even/{response}/LC", false);
+    }
+    Require(failures.Count == 0, "Even-order passive Chebyshev audit failed:\n  " + string.Join("\n  ", failures));
+}
+
+static void AuditEdgeSpecification(FilterDesignResult result, ICollection<string> failures, string name, bool checkStopband)
+{
+    if (!result.IsImplemented || result.AnalysisResult == null || result.DesignRequest == null)
+    {
+        failures.Add($"{name}: design failed: {result.Message}");
+        return;
+    }
+    var request = result.DesignRequest;
+    var passbandReferenceDb = request.Mode == FilterMode.Active ? 20 * Math.Log10(request.PassbandGain) : 0;
+    var passbandTargetDb = passbandReferenceDb - request.PassbandRippleDb;
+    var stopbandLimitDb = passbandReferenceDb - request.StopbandAttenuationDb;
+    var passbandEdges = request.ResponseType is FilterResponseType.LowPass or FilterResponseType.HighPass
+        ? new[] { request.PassbandEdgeHz }
+        : new[] { request.PassbandLowerHz, request.PassbandUpperHz };
+    var stopbandEdges = request.ResponseType is FilterResponseType.LowPass or FilterResponseType.HighPass
+        ? new[] { request.StopbandEdgeHz }
+        : new[] { request.StopbandLowerHz, request.StopbandUpperHz };
+    foreach (var frequency in passbandEdges)
+    {
+        var point = result.AnalysisResult.Points.MinBy(value => Math.Abs(Math.Log(value.FrequencyHz / frequency)))!;
+        if (Math.Abs(point.MagnitudeDb - passbandTargetDb) > .25)
+            failures.Add($"{name}: fp={frequency:G6} Hz is {point.MagnitudeDb:0.###} dB, expected {passbandTargetDb:0.###} dB");
+    }
+    if (!checkStopband || !result.MeetsRequestedOrder) return;
+    foreach (var frequency in stopbandEdges)
+    {
+        var point = result.AnalysisResult.Points.MinBy(value => Math.Abs(Math.Log(value.FrequencyHz / frequency)))!;
+        if (point.MagnitudeDb > stopbandLimitDb + .25)
+            failures.Add($"{name}: fs={frequency:G6} Hz is {point.MagnitudeDb:0.###} dB, limit {stopbandLimitDb:0.###} dB");
+    }
 }
 
 static void TestPassiveLcBandStopEndToEnd()

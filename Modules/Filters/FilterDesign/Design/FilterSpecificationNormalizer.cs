@@ -24,6 +24,13 @@ public sealed class FilterSpecificationNormalizer
         var implemented = request.OrderMode == FilterOrderMode.SpecifyOrder ? request.SpecifiedOrder : required;
         var meets = implemented >= required;
         var warning = meets ? searchWarning : searchWarning ?? $"Specified order {implemented} is below the required minimum order {required}; the result will not meet the requested attenuation.";
+        var lowPassCutoff = calculator.CalculateCutoffAngularFrequency(wp, request.PassbandRippleDb, implemented);
+        // Order calculators work against the normalized low-pass prototype. For
+        // a high-pass transformation Ω = ωc / ω, so the passband scaling factor
+        // is reciprocal to the low-pass case (Ω = ω / ωc).
+        var cutoff = request.ResponseType == FilterResponseType.HighPass
+            ? wp * wp / lowPassCutoff
+            : lowPassCutoff;
         return new NormalizedFilterSpecification(
             request.ResponseType,
             request.Approximation,
@@ -34,7 +41,7 @@ public sealed class FilterSpecificationNormalizer
             request.StopbandAttenuationDb,
             required,
             implemented,
-            calculator.CalculateCutoffAngularFrequency(wp, request.PassbandRippleDb, implemented),
+            cutoff,
             meets,
             warning);
     }
@@ -57,10 +64,20 @@ public sealed class FilterSpecificationNormalizer
         var implemented = request.OrderMode == FilterOrderMode.SpecifyOrder ? request.SpecifiedOrder : required;
         var meets = implemented >= required;
         var warning = meets ? searchWarning : searchWarning ?? $"Specified prototype order {implemented} is below the required minimum order {required}; the result will not meet the requested attenuation.";
+        var normalizedCutoff = calculator.CalculateCutoffAngularFrequency(1, request.PassbandRippleDb, implemented);
+        // The entered edge bandwidth maps the passband edges to |Ω|=1. The
+        // normalized prototype reaches Rp at |Ω|=1/normalizedCutoff, so the
+        // actual LP->BP/BS transformation bandwidth must be scaled accordingly.
+        // BP uses Ω=(s²+w0²)/(B*s), while BS uses Ω=B*s/(s²+w0²), hence the
+        // reciprocal scaling directions.
+        var transformationBandwidth = request.ResponseType == FilterResponseType.BandPass
+            ? bandwidth * normalizedCutoff
+            : bandwidth / normalizedCutoff;
         return new NormalizedFilterSpecification(
             request.ResponseType, request.Approximation, 1, ratio, ratio,
             request.PassbandRippleDb, request.StopbandAttenuationDb,
-            required, implemented, 1, meets, warning, center, bandwidth);
+            required, implemented, 1, meets, warning, center,
+            transformationBandwidth, bandwidth);
     }
 
     private static (int RequiredOrder,string? Warning) CalculateRequiredOrder(FilterDesignRequest request,IFilterOrderCalculator calculator,double ratio)

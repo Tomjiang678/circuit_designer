@@ -15,19 +15,24 @@ public sealed class FilterCircuitAssembler
         FilterPrototype prototype,
         IReadOnlyList<SynthesizedSection> sections)
     {
+        var activePrototypeNormalization = request.Mode == FilterMode.Active &&
+                                           request.Approximation == FilterApproximation.ChebyshevTypeI &&
+                                           prototype.Order % 2 == 0
+            ? Math.Pow(10, -request.PassbandRippleDb / 20)
+            : 1d;
         return request.Mode == FilterMode.Active
             ? request.Implementation switch
             {
-                FilterImplementationType.MultipleFeedback => BuildMfb(request, sections),
-                FilterImplementationType.BainterNotch => BuildBainter(request, sections),
-                _ => BuildSallenKey(request, sections)
+                FilterImplementationType.MultipleFeedback => BuildMfb(request, sections, activePrototypeNormalization),
+                FilterImplementationType.BainterNotch => BuildBainter(request, sections, activePrototypeNormalization),
+                _ => BuildSallenKey(request, sections, activePrototypeNormalization)
             }
             : request.Implementation == FilterImplementationType.Rc
                 ? BuildPassiveRc(request, sections)
                 : BuildPassiveLc(request, specification, prototype);
     }
 
-    private static FilterCircuitBuildResult BuildBainter(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections)
+    private static FilterCircuitBuildResult BuildBainter(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections, double outputNormalization)
     {
         var builder = new CircuitBuilder();
         var allocator = new ReferenceDesignatorAllocator();
@@ -36,13 +41,16 @@ public sealed class FilterCircuitAssembler
         var inputNet = "VIN";
         for (var position = 0; position < sections.Count; position++)
         {
-            var outputNet = position == sections.Count - 1 ? "VOUT" : $"N_SEC_{position + 1}";
+            var outputNet = position == sections.Count - 1
+                ? outputNormalization < 1 - 1e-12 ? "N_FILTER_CORE_OUT" : "VOUT"
+                : $"N_SEC_{position + 1}";
             AddBainterSection(builder, allocator, hints, sections[position], inputNet, outputNet, position + 1);
             inputNet = outputNet;
         }
+        var networkValues = AddOutputNormalization(builder, allocator, hints, request, outputNormalization, sections.Count);
         var graph = builder.Build();
         FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
-        return new FilterCircuitBuildResult(graph, hints);
+        return new FilterCircuitBuildResult(graph, hints, networkValues);
     }
 
     private static void AddBainterSection(CircuitBuilder builder, ReferenceDesignatorAllocator allocator, List<FilterPlacementHint> hints,
@@ -77,7 +85,7 @@ public sealed class FilterCircuitAssembler
         hints.Add(new(u1.Reference, sectionIndex, "BainterU1", 0, 0)); hints.Add(new(u2.Reference, sectionIndex, "BainterU2", 0, 0)); hints.Add(new(u3.Reference, sectionIndex, "BainterU3", 0, 0));
     }
 
-    private static FilterCircuitBuildResult BuildMfb(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections)
+    private static FilterCircuitBuildResult BuildMfb(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections, double outputNormalization)
     {
         var builder = new CircuitBuilder();
         var allocator = new ReferenceDesignatorAllocator();
@@ -87,7 +95,9 @@ public sealed class FilterCircuitAssembler
         for (var position = 0; position < sections.Count; position++)
         {
             var section = sections[position];
-            var outputNet = position == sections.Count - 1 ? "VOUT" : $"N_SEC_{position + 1}";
+            var outputNet = position == sections.Count - 1
+                ? outputNormalization < 1 - 1e-12 ? "N_FILTER_CORE_OUT" : "VOUT"
+                : $"N_SEC_{position + 1}";
             if (section.Target.Order == SectionOrder.First)
                 AddActiveFirstOrder(builder, allocator, hints, section, inputNet, outputNet, position + 1);
             else if (section.Target.ResponseType == FilterResponseType.HighPass)
@@ -98,9 +108,10 @@ public sealed class FilterCircuitAssembler
                 AddMfbLowPassSecondOrder(builder, allocator, hints, section, inputNet, outputNet, position + 1);
             inputNet = outputNet;
         }
+        var networkValues = AddOutputNormalization(builder, allocator, hints, request, outputNormalization, sections.Count);
         var graph = builder.Build();
         FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
-        return new FilterCircuitBuildResult(graph, hints);
+        return new FilterCircuitBuildResult(graph, hints, networkValues);
     }
 
     private static void AddMfbBandPassSecondOrder(CircuitBuilder builder, ReferenceDesignatorAllocator allocator, List<FilterPlacementHint> hints, SynthesizedSection section, string inputNet, string outputNet, int sectionIndex)
@@ -156,7 +167,7 @@ public sealed class FilterCircuitAssembler
         hints.Add(new(opAmp.Reference, sectionIndex, "MfbOpAmp", 3, 0));
     }
 
-    private static FilterCircuitBuildResult BuildSallenKey(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections)
+    private static FilterCircuitBuildResult BuildSallenKey(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections, double outputNormalization)
     {
         var builder = new CircuitBuilder();
         var allocator = new ReferenceDesignatorAllocator();
@@ -166,7 +177,9 @@ public sealed class FilterCircuitAssembler
         for (var sectionPosition = 0; sectionPosition < sections.Count; sectionPosition++)
         {
             var section = sections[sectionPosition];
-            var outputNet = sectionPosition == sections.Count - 1 ? "VOUT" : $"N_SEC_{sectionPosition + 1}";
+            var outputNet = sectionPosition == sections.Count - 1
+                ? outputNormalization < 1 - 1e-12 ? "N_FILTER_CORE_OUT" : "VOUT"
+                : $"N_SEC_{sectionPosition + 1}";
             if (section.Target.Order == SectionOrder.First)
                 AddActiveFirstOrder(builder, allocator, hints, section, inputNet, outputNet, sectionPosition + 1);
             else if (section.Target.ResponseType == FilterResponseType.BandPass)
@@ -175,9 +188,10 @@ public sealed class FilterCircuitAssembler
                 AddSallenKeySecondOrder(builder, allocator, hints, section, inputNet, outputNet, sectionPosition + 1);
             inputNet = outputNet;
         }
+        var networkValues = AddOutputNormalization(builder, allocator, hints, request, outputNormalization, sections.Count);
         var graph = builder.Build();
         FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
-        return new FilterCircuitBuildResult(graph, hints);
+        return new FilterCircuitBuildResult(graph, hints, networkValues);
     }
 
     private static void AddSallenKeyBandPassSecondOrder(CircuitBuilder builder,ReferenceDesignatorAllocator allocator,List<FilterPlacementHint> hints,SynthesizedSection section,string inputNet,string outputNet,int sectionIndex)
@@ -261,6 +275,61 @@ public sealed class FilterCircuitAssembler
         builder.Connect("GND", shunt.GetPin("2"));
         hints.Add(new(feedback.Reference, sectionIndex, $"{rolePrefix}Feedback", 3, -1));
         hints.Add(new(shunt.Reference, sectionIndex, $"{rolePrefix}Shunt", 3, 1));
+    }
+
+    private static IReadOnlyList<SynthesizedComponentValue> AddOutputNormalization(
+        CircuitBuilder builder,
+        ReferenceDesignatorAllocator allocator,
+        List<FilterPlacementHint> hints,
+        FilterDesignRequest request,
+        double ratio,
+        int sectionCount)
+    {
+        if (ratio >= 1 - 1e-12) return Array.Empty<SynthesizedComponentValue>();
+        if (ratio <= 0 || !double.IsFinite(ratio))
+            throw new InvalidOperationException("The active prototype output-normalization ratio is invalid.");
+
+        var constraints = request.ComponentConstraints;
+        var resistanceRatio = (1 - ratio) / ratio;
+        var lowerShunt = Math.Max(constraints.ResistorMinimumOhm, constraints.ResistorMinimumOhm / resistanceRatio);
+        var upperShunt = Math.Min(constraints.ResistorMaximumOhm, constraints.ResistorMaximumOhm / resistanceRatio);
+        if (lowerShunt > upperShunt)
+            throw new InvalidOperationException("Chebyshev even-order output normalization cannot fit the selected resistor range.");
+        var theoreticalShunt = Math.Clamp(request.PreferredResistanceOhm, lowerShunt, upperShunt);
+        var theoreticalSeries = theoreticalShunt * resistanceRatio;
+        var selectedSeries = theoreticalSeries;
+        var selectedShunt = theoreticalShunt;
+        StandardComponentSeries? series = null;
+        if (constraints.OptimizeStandardValues)
+        {
+            var seriesCandidates = StandardValueSeries.GetNearby(theoreticalSeries, constraints.ResistorSeries,
+                constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm, 3);
+            var shuntCandidates = StandardValueSeries.GetNearby(theoreticalShunt, constraints.ResistorSeries,
+                constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm, 3);
+            var best = seriesCandidates.SelectMany(first => shuntCandidates.Select(second =>
+                    (Series: first, Shunt: second, Error: Math.Abs(second / (first + second) - ratio))))
+                .MinBy(candidate => candidate.Error);
+            selectedSeries = best.Series;
+            selectedShunt = best.Shunt;
+            series = constraints.ResistorSeries;
+        }
+
+        var values = new[]
+        {
+            new SynthesizedComponentValue("PrototypeNormalizationSeries", ComponentType.Resistor,
+                ComponentParameterNames.ResistanceOhm, theoreticalSeries, selectedSeries, series, constraints.ResistorTolerancePercent),
+            new SynthesizedComponentValue("PrototypeNormalizationShunt", ComponentType.Resistor,
+                ComponentParameterNames.ResistanceOhm, theoreticalShunt, selectedShunt, series, constraints.ResistorTolerancePercent)
+        };
+        var seriesResistor = Add(builder, allocator, values[0]);
+        var shuntResistor = Add(builder, allocator, values[1]);
+        builder.Connect("N_FILTER_CORE_OUT", seriesResistor.GetPin("1"));
+        builder.Connect("VOUT", seriesResistor.GetPin("2"), shuntResistor.GetPin("1"));
+        builder.Connect("GND", shuntResistor.GetPin("2"));
+        var sectionIndex = Math.Max(1, sectionCount);
+        hints.Add(new(seriesResistor.Reference, sectionIndex, "PrototypeNormalizationSeries", 8, 0));
+        hints.Add(new(shuntResistor.Reference, sectionIndex, "PrototypeNormalizationShunt", 8, 1));
+        return values;
     }
 
     private static FilterCircuitBuildResult BuildPassiveRc(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections)

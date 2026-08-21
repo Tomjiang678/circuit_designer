@@ -28,6 +28,7 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
     private readonly FilterCircuitAssembler circuitAssembler = new();
     private readonly FilterSchematicLayoutService layoutService = new();
     private readonly FilterAnalysisService analysisService = new();
+    private readonly FilterSpecificationComplianceEvaluator complianceEvaluator = new();
     private readonly FilterSpiceExportService spiceExportService = new();
 
     public FilterDesignEngine()
@@ -119,7 +120,9 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
             FilterComponentRangeValidator.EnsureWithinConstraints(circuitBuild.CircuitGraph, request.ComponentConstraints);
             var schematic = layoutService.Layout(circuitBuild);
             var analysis = analysisService.Analyze(circuitBuild.CircuitGraph, request);
-            var warnings = specification.OrderWarning == null ? Array.Empty<string>() : new[] { specification.OrderWarning };
+            var compliance = complianceEvaluator.Evaluate(request, analysis);
+            var warnings = (specification.OrderWarning == null ? Array.Empty<string>() : new[] { specification.OrderWarning })
+                .Concat(compliance.Warnings).ToArray();
             var result = new FilterDesignResult
             {
                 Status = FilterDesignStatus.Success,
@@ -128,6 +131,7 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 PrototypeOrder = specification.ImplementedOrder,
                 RealizedOrder = transformed.RealizedOrder,
                 MeetsRequestedOrder = specification.MeetsOrderRequirement,
+                MeetsSpecifications = specification.MeetsOrderRequirement && compliance.MeetsAllEdges,
                 NormalizedSpecification = specification,
                 PrototypePoles = prototype.Poles,
                 PrototypeElementValues = prototype.LadderGValues,
@@ -137,7 +141,8 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 CircuitGraph = circuitBuild.CircuitGraph,
                 SchematicDocument = schematic,
                 DesignRequest = request,
-                AnalysisResult = analysis
+                AnalysisResult = analysis,
+                SpecificationCompliance = compliance
             };
             result.SpiceNetlist = spiceExportService.Export(result);
             return result;

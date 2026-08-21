@@ -16,4 +16,5 @@ public sealed record NormalizedFilterSpecification(
     bool MeetsOrderRequirement,
     string? OrderWarning,
     double CenterAngularFrequency = 0,
-    double BandwidthAngularFrequency = 0);
+    double BandwidthAngularFrequency = 0,
+    double SpecificationBandwidthAngularFrequency = 0);

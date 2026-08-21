@@ -29,14 +29,16 @@ public sealed class FilterAnalysisService
         var options = CreateOptions(request);
         if (terminatedLc)
         {
-            // Normalize to the voltage delivered by the same source/load pair with
-            // the filter replaced by an ideal through connection. This is insertion
-            // gain: a lossless matched passband is 0 dB rather than -6.02 dB.
-            var throughVoltage = request.LoadResistanceOhm / (request.SourceResistanceOhm + request.LoadResistanceOhm);
+            // Express voltage as transducer power gain relative to the Thevenin
+            // source's available power. The equivalent voltage reference is
+            // 0.5*sqrt(RL/RS). For RS=RL this is 0.5 V/V, while unequal even-order
+            // Chebyshev terminations are no longer incorrectly normalized against
+            // their mismatched direct-through voltage.
+            var availablePowerVoltageReference = .5 * Math.Sqrt(request.LoadResistanceOhm / request.SourceResistanceOhm);
             options = options with
             {
-                MagnitudeReferenceLinear = throughVoltage,
-                MagnitudeReferenceDescription = $"Insertion gain relative to direct Rs={request.SourceResistanceOhm:G6} ohm / RL={request.LoadResistanceOhm:G6} ohm through connection"
+                MagnitudeReferenceLinear = availablePowerVoltageReference,
+                MagnitudeReferenceDescription = $"Transducer gain relative to available source power, Rs={request.SourceResistanceOhm:G6} ohm / RL={request.LoadResistanceOhm:G6} ohm"
             };
         }
         return analyzer.Analyze(graph, options, terminatedLc ? request.SourceResistanceOhm : null, terminatedLc ? request.LoadResistanceOhm : null);

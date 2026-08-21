@@ -92,6 +92,8 @@ public sealed class FilterSchematicLayoutService
         "BainterU3" => (new SchematicPoint(originX + 1035, BaselineY + 20), ComponentOrientation.Right),
         "BainterGainFeedback" => (new SchematicPoint(originX + 1015, BaselineY - 115), ComponentOrientation.Right),
         "BainterGainShunt" => (new SchematicPoint(originX + 980, BaselineY + 140), ComponentOrientation.Down),
+        "PrototypeNormalizationSeries" => (new SchematicPoint(originX + 1190, BaselineY), ComponentOrientation.Right),
+        "PrototypeNormalizationShunt" => (new SchematicPoint(originX + 1240, BaselineY + 125), ComponentOrientation.Down),
         "SeriesInductor" => (new SchematicPoint(originX + 75 + hint.Column * 145, BaselineY), ComponentOrientation.Right),
         "ShuntCapacitor" => (new SchematicPoint(originX + 75 + hint.Column * 145, BaselineY + 105), ComponentOrientation.Down),
         "SeriesElement" => (new SchematicPoint(originX + 75 + hint.Column * 135, BaselineY), ComponentOrientation.Right),

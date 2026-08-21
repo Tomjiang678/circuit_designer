@@ -28,3 +28,4 @@ D:\jzh_doc\circuit designer\obj\design-verify\CircuitModuleDesigner.deps.json
 D:\jzh_doc\circuit designer\obj\design-verify\CircuitModuleDesigner.runtimeconfig.json
 D:\jzh_doc\circuit designer\obj\design-verify\CircuitModuleDesigner.dll
 D:\jzh_doc\circuit designer\obj\design-verify\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\obj\Release\net10.0-windows\CircuitModuleDesigner.sourcelink.json
