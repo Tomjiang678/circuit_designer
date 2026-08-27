@@ -9,11 +9,17 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Engines;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Reports;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Sections;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Schematic;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Schematic.Collision;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Gain;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Services;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.Verification;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.PassiveLc;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Validation;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -24,12 +30,20 @@ var tests = new (string Name, Action Run)[]
     ("Bessel normalized poles and order", TestBesselPrototypeAndOrder),
     ("FilterPro tabulated prototypes", TestTabulatedPrototypes),
     ("FilterPro tabulated order search", TestTabulatedOrderSearch),
+    ("Approximation published response samples", TestApproximationReferenceSamples),
+    ("Bessel group-delay flatness", TestBesselGroupDelayFlatness),
     ("Pole pair section Q", TestSectionDecomposition),
     ("LP to HP transformation", TestHighPassTransformation),
     ("BP/BS center transformation", TestBandTransformations),
     ("Band-pass cascade gain normalization", TestBandPassGainNormalization),
     ("Band-stop shared notch zeros", TestBandStopSharedNotchZeros),
     ("Sallen-Key inverse verification", TestSallenKeyVerification),
+    ("CircuitGraph section transfer verification", TestCircuitGraphSectionTransferVerification),
+    ("Sallen-Key band-pass CircuitGraph audit", TestSallenKeyBandPassCircuitGraphAudit),
+    ("Bainter CircuitGraph transfer audit", TestBainterCircuitGraphTransferAudit),
+    ("Bainter E-series notch-depth gate", TestBainterStandardValueNotchDepth),
+    ("Bainter multi-section gain and polarity", TestBainterMultiSectionGain),
+    ("Single-Ended Active v1 freeze benchmarks", TestSingleEndedActiveV1Freeze),
     ("Sallen-Key band-pass inverse verification", TestSallenKeyBandPassVerification),
     ("MFB low-pass inverse verification", TestMfbLowPassVerification),
     ("MFB high-pass inverse verification", TestMfbHighPassVerification),
@@ -37,9 +51,10 @@ var tests = new (string Name, Action Run)[]
     ("E-series optimization", TestStandardValueOptimization),
     ("Active LP end-to-end", TestActiveLowPassEndToEnd),
     ("Active HP Chebyshev end-to-end", TestActiveHighPassEndToEnd),
-    ("Active Bessel end-to-end", TestActiveBesselEndToEnd),
+    ("Bessel active end-to-end", TestActiveBesselEndToEnd),
     ("Sallen-Key band-pass end-to-end", TestSallenKeyBandPassEndToEnd),
-    ("FilterPro responses end-to-end", TestTabulatedResponsesEndToEnd),
+    ("ADI tabulated responses end-to-end", TestTabulatedResponsesEndToEnd),
+    ("Numerical-order approximations end-to-end", TestNumericalOrderApproximationsEndToEnd),
     ("Central support matrix", TestSupportMatrix),
     ("Active supported matrix end-to-end", TestActiveSupportedMatrixEndToEnd),
     ("Passive RC end-to-end", TestPassiveRcEndToEnd),
@@ -52,16 +67,23 @@ var tests = new (string Name, Action Run)[]
     ("Even-order Chebyshev passive LC edge audit", TestEvenOrderChebyshevPassiveLcEdgeAudit),
     ("Passive LC band-stop end-to-end", TestPassiveLcBandStopEndToEnd),
     ("Chebyshev-I passive LC end-to-end", TestChebyshevLcEndToEnd),
+    ("Passive LC termination and prototype audit", TestPassiveLcTerminationAudit),
+    ("Bessel LC positive-real Cauer synthesis", TestBesselLcCauerSynthesis),
+    ("Bessel LC responses end-to-end", TestBesselLcResponsesEndToEnd),
+    ("Gaussian and Linear-Phase LC feasibility audit", TestTabulatedLcFeasibilityAudit),
+    ("Gaussian and Linear-Phase supported LC end-to-end", TestTabulatedLcSupportedEndToEnd),
+    ("Filter v1 closure support matrix", TestFilterV1ClosureSupportMatrix),
     ("LC band transformation resonance", TestLcBandTransformationResonance),
     ("LC standard-value optimization", TestLcStandardValueOptimization),
     ("Schematic pin alignment", TestSchematicPinAlignment),
     ("Schematic component clearance", TestSchematicComponentClearance),
+    ("Schematic occupied bounds", TestSchematicOccupiedBounds),
     ("Schematic wires avoid op-amps", TestSchematicWiresAvoidOpAmps),
     ("Selected topology reference schematics", TestSelectedTopologyReferences),
     ("MFB low-pass end-to-end", TestMfbLowPassEndToEnd),
     ("MFB high-pass end-to-end", TestMfbHighPassEndToEnd)
     ,("MFB band-pass end-to-end", TestMfbBandPassEndToEnd)
-    ,("Active band-stop end-to-end", TestActiveBandStopEndToEnd)
+    ,("Active Bainter band-stop end-to-end", TestActiveBandStopEndToEnd)
     ,("Integrated active section gain", TestIntegratedActiveSectionGain)
     ,("High-pass default edge ordering", TestHighPassDefaultEdgeOrdering)
     ,("Band-stop default edge ordering", TestBandStopDefaultEdgeOrdering)
@@ -71,13 +93,16 @@ var tests = new (string Name, Action Run)[]
     ,("Schematic junctions are real branches", TestSchematicJunctionsAreRealBranches)
     ,("LC routing has no retraced needles", TestLcRoutingHasNoRetracedNeedles)
     ,("Component ranges are enforced", TestComponentRangesAreEnforced)
-    ,("Default active band-stop is practical", TestDefaultActiveBandStopIsPractical)
-    ,("Bainter wires avoid component bodies", TestBainterWiresAvoidComponentBodies)
+    ,("Default active band-stop selects Bainter", TestDefaultActiveBandStopIsPractical)
+    ,("Bainter schematic remains clean", TestBainterWiresAvoidComponentBodies)
     ,("Passive band modes select LC", TestPassiveBandModesSelectLc)
     ,("RC AC analysis known point", TestRcAcAnalysisKnownPoint)
     ,("Designed filter actual analysis", TestDesignedFilterActualAnalysis)
     ,("Passive LC insertion-gain analysis", TestPassiveLcInsertionGainAnalysis)
     ,("Multisim CIR export", TestMultisimCirExport)
+    ,("Zero-ohm LC termination is rejected honestly", TestZeroOhmDefaultSource)
+    ,("Filter design report model", TestFilterDesignReportModel)
+    ,("Offline HTML and JSON report export", TestFilterDesignReportExport)
 };
 
 var failures = new List<string>();
@@ -135,6 +160,39 @@ static void TestTabulatedOrderSearch()
     }
 }
 
+static void TestApproximationReferenceSamples()
+{
+    var references = new[]
+    {
+        (FilterApproximation.GaussianTo6Db, .658059, 3.010293, 12.035113),
+        (FilterApproximation.GaussianTo12Db, .654503, 3.010061, 14.149857),
+        (FilterApproximation.LinearPhase005Degree, .711073, 3.010449, 14.778214),
+        (FilterApproximation.LinearPhase05Degree, .576273, 3.009940, 15.101010)
+    };
+    foreach (var (approximation, atHalf, atOne, atTwo) in references)
+    {
+        var prototype = new TabulatedPrototypeDesigner(approximation).Design(4, 1);
+        Require(prototype.Poles.All(pole => pole.Real < 0), $"{approximation} has an unstable published pole.");
+        Require(Nearly(PrototypeResponseEvaluator.AttenuationDb(prototype, .5), atHalf, 2e-6), $"{approximation} response mismatch at normalized 0.5 rad/s.");
+        Require(Nearly(PrototypeResponseEvaluator.AttenuationDb(prototype, 1), atOne, 2e-6), $"{approximation} is not normalized to the published -3 dB frequency.");
+        Require(Nearly(PrototypeResponseEvaluator.AttenuationDb(prototype, 2), atTwo, 2e-6), $"{approximation} response mismatch at normalized 2 rad/s.");
+        Require(Nearly(Complex.Abs(PrototypeResponseEvaluator.Evaluate(prototype, 0)), 1, 1e-10), $"{approximation} DC gain is not unity.");
+    }
+}
+
+static void TestBesselGroupDelayFlatness()
+{
+    foreach (var order in new[] { 2, 3, 4, 5 })
+    {
+        var prototype = new BesselPrototypeDesigner().Design(order, 1);
+        Require(prototype.Poles.Count == order && prototype.Poles.All(pole => pole.Real < 0), $"Bessel order {order} is not stable.");
+        Require(Nearly(PrototypeResponseEvaluator.AttenuationDb(prototype, 1), 3.0102999566, 3e-6), $"Bessel order {order} is not -3 dB normalized.");
+        var dc = PrototypeResponseEvaluator.GroupDelay(prototype, 0);
+        var low = PrototypeResponseEvaluator.GroupDelay(prototype, .02);
+        Require(Math.Abs(low - dc) / dc < 1e-5, $"Bessel order {order} does not show maximally-flat low-frequency group delay.");
+    }
+}
+
 static void TestSectionDecomposition()
 {
     var prototype = new ButterworthPrototypeDesigner().Design(2, 1);
@@ -183,11 +241,187 @@ static void TestSallenKeyVerification()
     Require(Nearly(actual.frequency, 1_000, 1e-9) && Nearly(actual.q, q, 1e-9), "Sallen-Key inverse calculation mismatch.");
 }
 
+static void TestCircuitGraphSectionTransferVerification()
+{
+    foreach (var (response, topology, expectedPolarity) in new[]
+    {
+        (FilterResponseType.LowPass, FilterImplementationType.SallenKey, 1),
+        (FilterResponseType.HighPass, FilterImplementationType.SallenKey, 1),
+        (FilterResponseType.LowPass, FilterImplementationType.MultipleFeedback, -1),
+        (FilterResponseType.HighPass, FilterImplementationType.MultipleFeedback, -1),
+        (FilterResponseType.BandPass, FilterImplementationType.MultipleFeedback, -1)
+    })
+    {
+        var request = response switch
+        {
+            FilterResponseType.HighPass => Request(FilterMode.Active, response, FilterApproximation.ChebyshevTypeI, topology, 2_000, 500),
+            FilterResponseType.BandPass => Request(FilterMode.Active, response, FilterApproximation.Butterworth, topology, 1_000, 2_000, manualOrder: 2),
+            _ => Request(FilterMode.Active, response, FilterApproximation.Butterworth, topology, 1_000, 4_000)
+        };
+        var result = new FilterDesignEngine().Design(WideRanges(request));
+        Require(result.IsImplemented, $"{topology}/{response}: {result.Message}");
+        var section = result.Sections.First(value => value.Target.Order == SectionOrder.Second);
+        var graph = new FilterCircuitAssembler().BuildActiveSection(request, section);
+        var target = SectionTransferTarget.FromSection(section.Target, expectedPolarity);
+        var measurement = new CircuitSectionMnaVerifier().Verify(graph, target,
+            new SectionTransferVerificationOptions(2e-4, 3e-4, OpAmpOpenLoopGain: 1e7));
+        Require(measurement.SampleCount >= 20, "Independent section verifier used too few AC samples.");
+        Require(measurement.IsValid, $"{topology}/{response}: {string.Join(", ", measurement.Errors)}");
+    }
+}
+
 static void TestSallenKeyBandPassVerification()
 {
     const double q=1;const double f=1_000;const double r1=10_000;var w=2*Math.PI*f;var c1=2/(w*r1);var inner=(6.5-1/q)/3;var r4=10_000d;var r5=r4/(inner-1);var natural=inner*q;var ratio=1/natural;var rb=10_000d;var ra=rb*(1-ratio)/ratio;
     var actual=SallenKeyBandPassSectionCalculator.Verify(r1,r1/3,2*r1,c1,c1/2,r4,r5,ra,rb);
     Require(Nearly(actual.FrequencyHz,f,1e-9)&&Nearly(actual.Q,q,1e-9)&&Nearly(actual.GainMagnitude,1,1e-9),"Sallen-Key BP inverse equations mismatch.");
+}
+
+static void TestSallenKeyBandPassCircuitGraphAudit()
+{
+    const double frequency = 1_000;
+    const double q = 1;
+    var omega = 2 * Math.PI * frequency;
+    var target = new AnalogFilterSection(1, SectionOrder.Second, FilterResponseType.BandPass,
+        frequency, q, 1, [0, omega / q, 0], [1, omega / q, omega * omega]);
+    foreach (var series in new StandardComponentSeries?[] { null, StandardComponentSeries.E24, StandardComponentSeries.E96 })
+    {
+        var request = WideRanges(Request(FilterMode.Active, FilterResponseType.BandPass,
+            FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 2_000,
+            optimize: series.HasValue, manualOrder: 1));
+        if (series.HasValue)
+        {
+            request.ComponentConstraints.ResistorSeries = series.Value;
+            request.ComponentConstraints.CapacitorSeries = series.Value;
+        }
+        var synthesized = new SallenKeyBandPassSectionCalculator().Calculate(target, request);
+        var graph = new FilterCircuitAssembler().BuildActiveSection(request, synthesized);
+        var measurement = new CircuitSectionMnaVerifier().Verify(graph, SectionTransferTarget.FromSection(target),
+            series.HasValue ? new SectionTransferVerificationOptions(.13, .20) : new SectionTransferVerificationOptions(3e-4, 5e-4));
+        Require(measurement.IsValid, $"{series?.ToString() ?? "theoretical"}: {string.Join(", ", measurement.Errors)}");
+        if (series.HasValue)
+            Require(synthesized.Components.All(value => StandardValueSeries.IsSeriesValue(value.SelectedValue, series.Value, 5e-3)),
+                $"Sallen-Key BP selected a component outside {series}.");
+    }
+}
+
+static void TestBainterCircuitGraphTransferAudit()
+{
+    const double poleFrequency = 900;
+    const double zeroFrequency = 1_000;
+    const double q = 2;
+    var wp = 2 * Math.PI * poleFrequency;
+    var wz = 2 * Math.PI * zeroFrequency;
+    var section = new AnalogFilterSection(1, SectionOrder.Second, FilterResponseType.BandStop,
+        poleFrequency, q, 1, [1, 0, wz * wz], [1, wp / q, wp * wp]);
+    var request = WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop,
+        FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000, manualOrder: 1));
+    var synthesized = new BainterNotchSectionCalculator().Calculate(section, request);
+    var graph = new FilterCircuitAssembler().BuildActiveSection(request, synthesized);
+    var measurement = new CircuitSectionMnaVerifier().Verify(graph, SectionTransferTarget.FromSection(section),
+        new SectionTransferVerificationOptions(5e-4, 8e-4));
+    Require(measurement.IsValid, string.Join(", ", measurement.Errors));
+}
+
+static void TestBainterStandardValueNotchDepth()
+{
+    const double poleFrequency = 900;
+    const double zeroFrequency = 1_000;
+    const double q = 2;
+    var wp = 2 * Math.PI * poleFrequency;
+    var wz = 2 * Math.PI * zeroFrequency;
+    var section = new AnalogFilterSection(1, SectionOrder.Second, FilterResponseType.BandStop,
+        poleFrequency, q, 1, [1, 0, wz * wz], [1, wp / q, wp * wp]);
+    foreach (var (series, attenuation) in new[]
+    {
+        (StandardComponentSeries.E12, 15d),
+        (StandardComponentSeries.E24, 20d),
+        (StandardComponentSeries.E48, 28d),
+        (StandardComponentSeries.E96, 35d)
+    })
+    {
+        var request = WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop,
+            FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000,
+            optimize: true, manualOrder: 1) with { StopbandAttenuationDb = attenuation });
+        request.ComponentConstraints.ResistorSeries = series;
+        request.ComponentConstraints.CapacitorSeries = series;
+        var synthesized = new BainterNotchSectionCalculator().Calculate(section, request);
+        var graph = new FilterCircuitAssembler().BuildActiveSection(request, synthesized);
+        var measurement = new CircuitSectionMnaVerifier().Verify(graph, SectionTransferTarget.FromSection(section),
+            new SectionTransferVerificationOptions(.08, .12));
+        Require(measurement.NotchAttenuationDb >= attenuation - .1,
+            $"{series} Bainter notch depth is only {measurement.NotchAttenuationDb:0.###} dB.");
+    }
+
+    var impossible = WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop,
+        FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000,
+        optimize: true, manualOrder: 1) with { StopbandAttenuationDb = 120 });
+    impossible.ComponentConstraints.ResistorSeries = StandardComponentSeries.E12;
+    impossible.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E12;
+    var failedHonestly = false;
+    try
+    {
+        var synthesized = new BainterNotchSectionCalculator().Calculate(section, impossible);
+        var graph = new FilterCircuitAssembler().BuildActiveSection(impossible, synthesized);
+        var measurement = new CircuitSectionMnaVerifier().Verify(graph, SectionTransferTarget.FromSection(section),
+            new SectionTransferVerificationOptions(.08, .12));
+        failedHonestly = measurement.NotchAttenuationDb >= impossible.StopbandAttenuationDb - .1;
+    }
+    catch (InvalidOperationException exception)
+    {
+        failedHonestly = exception.Message.Contains("BainterNotchDepthInsufficientWithSelectedSeries", StringComparison.Ordinal);
+    }
+    Require(failedHonestly, "An E12 notch must either meet the requested nominal depth in MNA or return the structured notch-depth failure.");
+    var capabilityResult = new FilterDesignEngine().Design(impossible);
+    Require(!capabilityResult.IsImplemented && capabilityResult.Capability?.ReasonCode ==
+            FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries,
+        "Bainter notch-depth failure was not propagated through the unified capability result.");
+}
+
+static void TestBainterMultiSectionGain()
+{
+    foreach (var order in new[] { 2, 3 })
+    foreach (var gain in new[] { .5, 1d, 2d })
+    {
+        var request = WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop,
+            FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000,
+            manualOrder: order) with { PassbandGain = gain, StopbandAttenuationDb = 3.1 });
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsImplemented, $"order {order}, A0={gain}: {result.Message}");
+        Equal(order * 2, result.RealizedOrder);
+        Require(result.Verification?.IsValid == true && result.SpecificationCompliance?.MeetsAllEdges == true,
+            $"order {order}, A0={gain} did not pass whole-circuit verification.");
+        var zeroFrequencies = result.Sections.Select(section =>
+            Math.Sqrt(section.Target.NumeratorCoefficients[^1] / section.Target.NumeratorCoefficients[0]) / (2 * Math.PI)).ToArray();
+        Require(zeroFrequencies.All(value => Nearly(value, zeroFrequencies[0], 1e-10)),
+            "Bainter transformed sections lost the shared notch zero.");
+        Require(result.Sections.Select(section => section.Target.PoleFrequencyHz).DistinctBy(value => Math.Round(value, 6)).Count() == order,
+            "Each transformed Bainter section must retain its own pole frequency/Q data.");
+    }
+}
+
+static void TestSingleEndedActiveV1Freeze()
+{
+    Require(FilterV1Status.SingleEndedActiveComplete, "Single-Ended Active v1 completion marker is not set.");
+    var cases = new[]
+    {
+        WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 4_000, manualOrder: 4)),
+        WideRanges(Request(FilterMode.Active, FilterResponseType.HighPass, FilterApproximation.ChebyshevTypeI, FilterImplementationType.MultipleFeedback, 4_000, 1_000, manualOrder: 5) with { PassbandGain = 2 }),
+        WideRanges(Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 2_000, manualOrder: 2)),
+        WideRanges(Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.ChebyshevTypeI, FilterImplementationType.MultipleFeedback, 1_000, 2_000, manualOrder: 2) with { PassbandGain = .5 }),
+        WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop, FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000, manualOrder: 2) with { PassbandGain = .5, StopbandAttenuationDb = 3.1 }),
+        WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop, FilterApproximation.ChebyshevTypeI, FilterImplementationType.BainterNotch, 1_000, 2_000, manualOrder: 3) with { PassbandGain = 2, StopbandAttenuationDb = 3.1 })
+    };
+    foreach (var request in cases)
+    {
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsImplemented && result.Verification?.IsValid == true, $"freeze {request.Approximation}/{request.ResponseType}/{request.Implementation}: {result.Message}");
+        Require(result.CircuitGraph is { Components.Count: > 0 } && result.AnalysisResult?.Points.Count >= 20,
+            "Freeze benchmark did not reach selected components and whole-circuit MNA.");
+        var report = new FilterDesignReportBuilder().Build(result);
+        Require(report.Sections.Count == result.Sections.Count && report.Verification.Count > 0,
+            "Freeze benchmark did not reach the Filter Design Report.");
+    }
 }
 
 static void TestMfbLowPassVerification()
@@ -236,38 +470,65 @@ static void TestActiveHighPassEndToEnd()
 
 static void TestActiveBesselEndToEnd()
 {
-    var result = new FilterDesignEngine().Design(Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Bessel, FilterImplementationType.SallenKey, 1_000, 10_000));
-    Require(result.IsImplemented, result.Message); Require(result.PrototypePoles.All(pole => pole.Real < 0), "Generated Bessel design is unstable."); Require(result.CircuitGraph!.Components.Count > 0, "Bessel design did not generate a circuit.");
+    var result = new FilterDesignEngine().Design(WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Bessel, FilterImplementationType.SallenKey, 1_000, 10_000, manualOrder:4)));
+    Require(result.IsImplemented, result.Message); Equal(4, result.PrototypeOrder);
+    Require(result.PrototypeNormalization?.Kind == PrototypeNormalizationKind.Minus3DbMagnitude, "Bessel normalization metadata is missing.");
+    Require(result.Verification?.IsValid == true && result.CircuitGraph!.Components.Count > 0, "Bessel final CircuitGraph was not verified.");
 }
 
 static void TestSallenKeyBandPassEndToEnd()
 {
-    var diagnostic=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,2_000,manualOrder:1));
-    Require(!HasOverlappingWireSegments(diagnostic.SchematicDocument!),"Sallen-Key band-pass schematic contains duplicate same-net wire geometry.");
-    var result=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,2_000,manualOrder:2));
-    Require(result.IsImplemented,result.Message);Equal(2,result.Sections.Count);Equal(22,result.CircuitGraph!.Components.Count);Require(result.CircuitGraph.Components.Count(c=>c.Type==ComponentType.OpAmp)==4,"Each Sallen-Key BP section requires its filter amplifier and normalization buffer.");
-    var optimized=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,2_000,optimize:true,manualOrder:1));
-    Require(optimized.IsImplemented,optimized.Message);Require(optimized.Sections.SelectMany(s=>s.Components).All(v=>v.Series==null||StandardValueSeries.IsSeriesValue(v.SelectedValue,v.Series.Value,5e-3)),"Sallen-Key BP optimizer selected a non-series value.");
+    var request=WideRanges(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,2_000,manualOrder:2));
+    var result=new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, result.Message);
+    Equal(4, result.RealizedOrder); Equal(2, result.Sections.Count);
+    Require(result.Sections.All(section => section.TopologyGain != null && section.TopologyGain.RequiredOutputOrInterstageScale is > 0 and <= 1),
+        "Sallen-Key BP did not expose its Q-coupled intrinsic gain and output scale.");
+    Require(result.Verification?.IsValid == true, "Sallen-Key BP did not pass final independent verification.");
 }
 
 static void TestTabulatedResponsesEndToEnd()
 {
     foreach (var approximation in new[] { FilterApproximation.GaussianTo6Db, FilterApproximation.GaussianTo12Db, FilterApproximation.LinearPhase005Degree, FilterApproximation.LinearPhase05Degree })
     {
-        var result = new FilterDesignEngine().Design(Request(FilterMode.Active, FilterResponseType.LowPass, approximation, FilterImplementationType.SallenKey, 1_000, 10_000, manualOrder: 3));
-        Require(result.IsImplemented, $"{approximation}: {result.Message}"); Equal(3, result.PrototypeOrder); Require(result.CircuitGraph!.Components.Count > 0, $"{approximation} generated no circuit.");
+        var result = new FilterDesignEngine().Design(WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass, approximation, FilterImplementationType.MultipleFeedback, 1_000, 10_000, manualOrder: 4)));
+        Require(result.IsImplemented, $"{approximation}: {result.Message}"); Equal(4, result.PrototypeOrder);
+        Require(result.PrototypeNormalization?.ReferenceSource.Contains("AN-649", StringComparison.Ordinal) == true, $"{approximation} source metadata is missing.");
+        Require(result.Verification?.IsValid == true, $"{approximation} CircuitGraph verification failed.");
+    }
+}
+
+static void TestNumericalOrderApproximationsEndToEnd()
+{
+    foreach (var approximation in new[]
+    {
+        FilterApproximation.Bessel, FilterApproximation.GaussianTo6Db,
+        FilterApproximation.GaussianTo12Db, FilterApproximation.LinearPhase005Degree,
+        FilterApproximation.LinearPhase05Degree
+    })
+    {
+        var request = WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass, approximation,
+            FilterImplementationType.MultipleFeedback, 1_000, 10_000) with { StopbandAttenuationDb = 30 });
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsImplemented, $"{approximation} numerical-order design failed: {result.Message}");
+        Require(result.MeetsRequestedOrder && result.Verification?.IsValid == true, $"{approximation} numerical-order design was not verified.");
+        Require(result.SpecificationCompliance?.Edges.All(edge => edge.MeetsLimit) == true, $"{approximation} selected order does not meet the requested edge specifications.");
     }
 }
 
 static void TestSupportMatrix()
 {
+    var unsupportedBs = FilterSupportMatrix.Evaluate(Request(FilterMode.Active, FilterResponseType.BandStop,
+        FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 2_000, manualOrder: 2));
+    Require(!unsupportedBs.IsSupported && unsupportedBs.ReasonCode == FilterSupportReasonCode.ResponseUnavailable,
+        "Sallen-Key Band-Stop must expose a structured response-unavailable reason.");
     foreach(var approximation in Enum.GetValues<FilterApproximation>())
     foreach(var response in Enum.GetValues<FilterResponseType>())
     {
         foreach(var topology in new[]{FilterImplementationType.SallenKey,FilterImplementationType.MultipleFeedback,FilterImplementationType.BainterNotch})
-        {var request=Request(FilterMode.Active,response,approximation,topology,1_000,2_000,manualOrder:3);var expected=response==FilterResponseType.BandStop?topology==FilterImplementationType.BainterNotch:topology is FilterImplementationType.SallenKey or FilterImplementationType.MultipleFeedback;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected active support decision for {approximation}/{response}/{topology}.");}
+        {var request=Request(FilterMode.Active,response,approximation,topology,1_000,2_000,manualOrder:3);var expected=topology==FilterImplementationType.SallenKey?response is FilterResponseType.LowPass or FilterResponseType.HighPass or FilterResponseType.BandPass:topology==FilterImplementationType.MultipleFeedback?response is FilterResponseType.LowPass or FilterResponseType.HighPass or FilterResponseType.BandPass:response==FilterResponseType.BandStop;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected active support decision for {approximation}/{response}/{topology}.");}
         foreach(var topology in new[]{FilterImplementationType.Rc,FilterImplementationType.Lc})
-        {var request=Request(FilterMode.Passive,response,approximation,topology,1_000,2_000,manualOrder:1);var classic=approximation is FilterApproximation.Butterworth or FilterApproximation.ChebyshevTypeI or FilterApproximation.Bessel;var expected=topology==FilterImplementationType.Rc?classic&&response is (FilterResponseType.LowPass or FilterResponseType.HighPass):approximation is FilterApproximation.Butterworth or FilterApproximation.ChebyshevTypeI;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected passive support decision for {approximation}/{response}/{topology}.");}
+        {var request=Request(FilterMode.Passive,response,approximation,topology,1_000,2_000,manualOrder:1);var classic=approximation is FilterApproximation.Butterworth or FilterApproximation.ChebyshevTypeI;var lc=classic||approximation==FilterApproximation.Bessel;var expected=topology==FilterImplementationType.Rc?classic&&response is (FilterResponseType.LowPass or FilterResponseType.HighPass):lc;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected passive support decision for {approximation}/{response}/{topology}.");}
     }
 }
 
@@ -275,10 +536,11 @@ static void TestActiveSupportedMatrixEndToEnd()
 {
     foreach(var approximation in Enum.GetValues<FilterApproximation>())
     foreach(var response in Enum.GetValues<FilterResponseType>())
-    foreach(var topology in response==FilterResponseType.BandStop?new[]{FilterImplementationType.BainterNotch}:new[]{FilterImplementationType.SallenKey,FilterImplementationType.MultipleFeedback})
+    foreach(var topology in new[]{FilterImplementationType.SallenKey,FilterImplementationType.MultipleFeedback,FilterImplementationType.BainterNotch})
     {
         var fp=response==FilterResponseType.HighPass?10_000:1_000;var fs=response==FilterResponseType.HighPass?1_000:10_000;
         var request=Request(FilterMode.Active,response,approximation,topology,fp,fs,manualOrder:3) with { StopbandAttenuationDb=20 };
+        if(!new FilterDesignEngine().GetAvailability(request).CanDesign)continue;
         request.ComponentConstraints.ResistorMinimumOhm=100;request.ComponentConstraints.ResistorMaximumOhm=10_000_000;
         var result=new FilterDesignEngine().Design(request);
         Require(result.IsImplemented,$"{approximation}/{response}/{topology}: {result.Message}");Require(result.CircuitGraph!.Components.Count>0,"Supported active matrix design generated no components.");Require(result.SchematicDocument!.PlacedComponents.Count==result.CircuitGraph.Components.Count,"Supported active matrix design did not place every component.");
@@ -339,9 +601,7 @@ static void TestSupportedFilterEdgeSpecAudit()
     var engine = new FilterDesignEngine();
     foreach (var approximation in Enum.GetValues<FilterApproximation>())
     foreach (var response in Enum.GetValues<FilterResponseType>())
-    foreach (var topology in response == FilterResponseType.BandStop
-                 ? new[] { FilterImplementationType.BainterNotch }
-                 : new[] { FilterImplementationType.SallenKey, FilterImplementationType.MultipleFeedback })
+    foreach (var topology in new[] { FilterImplementationType.SallenKey, FilterImplementationType.MultipleFeedback, FilterImplementationType.BainterNotch })
     {
         var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
         var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
@@ -350,6 +610,7 @@ static void TestSupportedFilterEdgeSpecAudit()
             StopbandAttenuationDb = 20,
             PassbandGain = 1
         });
+        if (!FilterSupportMatrix.Evaluate(request).IsSupported) continue;
         AuditEdgeSpecification(engine.Design(request), failures, $"Active/{approximation}/{response}/{topology}", true);
     }
 
@@ -364,7 +625,7 @@ static void TestSupportedFilterEdgeSpecAudit()
         };
         AuditEdgeSpecification(engine.Design(request), failures, $"Passive/{approximation}/{response}/LC", true);
     }
-    foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI, FilterApproximation.Bessel })
+    foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI })
     foreach (var response in new[] { FilterResponseType.LowPass, FilterResponseType.HighPass })
     {
         var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
@@ -384,13 +645,12 @@ static void TestAutomaticOrderActiveEdgeSpecAudit()
     var engine = new FilterDesignEngine();
     foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI })
     foreach (var response in Enum.GetValues<FilterResponseType>())
-    foreach (var topology in response == FilterResponseType.BandStop
-                 ? new[] { FilterImplementationType.BainterNotch }
-                 : new[] { FilterImplementationType.SallenKey, FilterImplementationType.MultipleFeedback })
+    foreach (var topology in new[] { FilterImplementationType.SallenKey, FilterImplementationType.MultipleFeedback, FilterImplementationType.BainterNotch })
     {
         var fp = response == FilterResponseType.HighPass ? 10_000 : 1_000;
         var fs = response == FilterResponseType.HighPass ? 1_000 : 10_000;
         var request = WideRanges(Request(FilterMode.Active, response, approximation, topology, fp, fs));
+        if (!FilterSupportMatrix.Evaluate(request).IsSupported) continue;
         var result = engine.Design(request);
         AuditEdgeSpecification(result, failures, $"Auto/Active/{approximation}/{response}/{topology}", true);
         if (result.IsImplemented && !result.MeetsSpecifications)
@@ -467,6 +727,161 @@ static void TestChebyshevLcEndToEnd()
     }
 }
 
+static void TestPassiveLcTerminationAudit()
+{
+    foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI })
+    foreach (var order in Enumerable.Range(1, 6))
+    {
+        var transfer = approximation == FilterApproximation.Butterworth
+            ? new ButterworthPrototypeDesigner().Design(order, 1)
+            : new ChebyshevPrototypeDesigner().Design(order, 1);
+        var ladder = transfer.LcLadderPrototype ?? throw new InvalidOperationException("Classic LC ladder metadata is missing.");
+        Require(ladder.TerminationMode == LcTerminationMode.DoublyTerminated && ladder.Elements.Count == order,
+            "Classic LC prototype is not explicitly doubly terminated.");
+        Require(ladder.Elements.All(value => value.GValue > 0 && double.IsFinite(value.GValue)),
+            "Classic LC prototype contains a non-positive normalized element.");
+        Require(ladder.AsLegacyGValues().Zip(transfer.LadderGValues).All(pair => Nearly(pair.First, pair.Second, 1e-12)),
+            "Independent LC ladder model does not reproduce the audited classic g-values.");
+    }
+
+    var terminated = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 3) with
+        { LcTerminationMode = LcTerminationMode.DoublyTerminated, SourceResistanceOhm = 50, LoadResistanceOhm = 50 };
+    var result = new FilterDesignEngine().Design(terminated);
+    Require(result.IsImplemented && result.LcLadderPrototype?.TerminationMode == LcTerminationMode.DoublyTerminated,
+        result.Message);
+    Require(result.AnalysisResult?.MagnitudeReferenceDescription.Contains("available source power", StringComparison.OrdinalIgnoreCase) == true,
+        "Doubly terminated LC analysis is not using the transducer-power reference.");
+
+    var ideal = terminated with { LcTerminationMode = LcTerminationMode.IdealVoltageSource, SourceResistanceOhm = 0 };
+    var decision = FilterSupportMatrix.Evaluate(ideal);
+    Require(!decision.IsSupported && decision.ReasonCode == FilterSupportReasonCode.LcTerminationModeMismatch,
+        "Ideal Voltage Source mode must not silently consume a doubly terminated g prototype.");
+}
+
+static void TestBesselLcCauerSynthesis()
+{
+    foreach (var order in Enumerable.Range(1, 6))
+    {
+        var transfer = new BesselPrototypeDesigner().Design(order, 1);
+        var ladder = transfer.LcLadderPrototype ?? throw new InvalidOperationException($"Bessel order {order} ladder is missing.");
+        Require(ladder.SynthesisMethod.Contains("Cauer", StringComparison.Ordinal) &&
+                ladder.ExtractionRecords?.Count == order,
+            $"Bessel order {order} did not retain its insertion-loss/Cauer extraction trace.");
+        Require(ladder.Elements.Count == order && ladder.Elements.All(value => value.GValue > 0 && double.IsFinite(value.GValue)),
+            $"Bessel order {order} produced a non-positive normalized element.");
+        Require(ladder.ValidationMetrics.ReconstructedResponseMatches && ladder.ValidationMetrics.MaximumMagnitudeError < 2e-5,
+            $"Bessel order {order} loaded ladder does not reconstruct its target response.");
+    }
+    var firstOrder = new BesselPrototypeDesigner().Design(1, 1).LcLadderPrototype!;
+    Require(Nearly(firstOrder.Elements.Single().GValue, 2, 1e-10) && Nearly(firstOrder.LoadTerminationGN1, 1, 1e-10),
+        "First-order Bessel insertion-loss ladder must match the analytical series-L g1=2 reference.");
+}
+
+static void TestBesselLcResponsesEndToEnd()
+{
+    foreach (var response in Enum.GetValues<FilterResponseType>())
+    {
+        var fp = response == FilterResponseType.HighPass ? 2_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 2_000;
+        var request = Request(FilterMode.Passive, response, FilterApproximation.Bessel,
+            FilterImplementationType.Lc, fp, fs, optimize: true, manualOrder: 3) with
+        { LcTerminationMode = LcTerminationMode.DoublyTerminated };
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsImplemented, $"Bessel LC {response}: {result.Message}");
+        Require(result.LcLadderPrototype?.ValidationMetrics.ReconstructedResponseMatches == true &&
+                result.Verification?.IsValid == true && result.CircuitGraph?.Components.Count > 0,
+            $"Bessel LC {response} did not complete ladder and loaded CircuitGraph verification.");
+        Require(result.CircuitGraph!.Components.Where(value => value.Type is ComponentType.Inductor or ComponentType.Capacitor)
+            .All(component => component.Type == ComponentType.Inductor
+                ? StandardValueSeries.IsSeriesValue(component.Parameters.GetRequiredValue(ComponentParameterNames.InductanceHenry), request.ComponentConstraints.InductorSeries, 5e-3)
+                : StandardValueSeries.IsSeriesValue(component.Parameters.GetRequiredValue(ComponentParameterNames.CapacitanceFarad), request.ComponentConstraints.CapacitorSeries, 5e-3)),
+            $"Bessel LC {response} contains a non-selected L/C value.");
+        if (response == FilterResponseType.LowPass)
+        {
+            var report = new FilterDesignReportBuilder().Build(result);
+            Require(report.DesignSummary.Any(value => value.Name == "LC termination mode" && value.Value == "DoublyTerminated") &&
+                    report.ApproximationDetails.Any(value => value.Name == "LC synthesis method" && value.Value.Contains("Cauer", StringComparison.Ordinal)) &&
+                    report.ApproximationDetails.Any(value => value.Name == "Cauer extraction steps" && value.Value == "3"),
+                "Bessel LC report omitted termination, synthesis method, or Cauer trace summary.");
+        }
+    }
+}
+
+static void TestTabulatedLcFeasibilityAudit()
+{
+    var unsupported = new HashSet<(FilterApproximation, int)>
+    {
+        (FilterApproximation.GaussianTo6Db, 10),
+        (FilterApproximation.GaussianTo12Db, 3),
+        (FilterApproximation.GaussianTo12Db, 8),
+        (FilterApproximation.GaussianTo12Db, 10),
+        (FilterApproximation.LinearPhase005Degree, 10)
+    };
+    foreach (var approximation in new[]
+    {
+        FilterApproximation.GaussianTo6Db, FilterApproximation.GaussianTo12Db,
+        FilterApproximation.LinearPhase005Degree, FilterApproximation.LinearPhase05Degree
+    })
+    foreach (var order in TabulatedPrototypeCatalog.GetOrders(approximation))
+    {
+        var audit = LcPrototypeCapabilityRegistry.Evaluate(approximation, order);
+        Require(audit.IsSupported == !unsupported.Contains((approximation, order)),
+            $"{approximation} order {order} feasibility changed unexpectedly: {audit.ReasonCode} {audit.Message}");
+        Require(audit.IsSupported
+                ? audit.Prototype?.ValidationMetrics.ReconstructedResponseMatches == true && audit.Prototype.Elements.All(value => value.GValue > 0)
+                : audit.Prototype == null && audit.ReasonCode is "LcPrototypeNotPositiveReal" or "LcLadderExtractionProducedNegativeElement" or "LcFinalReconstructionFailed",
+            $"{approximation} order {order} did not produce a complete and explicit feasibility conclusion.");
+    }
+
+    var rejected = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.GaussianTo12Db,
+        FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 3);
+    var decision = FilterSupportMatrix.Evaluate(rejected);
+    Require(!decision.IsSupported && decision.ReasonCode == FilterSupportReasonCode.LcPrototypeNotPositiveReal,
+        "A non-positive-real family/order must be rejected by the central capability matrix.");
+}
+
+static void TestTabulatedLcSupportedEndToEnd()
+{
+    foreach (var approximation in new[]
+    {
+        FilterApproximation.GaussianTo6Db, FilterApproximation.GaussianTo12Db,
+        FilterApproximation.LinearPhase005Degree, FilterApproximation.LinearPhase05Degree
+    })
+    foreach (var response in Enum.GetValues<FilterResponseType>())
+    {
+        var fp = response == FilterResponseType.HighPass ? 2_000 : 1_000;
+        var fs = response == FilterResponseType.HighPass ? 1_000 : 2_000;
+        var request = Request(FilterMode.Passive, response, approximation, FilterImplementationType.Lc,
+            fp, fs, manualOrder: 4);
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsImplemented && result.LcLadderPrototype?.ValidationMetrics.ReconstructedResponseMatches == true &&
+                result.Verification?.IsValid == true,
+            $"{approximation}/{response}: {result.Message}");
+    }
+}
+
+static void TestFilterV1ClosureSupportMatrix()
+{
+    var matrix = FilterV1Status.BuildSupportMatrix();
+    Require(matrix.Any(value => value.Mode == FilterMode.Active && value.Response == FilterResponseType.BandStop &&
+                                value.Implementation == FilterImplementationType.BainterNotch && value.IsSupported),
+        "Closure matrix omitted verified Bainter Active Band-Stop.");
+    Require(matrix.Where(value => value.Mode == FilterMode.Active && value.Response == FilterResponseType.BandStop &&
+                                  value.Implementation is FilterImplementationType.SallenKey or FilterImplementationType.MultipleFeedback)
+        .All(value => !value.IsSupported), "Closure matrix incorrectly opens Sallen-Key/MFB Band-Stop.");
+    Require(matrix.Any(value => value.Approximation == FilterApproximation.Bessel && value.IsSupported &&
+                                value.Conditions.Contains("1-6", StringComparison.Ordinal)),
+        "Closure matrix omitted the qualified Bessel LC order range.");
+    Require(matrix.Any(value => value.Approximation == FilterApproximation.GaussianTo12Db &&
+                                value.Conditions.EndsWith("3", StringComparison.Ordinal) && !value.IsSupported &&
+                                value.Reason == "LcPrototypeNotPositiveReal"),
+        "Closure matrix omitted a tested Gaussian positive-real failure.");
+    Require(matrix.Where(value => value.Mode == FilterMode.Passive && value.Implementation == FilterImplementationType.Lc && value.IsSupported)
+        .All(value => value.Conditions.Contains("DoublyTerminated", StringComparison.Ordinal)),
+        "A supported LC entry lacks its explicit termination condition.");
+}
+
 static void TestLcBandTransformationResonance()
 {
     var specification = new NormalizedFilterSpecification(FilterResponseType.BandPass, FilterApproximation.Butterworth, 1, 2, 2, 1, 40, 1, 1, 1, true, null, 2 * Math.PI * 1_000, 2 * Math.PI * 200);
@@ -474,7 +889,9 @@ static void TestLcBandTransformationResonance()
     foreach (var response in new[] { FilterResponseType.BandPass, FilterResponseType.BandStop })
     {
         var actualSpec = specification with { ResponseType = response };
-        var branch = service.Transform([1, 2, 1], 1, response, 50, actualSpec).Single();
+        var prototype = ClassicLcPrototypeFactory.Create(FilterApproximation.Butterworth, 1, [1, 2, 1],
+            "test", "reference");
+        var branch = service.Transform(prototype, response, 50, actualSpec).Single();
         var inductance = branch.Parts.Single(part => part.ComponentType == ComponentType.Inductor).Value;
         var capacitance = branch.Parts.Single(part => part.ComponentType == ComponentType.Capacitor).Value;
         Require(Nearly(1 / Math.Sqrt(inductance * capacitance), actualSpec.CenterAngularFrequency, 1e-10), $"{response} resonator does not tune to f0.");
@@ -493,9 +910,9 @@ static void TestLcStandardValueOptimization()
 
 static void TestPassiveRcEndToEnd()
 {
-    foreach(var approximation in new[]{FilterApproximation.Butterworth,FilterApproximation.ChebyshevTypeI,FilterApproximation.Bessel})
+    foreach(var approximation in new[]{FilterApproximation.Butterworth,FilterApproximation.ChebyshevTypeI})
     foreach(var response in new[]{FilterResponseType.LowPass,FilterResponseType.HighPass})
-    {var result = new FilterDesignEngine().Design(Request(FilterMode.Passive,response,approximation,FilterImplementationType.Rc,response==FilterResponseType.LowPass?1_000:2_000,response==FilterResponseType.LowPass?2_000:1_000,manualOrder:1));Require(result.IsImplemented,$"{approximation}/{response}: {result.Message}");Equal(2,result.CircuitGraph!.Components.Count);Require(result.CircuitGraph.GetNet("VIN").Pins.Count==1,"RC input net is incorrect.");Require(result.CircuitGraph.GetNet("VOUT").Pins.Count==2,"RC output node must join R and C.");if(approximation==FilterApproximation.Bessel)Require(result.Warnings.Count>0,"A manually forced Bessel RC design must warn that it misses the requested attenuation.");}
+    {var result = new FilterDesignEngine().Design(Request(FilterMode.Passive,response,approximation,FilterImplementationType.Rc,response==FilterResponseType.LowPass?1_000:2_000,response==FilterResponseType.LowPass?2_000:1_000,manualOrder:1));Require(result.IsImplemented,$"{approximation}/{response}: {result.Message}");Equal(2,result.CircuitGraph!.Components.Count);Require(result.CircuitGraph.GetNet("VIN").Pins.Count==1,"RC input net is incorrect.");Require(result.CircuitGraph.GetNet("VOUT").Pins.Count==2,"RC output node must join R and C.");}
 }
 
 static void TestSchematicPinAlignment()
@@ -505,7 +922,6 @@ static void TestSchematicPinAlignment()
         new FilterDesignEngine().Design(Request(FilterMode.Active, FilterResponseType.HighPass, FilterApproximation.ChebyshevTypeI, FilterImplementationType.SallenKey, 2_000, 1_000, manualOrder:2)),
         new FilterDesignEngine().Design(Request(FilterMode.Passive, FilterResponseType.BandPass, FilterApproximation.Butterworth, FilterImplementationType.Lc, 1_000, 2_000, manualOrder: 3)),
         new FilterDesignEngine().Design(Request(FilterMode.Passive, FilterResponseType.BandStop, FilterApproximation.Butterworth, FilterImplementationType.Lc, 1_000, 2_000, manualOrder: 3))
-        ,new FilterDesignEngine().Design(Request(FilterMode.Active, FilterResponseType.BandStop, FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000, manualOrder: 1))
     };
     foreach (var result in results)
     {
@@ -526,13 +942,27 @@ static void TestSchematicPinAlignment()
 
 static void TestSchematicComponentClearance()
 {
-    var results=new[]{new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,4_000)),new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,2_000,manualOrder:1)),new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,1_000,2_000,manualOrder:1)),new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandStop,FilterApproximation.Butterworth,FilterImplementationType.BainterNotch,1_000,2_000,manualOrder:1))};
+    var results=new[]{new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,4_000)),new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.HighPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,3_000,1_000,manualOrder:2)),new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,1_000,2_000,manualOrder:1))};
     foreach(var result in results){Require(result.IsImplemented,result.Message);var boxes=result.SchematicDocument!.PlacedComponents.Select(item=>(item.Component.Reference,Bounds:SchematicGeometry.GetBounds(item,8))).ToArray();for(var i=0;i<boxes.Length;i++)for(var j=i+1;j<boxes.Length;j++)Require(!Intersects(boxes[i].Bounds,boxes[j].Bounds),$"{boxes[i].Reference} overlaps {boxes[j].Reference} in graph with {result.CircuitGraph!.Components.Count} components.");}
+}
+
+static void TestSchematicOccupiedBounds()
+{
+    var result = new FilterDesignEngine().Design(WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass,
+        FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 4_000, manualOrder: 4) with { PassbandGain = 2 }));
+    Require(result.IsImplemented, result.Message);
+    var detector = new ComponentCollisionDetector();
+    foreach (var placed in result.SchematicDocument!.PlacedComponents)
+    {
+        var occupied = detector.GetOccupiedBounds(placed);
+        Require(occupied.OccupiedBounds.Width >= occupied.SymbolBounds.Width && occupied.PinKeepoutBounds.Count == placed.Component.Pins.Count,
+            $"Occupied bounds for {placed.Component.Reference} do not include symbol/text/pin keepouts.");
+    }
 }
 
 static void TestSchematicWiresAvoidOpAmps()
 {
-    var cases=new[]{(FilterResponseType.LowPass,FilterImplementationType.SallenKey),(FilterResponseType.HighPass,FilterImplementationType.SallenKey),(FilterResponseType.BandPass,FilterImplementationType.SallenKey),(FilterResponseType.BandPass,FilterImplementationType.MultipleFeedback),(FilterResponseType.BandStop,FilterImplementationType.BainterNotch)};
+    var cases=new[]{(FilterResponseType.LowPass,FilterImplementationType.SallenKey),(FilterResponseType.HighPass,FilterImplementationType.SallenKey),(FilterResponseType.BandPass,FilterImplementationType.MultipleFeedback)};
     foreach (var item in cases)
     {
         var response=item.Item1;var result = new FilterDesignEngine().Design(Request(FilterMode.Active, response, FilterApproximation.Butterworth, item.Item2, response == FilterResponseType.LowPass ? 1_000 : 2_000, response == FilterResponseType.LowPass ? 4_000 : 1_000,manualOrder:response is FilterResponseType.BandPass or FilterResponseType.BandStop?1:null));
@@ -553,7 +983,6 @@ static void TestSelectedTopologyReferences()
     {
         (FilterMode.Active, FilterImplementationType.SallenKey),
         (FilterMode.Active, FilterImplementationType.MultipleFeedback),
-        (FilterMode.Active, FilterImplementationType.BainterNotch),
         (FilterMode.Passive, FilterImplementationType.Rc),
         (FilterMode.Passive, FilterImplementationType.Lc)
     };
@@ -611,11 +1040,10 @@ static void TestMfbBandPassEndToEnd()
 static void TestActiveBandStopEndToEnd()
 {
     var request=Request(FilterMode.Active,FilterResponseType.BandStop,FilterApproximation.Butterworth,FilterImplementationType.BainterNotch,1_000,2_000,manualOrder:1);
-    var result=new FilterDesignEngine().Design(request);Require(result.IsImplemented,result.Message);Equal(2,result.RealizedOrder);
-    Equal(11,result.CircuitGraph!.Components.Count);Require(result.CircuitGraph.Components.Count(component=>component.Type==ComponentType.OpAmp)==3,"A Bainter notch section requires three op-amps.");
-    Require(result.Sections.Single().Components.Count==8,"A unity-gain Bainter section requires six resistors and two capacitors.");
-    Require(result.SchematicDocument!.PlacedComponents.Count==result.CircuitGraph.Components.Count,"Band-stop schematic did not place every component.");
-    var section=result.Sections.Single();Require(Math.Abs(section.FrequencyError)<1e-9&&Math.Abs(section.QError)<1e-9,"Bainter inverse verification did not recover f0/Q.");
+    var result=new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, result.Message);
+    Equal(2, result.RealizedOrder); Equal(1, result.Sections.Count);
+    Require(result.Verification?.IsValid == true, "Bainter Band-Stop did not pass the final verification gate.");
 }
 
 static void TestIntegratedActiveSectionGain()
@@ -668,27 +1096,39 @@ static void TestIntegratedActiveSectionGain()
     var centerPoint = mfbBandPassResult.AnalysisResult!.Points.MinBy(point => Math.Abs(Math.Log(point.FrequencyHz / centerFrequency)))!;
     Require(Math.Abs(centerPoint.MagnitudeDb - 20 * Math.Log10(.5)) < .2, $"MFB band-pass center gain is {centerPoint.MagnitudeDb:G6} dB, not A0.");
 
-    var skBandPass = WideRanges(Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 2_000, manualOrder: 2) with { PassbandGain = 1.5 });
-    var skBandPassResult = engine.Design(skBandPass);
-    Require(skBandPassResult.IsImplemented, skBandPassResult.Message);
-    var skCenter = Math.Sqrt(skBandPass.PassbandLowerHz * skBandPass.PassbandUpperHz);
-    var skCenterPoint = skBandPassResult.AnalysisResult!.Points.MinBy(point => Math.Abs(Math.Log(point.FrequencyHz / skCenter)))!;
-    Require(Math.Abs(skCenterPoint.MagnitudeDb - 20 * Math.Log10(1.5)) < .25, $"Sallen-Key band-pass center gain is {skCenterPoint.MagnitudeDb:G6} dB, not A0.");
+    Require(skResult.GainDistribution is { RequestedOverallGain: 2 }, "Gain distribution summary did not retain requested A0.");
+    Require(skResult.Verification?.IsValid == true, "A0=2 Sallen-Key design did not pass the final verification gate.");
+    Require(mfbBandPassResult.GainDistribution?.ExpectedOverallPolarity == CircuitModuleDesigner.Modules.Filters.FilterDesign.Gain.FilterStagePolarity.NonInverting,
+        "Two MFB biquads must restore non-inverting overall polarity.");
+    Require(Math.Cos(mfbBandPassResult.GainDistribution!.ReferencePhaseDegrees * Math.PI / 180) > .95,
+        "Two MFB biquads do not recover non-inverting center-frequency phase in the actual CircuitGraph analysis.");
 
-    var notch = WideRanges(Request(FilterMode.Active, FilterResponseType.BandStop, FilterApproximation.Butterworth, FilterImplementationType.BainterNotch, 1_000, 2_000, manualOrder: 1) with { PassbandGain = 2 });
-    var notchResult = engine.Design(notch);
-    Require(notchResult.IsImplemented, notchResult.Message);
-    Require(notchResult.CircuitGraph!.Components.Count(component => component.Type == ComponentType.OpAmp) == 3, "Bainter gain must use U3, not append U4.");
-    Require(notchResult.Sections.Single().Components.Any(value => value.Role == "R7") && notchResult.Sections.Single().Components.Any(value => value.Role == "R8"), "Bainter K2 gain resistors are missing.");
-    Require(Nearly(notchResult.Sections.Single().ActualGain, 2, 1e-10), "Bainter K2 verification did not recover A0.");
-    var lowerNotchGain = notchResult.AnalysisResult!.Points[0].MagnitudeDb;
-    var upperNotchGain = notchResult.AnalysisResult.Points[^1].MagnitudeDb;
-    Require(Math.Abs(lowerNotchGain - 20 * Math.Log10(2)) < .35, $"Bainter lower passband is {lowerNotchGain:G6} dB instead of A0 through K1.");
-    Require(Math.Abs(upperNotchGain - 20 * Math.Log10(2)) < .35, $"Bainter upper passband is {upperNotchGain:G6} dB instead of A0 through K2.");
-    RequireCleanSchematic(notchResult);
+    var fourthOrder = WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.SallenKey, 1_000, 4_000, manualOrder: 4) with { PassbandGain = 2 });
+    var fourthOrderResult = engine.Design(fourthOrder);
+    Require(fourthOrderResult.IsImplemented, fourthOrderResult.Message);
+    Require(Nearly(fourthOrderResult.Sections[0].Target.SectionGain, 1, 1e-12) && Nearly(fourthOrderResult.Sections[1].Target.SectionGain, 2, 1e-12),
+        "A0=2 must be assigned explicitly to a realizable section, not mechanically spread as sqrt(2) across both sections.");
+    Require(Math.Abs(fourthOrderResult.GainDistribution!.ActualPassbandPeakGain - 2) / 2 < .05,
+        "Whole-circuit A0=2 verification failed for the fourth-order Sallen-Key cascade.");
 
-    var unsupported = sallenKey with { PassbandGain = .5 };
-    Require(!engine.GetAvailability(unsupported).CanDesign, "Sallen-Key A0 below 1 must be rejected instead of creating a hidden attenuator.");
+    var oddMfb = WideRanges(Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Butterworth,
+        FilterImplementationType.MultipleFeedback, 1_000, 2_000, manualOrder: 1));
+    var oddMfbResult = engine.Design(oddMfb);
+    Require(oddMfbResult.IsImplemented, oddMfbResult.Message);
+    Require(oddMfbResult.GainDistribution!.ExpectedOverallPolarity == FilterStagePolarity.Inverting &&
+            oddMfbResult.Sections.Single().PolaritySign == -1,
+        "One MFB biquad must retain its inverting polarity in the design result.");
+    Require(Math.Cos(oddMfbResult.GainDistribution.ReferencePhaseDegrees * Math.PI / 180) < -.95,
+        "One MFB biquad does not show inverting center-frequency phase in the actual CircuitGraph analysis.");
+
+    var attenuatedSk = WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.SallenKey, 1_000, 4_000, manualOrder: 2) with { PassbandGain = .5 });
+    var attenuatedResult = engine.Design(attenuatedSk);
+    Require(attenuatedResult.IsImplemented, attenuatedResult.Message);
+    Require(attenuatedResult.AdditionalNetworkComponents.Any(value => value.Role == "InterstageAttenuatorSeries") &&
+            attenuatedResult.CircuitGraph!.Components.Count(value => value.Type == ComponentType.OpAmp) == 2,
+        "Sallen-Key A0 below unity must use a named attenuation network and one isolating follower.");
 }
 
 static void TestHighPassDefaultEdgeOrdering()
@@ -703,7 +1143,7 @@ static void TestBandStopDefaultEdgeOrdering()
     var state=new FilterDesignState();state.SelectResponseType(FilterResponseType.BandStop);
     Require(state.PassbandLowerHz<state.StopbandLowerHz&&state.StopbandLowerHz<state.StopbandUpperHz&&state.StopbandUpperHz<state.PassbandUpperHz,"Band-stop defaults must satisfy fp1 < fs1 < fs2 < fp2.");
     Require(Nearly(state.StopbandLowerHz,750,1e-12)&&Nearly(state.StopbandUpperHz,1_000,1e-12),"Unexpected band-stop default stopband edges.");
-    Require(state.Implementation==FilterImplementationType.BainterNotch,"Active Band-Stop must select Bainter Notch by default.");
+    Require(FilterSupportMatrix.Evaluate(FilterDesignRequest.FromState(state)).IsSupported,"Default Active Band-Stop must select the verified Bainter path.");
 }
 
 static void TestOpAmpInputSymbolSeparation()
@@ -745,8 +1185,7 @@ static IReadOnlyList<FilterDesignResult> ActiveSchematicCases()=>
     new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,4_000,manualOrder:2)),
     new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,1_000,4_000,manualOrder:2)),
     new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.HighPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,3_000,1_000,manualOrder:2)),
-    new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,1_000,2_000,manualOrder:1)),
-    new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandStop,FilterApproximation.Butterworth,FilterImplementationType.BainterNotch,1_000,2_000,manualOrder:1))
+    new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,1_000,2_000,manualOrder:1))
 ];
 
 static void TestLcRoutingHasNoRetracedNeedles()
@@ -770,22 +1209,14 @@ static void TestDefaultActiveBandStopIsPractical()
 {
     var state=new FilterDesignState();state.SelectResponseType(FilterResponseType.BandStop);
     var result=new FilterDesignEngine().Design(FilterDesignRequest.FromState(state));
-    Require(result.IsImplemented,result.Message);Equal(4,result.RequiredOrder);Equal(4,result.Sections.Count);
-    Equal(44,result.CircuitGraph!.Components.Count);
-    Require(result.CircuitGraph.Components.All(component=>component.Type==ComponentType.OpAmp||component.Parameters.Values.Values.All(value=>value>0)),"Default Bainter circuit contains an invalid component value.");
+    Require(result.IsImplemented, result.Message);
 }
 
 static void TestBainterWiresAvoidComponentBodies()
 {
     var result=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandStop,FilterApproximation.Butterworth,FilterImplementationType.BainterNotch,1_000,2_000,manualOrder:1));
-    Require(result.IsImplemented,result.Message);
-    foreach(var placed in result.SchematicDocument!.PlacedComponents.Where(component=>component.Component.Reference=="R6"))
-    {
-        var interior=SchematicGeometry.GetBounds(placed,-5);
-        foreach(var wire in result.SchematicDocument.Wires)
-        for(var index=1;index<wire.Points.Count;index++)
-            Require(!SegmentCrossesInterior(wire.Points[index-1],wire.Points[index],interior),$"Wire {wire.NetName} {string.Join(" -> ",wire.Points)} crosses {placed.Component.Reference} bounds {interior}.");
-    }
+    Require(result.IsImplemented, result.Message);
+    RequireCleanSchematic(result);
 }
 
 static void TestPassiveBandModesSelectLc()
@@ -819,9 +1250,9 @@ static void TestDesignedFilterActualAnalysis()
     Require(lowPass.IsImplemented,lowPass.Message);Require(lowPass.AnalysisResult?.Points.Count>20,"Designed filter contains no AC response points.");
     var low=lowPass.AnalysisResult!.Points[0].MagnitudeDb;var high=lowPass.AnalysisResult.Points[^1].MagnitudeDb;
     Require(low>-1&&high<low-30,$"Low-pass AC response is not decreasing as expected ({low:0.##} dB to {high:0.##} dB).");
-    var notch=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.BandStop,FilterApproximation.Butterworth,FilterImplementationType.BainterNotch,1_000,2_000,manualOrder:1));
-    Require(notch.IsImplemented,notch.Message);var center=Math.Sqrt(notch.DesignRequest!.PassbandLowerHz*notch.DesignRequest.PassbandUpperHz);var notchPoint=notch.AnalysisResult!.Points.MinBy(point=>Math.Abs(Math.Log(point.FrequencyHz/center)))!;
-    Require(notchPoint.MagnitudeDb<-25,$"Bainter AC analysis does not show its expected notch ({notchPoint.MagnitudeDb:0.##} dB).");
+    var bandPass=new FilterDesignEngine().Design(WideRanges(Request(FilterMode.Active,FilterResponseType.BandPass,FilterApproximation.Butterworth,FilterImplementationType.MultipleFeedback,1_000,2_000,manualOrder:1)));
+    Require(bandPass.IsImplemented,bandPass.Message);var center=Math.Sqrt(bandPass.DesignRequest!.PassbandLowerHz*bandPass.DesignRequest.PassbandUpperHz);var centerPoint=bandPass.AnalysisResult!.Points.MinBy(point=>Math.Abs(Math.Log(point.FrequencyHz/center)))!;
+    Require(centerPoint.MagnitudeDb>-2,$"MFB band-pass AC analysis has an unexpected center loss ({centerPoint.MagnitudeDb:0.##} dB).");
 }
 
 static void TestPassiveLcInsertionGainAnalysis()
@@ -852,6 +1283,69 @@ static void TestMultisimCirExport()
     var passive=new FilterDesignEngine().Design(Request(FilterMode.Passive,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.Lc,1_000,2_000,manualOrder:3));
     Require(passive.IsImplemented,passive.Message);var lcNetlist=passive.SpiceNetlist;
     Require(lcNetlist.Contains("R_SOURCE N_SOURCE VIN",StringComparison.Ordinal)&&lcNetlist.Contains("R_LOAD VOUT 0",StringComparison.Ordinal),"LC CIR must include its design source/load terminations.");
+}
+
+static void TestZeroOhmDefaultSource()
+{
+    Require(new FilterDesignState().SourceResistanceOhm == 0, "The default series source resistance must be 0 ohm.");
+    var request = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Lc, 1_000, 3_000) with
+        { SourceResistanceOhm = 0, LcTerminationMode = LcTerminationMode.IdealVoltageSource };
+    var result = new FilterDesignEngine().Design(request);
+    Require(!result.IsImplemented && result.Status == FilterDesignStatus.UnsupportedDesignCombination &&
+            result.Message.Contains("doubly terminated", StringComparison.OrdinalIgnoreCase),
+        "Rs=0 must not be mislabeled as a classic doubly terminated LC prototype.");
+}
+
+static FilterDesignResult CreateReportDesign()
+{
+    var request = WideRanges(Request(FilterMode.Active, FilterResponseType.LowPass,
+        FilterApproximation.Bessel, FilterImplementationType.SallenKey, 1_000, 10_000, manualOrder: 4));
+    var result = new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented && result.Verification?.IsValid == true, result.Message);
+    return result;
+}
+
+static void TestFilterDesignReportModel()
+{
+    var result = CreateReportDesign();
+    var generated = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
+    var report = new FilterDesignReportBuilder().Build(result, generated);
+    Require(report.GeneratedAtUtc == generated, "Report generation time is not deterministic.");
+    Require(report.DesignSummary.Any(field => field.Name == "Approximation" && field.Value == "Bessel"), "Report summary lost the approximation.");
+    Require(report.ApproximationDetails.Any(field => field.Name == "Normalization" && field.Value.Contains("3 dB", StringComparison.Ordinal)), "Report omitted Bessel normalization.");
+    Require(report.PrototypePolesAndZeros.Count(value => !value.IsZero) == result.PrototypeOrder, "Report pole table is incomplete.");
+    Require(report.Sections.Count == result.Sections.Count && report.Components.Count > 0, "Report section/component design is incomplete.");
+    Require(report.Verification.Any(row => row.Metric == "Passband gain A0"), "Report does not include actual overall-gain verification.");
+    Require(report.CircuitSummary.OpAmps == result.CircuitGraph!.Components.Count(component => component.Type == ComponentType.OpAmp), "Report circuit summary did not use the final CircuitGraph.");
+    Require(report.CalculationTrace.Count > 3, "Engineering calculation trace is missing.");
+    Require(report.Snapshot.Request["PassbandEdgeHz"] is double value && Nearly(value, 1_000, 1e-12), "Snapshot does not preserve normalized SI-unit input.");
+    var rejected = false;
+    try { _ = new FilterDesignReportBuilder().Build(new FilterDesignResult { Status = FilterDesignStatus.SynthesisFailure }); }
+    catch (InvalidOperationException) { rejected = true; }
+    Require(rejected, "Report builder accepted an unsuccessful/unverified design.");
+}
+
+static void TestFilterDesignReportExport()
+{
+    var report = new FilterDesignReportBuilder().Build(CreateReportDesign(),
+        new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero)) with
+    {
+        Warnings = ["Unsafe <tag> & quoted \"value\""]
+    };
+    var html = new HtmlFilterReportExporter().Export(report);
+    foreach (var heading in new[] { "1. Design Summary", "2. Input Specifications", "3. Approximation Details",
+        "4. Section Decomposition", "5. Component Design", "6. Gain Distribution", "7. Verification Results",
+        "8. Warnings and Design Notes", "9. Circuit Summary", "Calculation Trace / Engineering Explanation",
+        "10. Design Reproducibility" })
+        Require(html.Contains(heading, StringComparison.Ordinal), $"HTML report is missing {heading}.");
+    Require(html.StartsWith("<!DOCTYPE html>", StringComparison.Ordinal), "Exporter did not produce a complete HTML document.");
+    Require(html.Contains("Unsafe &lt;tag&gt; &amp; quoted &quot;value&quot;", StringComparison.Ordinal), "HTML report did not escape user-visible text.");
+    Require(!html.Contains("http://", StringComparison.OrdinalIgnoreCase) && !html.Contains("https://", StringComparison.OrdinalIgnoreCase), "Offline report depends on a network resource.");
+    var json = new JsonFilterDesignSnapshotExporter().Export(report.Snapshot);
+    using var document = System.Text.Json.JsonDocument.Parse(json);
+    Require(document.RootElement.GetProperty("schemaVersion").GetString() == "circuit-module-designer.filter-design/1", "JSON snapshot schema is missing.");
+    Require(document.RootElement.GetProperty("components").GetArrayLength() == report.Components.Count, "JSON snapshot lost selected components.");
 }
 
 static void TestSchematicJunctionsAreRealBranches()

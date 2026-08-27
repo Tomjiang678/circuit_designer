@@ -6,21 +6,21 @@ namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 
 public sealed class TabulatedPrototypeOrderCalculator(FilterApproximation approximation) : IFilterOrderCalculator
 {
+    private readonly TabulatedPrototypeDesigner designer = new(approximation);
+    private readonly NumericalPrototypeOrderSearch search = new();
     public FilterApproximation Approximation { get; } = approximation;
 
     public int CalculateMinimumOrder(double passbandRippleDb, double stopbandAttenuationDb, double stopbandRatio)
     {
         if (passbandRippleDb <= 0 || stopbandAttenuationDb <= passbandRippleDb || stopbandRatio <= 1) throw new ArgumentOutOfRangeException(nameof(passbandRippleDb));
-        foreach (var order in TabulatedPrototypeCatalog.GetOrders(Approximation))
-        {
-            var poles = TabulatedPrototypeCatalog.GetPoles(Approximation, order); var passPoint = FindFrequencyForAttenuation(poles, passbandRippleDb);
-            if (AttenuationDb(poles, passPoint * stopbandRatio) >= stopbandAttenuationDb) return order;
-        }
+        var order = search.FindMinimumOrder(passbandRippleDb, stopbandAttenuationDb, stopbandRatio,
+            TabulatedPrototypeCatalog.GetOrders(Approximation), value => designer.Design(value, passbandRippleDb), out _);
+        if (order > 0) return order;
         throw new NotSupportedException($"{Approximation} requires an order above the published order-10 table for these specifications.");
     }
 
     public double CalculateCutoffAngularFrequency(double passbandAngularFrequency, double passbandRippleDb, int order) =>
-        passbandAngularFrequency / FindFrequencyForAttenuation(TabulatedPrototypeCatalog.GetPoles(Approximation, order), passbandRippleDb);
+        search.CalculateCutoffAngularFrequency(passbandAngularFrequency, passbandRippleDb, designer.Design(order, passbandRippleDb));
 
     public static double AttenuationDb(IReadOnlyList<Complex> poles, double angularFrequency)
     {

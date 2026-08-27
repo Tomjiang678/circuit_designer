@@ -1,6 +1,7 @@
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.PassiveLc;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis;
 
@@ -23,23 +24,25 @@ public sealed record LcRealizationBranch(
 public sealed class PassiveLcTransformationService
 {
     public IReadOnlyList<LcRealizationBranch> Transform(
-        IReadOnlyList<double> ladderGValues,
-        int prototypeOrder,
+        NormalizedLcLadderPrototype prototype,
         FilterResponseType response,
         double impedanceOhm,
         NormalizedFilterSpecification specification)
     {
-        if (ladderGValues.Count != prototypeOrder + 2)
-            throw new ArgumentException("The normalized prototype does not contain g0...g(n+1).", nameof(ladderGValues));
+        ArgumentNullException.ThrowIfNull(prototype);
+        if (prototype.Elements.Count != prototype.Order || prototype.Elements.Any(value => value.GValue <= 0 || !double.IsFinite(value.GValue)))
+            throw new ArgumentException("The normalized LC ladder prototype is incomplete or contains a non-positive element.", nameof(prototype));
         if (impedanceOhm <= 0) throw new ArgumentOutOfRangeException(nameof(impedanceOhm));
-        return Enumerable.Range(1, prototypeOrder)
-            .Select(index => TransformElement(index, ladderGValues[index], response, impedanceOhm, specification))
+        return prototype.Elements.OrderBy(value => value.Index)
+            .Select(element => TransformElement(element, response, impedanceOhm, specification))
             .ToArray();
     }
 
-    private static LcRealizationBranch TransformElement(int index, double g, FilterResponseType response, double r0, NormalizedFilterSpecification spec)
+    private static LcRealizationBranch TransformElement(LcPrototypeElement element, FilterResponseType response, double r0, NormalizedFilterSpecification spec)
     {
-        var seriesPrototype = index % 2 == 1;
+        var index = element.Index;
+        var g = element.GValue;
+        var seriesPrototype = element.Connection == LcPrototypeConnection.Series;
         var connection = seriesPrototype ? LcBranchConnection.Series : LcBranchConnection.Shunt;
         return response switch
         {

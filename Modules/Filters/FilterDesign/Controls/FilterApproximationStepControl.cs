@@ -8,13 +8,13 @@ public sealed class FilterApproximationStepControl : FilterStepBase
     private static readonly IReadOnlyDictionary<FilterApproximation, (string Description, string Status)> Information =
         new Dictionary<FilterApproximation, (string, string)>
         {
-            [FilterApproximation.Butterworth] = ("Maximally flat passband magnitude with monotonic roll-off.", "Active Sallen-Key/MFB LP/HP/BP/BS; passive RC first-order LP/HP; passive LC LP/HP/BP/BS."),
-            [FilterApproximation.ChebyshevTypeI] = ("Equiripple passband with a steeper transition than Butterworth for the same order.", "Active Sallen-Key/MFB LP/HP/BP/BS; passive RC first-order LP/HP; passive LC LP/HP/BP/BS. Rp is required."),
-            [FilterApproximation.Bessel] = ("Maximally flat group delay and good waveform preservation.", "Active Sallen-Key/MFB LP/HP/BP/BS and physically valid first-order passive RC LP/HP."),
-            [FilterApproximation.GaussianTo6Db] = ("Transitional Gaussian response with the transition breakpoint at 6 dB.", "ADI/FilterPro tabulated poles (orders 3-10); active Sallen-Key/MFB LP/HP/BP/BS."),
-            [FilterApproximation.GaussianTo12Db] = ("Transitional Gaussian response emphasizing transient fidelity through 12 dB.", "ADI/FilterPro tabulated poles (orders 3-10); active Sallen-Key/MFB LP/HP/BP/BS."),
-            [FilterApproximation.LinearPhase005Degree] = ("Equiripple linear-phase approximation with 0.05° phase error.", "ADI tabulated poles (orders 2-10) are implemented for supported active topologies."),
-            [FilterApproximation.LinearPhase05Degree] = ("Equiripple linear-phase approximation with 0.5° phase error.", "ADI tabulated poles (orders 2-10) are implemented for supported active topologies.")
+            [FilterApproximation.Butterworth] = ("Maximally flat passband magnitude with monotonic roll-off.", "Active Sallen-Key LP/HP and MFB LP/HP/BP; passive RC first-order LP/HP; passive LC LP/HP/BP/BS. Active Band-Stop is unavailable."),
+            [FilterApproximation.ChebyshevTypeI] = ("Equiripple passband with a steeper transition than Butterworth for the same order.", "Active Sallen-Key LP/HP and MFB LP/HP/BP; passive RC first-order LP/HP; passive LC LP/HP/BP/BS. Rp is required; Active Band-Stop is unavailable."),
+            [FilterApproximation.Bessel] = ("Reverse-Bessel polynomial with maximally flat group delay; exact -3 dB normalization.", "Active Sallen-Key LP/HP and MFB LP/HP/BP, orders 1-10. Passive LC is unavailable without verified ladder g-values."),
+            [FilterApproximation.GaussianTo6Db] = ("AN-649 Gaussian-to-6 dB transitional all-pole response.", "Published orders 3-10; Active Sallen-Key LP/HP and MFB LP/HP/BP."),
+            [FilterApproximation.GaussianTo12Db] = ("AN-649 Gaussian-to-12 dB transitional all-pole response.", "Published orders 3-10; Active Sallen-Key LP/HP and MFB LP/HP/BP."),
+            [FilterApproximation.LinearPhase005Degree] = ("AN-649 equiripple linear-phase approximation with 0.05 degree phase error.", "Published orders 2-10; Active Sallen-Key LP/HP and MFB LP/HP/BP."),
+            [FilterApproximation.LinearPhase05Degree] = ("AN-649 equiripple linear-phase approximation with 0.5 degree phase error.", "Published orders 2-10; Active Sallen-Key LP/HP and MFB LP/HP/BP.")
         };
 
     public FilterApproximationStepControl(FilterDesignState state) : base(state)

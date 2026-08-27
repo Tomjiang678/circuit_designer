@@ -1,6 +1,7 @@
 using System.Text;
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Reports;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Services;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
@@ -19,7 +20,66 @@ public sealed class FilterDesignOutputControl : UserControl
         calculations.Controls.Add(new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, Font = new Font("Consolas", 9F), BackColor = SystemColors.Window, Text = BuildCalculations(result) });
         tabs.TabPages.Add(calculations);
         tabs.TabPages.Add(CreateSpicePage(result));
+        tabs.TabPages.Add(CreateReportPage(result));
         Controls.Add(tabs);
+    }
+
+    private static TabPage CreateReportPage(FilterDesignResult result)
+    {
+        var page = new TabPage("Design Report") { BackColor = SystemColors.Window };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(10) };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+        var html = new Button { Text = "Export HTML Report...", AutoSize = true, MinimumSize = new Size(145, 28) };
+        var json = new Button { Text = "Export JSON Snapshot...", AutoSize = true, MinimumSize = new Size(155, 28) };
+        var service = new FilterDesignReportService();
+        html.Click += (_, _) => ExportReport(page, result, service, false);
+        json.Click += (_, _) => ExportReport(page, result, service, true);
+        buttons.Controls.Add(html);
+        buttons.Controls.Add(json);
+        var explanation = new Label
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            Padding = new Padding(2, 14, 2, 2),
+            ForeColor = Color.DimGray,
+            Text = "The offline HTML report contains the design inputs, approximation definition, prototype poles, sections, theoretical and selected components, gain distribution, final verification, warnings, circuit summary, and calculation trace.\r\n\r\nThe JSON snapshot stores normalized SI-unit inputs and selected values for reproducibility. Reports are available only for a completed, verifier-approved design."
+        };
+        layout.Controls.Add(buttons, 0, 0);
+        layout.Controls.Add(explanation, 0, 1);
+        page.Controls.Add(layout);
+        return page;
+    }
+
+    private static void ExportReport(Control owner, FilterDesignResult result, FilterDesignReportService service, bool json)
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Filter = json ? "Filter Design Snapshot (*.json)|*.json" : "Filter Design Report (*.html)|*.html",
+            DefaultExt = json ? "json" : "html",
+            AddExtension = true,
+            FileName = BuildReportFileName(result, json)
+        };
+        if (dialog.ShowDialog(owner.FindForm()) != DialogResult.OK) return;
+        try
+        {
+            var report = service.Build(result);
+            if (json) service.SaveSnapshot(report, dialog.FileName);
+            else service.SaveHtml(report, dialog.FileName);
+            MessageBox.Show(owner, $"Report exported successfully.\r\n{dialog.FileName}", "Filter Design Report", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(owner, exception.Message, "Filter Design Report", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static string BuildReportFileName(FilterDesignResult result, bool json)
+    {
+        var request = result.DesignRequest;
+        var extension = json ? "json" : "html";
+        return request == null ? $"filter-design.{extension}" : $"{request.Mode}-{request.ResponseType}-{request.Approximation}-{request.Implementation}.{extension}";
     }
 
     private static TabPage CreateAnalysisPage(FilterDesignResult result)
@@ -94,9 +154,19 @@ public sealed class FilterDesignOutputControl : UserControl
             foreach (var edge in result.SpecificationCompliance.Edges)
                 text.AppendLine($"  {edge.Label} = {edge.FrequencyHz:0.###} Hz: actual {edge.ActualMagnitudeDb:0.###} dB, {(edge.IsPassband ? "minimum" : "maximum")} {edge.LimitMagnitudeDb:0.###} dB, {(edge.MeetsLimit ? "PASS" : "FAIL")}");
         }
+        if (result.GainDistribution != null)
+        {
+            var gain = result.GainDistribution;
+            text.AppendLine(); text.AppendLine("Gain distribution / whole-circuit verification:");
+            text.AppendLine($"  Requested overall A0: {gain.RequestedOverallGain:0.######} V/V");
+            text.AppendLine($"  Raw cascade section gain product: {gain.RawCascadeGainMagnitude:0.######}");
+            text.AppendLine($"  Interstage/output scale product: {gain.InterstageScaleProduct:0.######}");
+            text.AppendLine($"  Actual passband peak: {gain.ActualPassbandPeakGain:0.######} V/V");
+            text.AppendLine($"  Expected polarity: {gain.ExpectedOverallPolarity}; reference phase: {gain.ReferencePhaseDegrees:0.###} deg");
+        }
         text.AppendLine(); text.AppendLine("Prototype poles:"); foreach (var pole in result.PrototypePoles) text.AppendLine($"  {pole.Real,12:0.######} {pole.Imaginary,12:+0.######;-0.######}j");
         if (result.PrototypeElementValues.Count > 0) { text.AppendLine(); text.AppendLine("Normalized ladder g-values:"); for (var i=0;i<result.PrototypeElementValues.Count;i++) text.AppendLine($"  g{i} = {result.PrototypeElementValues[i]:0.######}"); }
-        text.AppendLine(); text.AppendLine("Sections:"); foreach (var section in result.Sections) { text.AppendLine($"  Section {section.Target.Index}: {section.Target.Order} {section.Target.ResponseType}, target f0={section.Target.PoleFrequencyHz:0.###} Hz, Q={section.Target.Q:0.######}, gain={section.Target.SectionGain:0.######}"); text.AppendLine($"    actual f0={section.ActualPoleFrequencyHz:0.###} Hz, Q={section.ActualQ:0.######}, gain={section.ActualGain:0.######}, errors f={section.FrequencyError:P3}, Q={section.QError:P3}, gain={section.GainError:P3}"); foreach (var value in section.Components) text.AppendLine($"    {value.Role}: theoretical={Format(value.TheoreticalValue, value.ComponentType)}, selected={Format(value.SelectedValue, value.ComponentType)}, error={value.RelativeError:P3}"); }
+        text.AppendLine(); text.AppendLine("Sections:"); foreach (var section in result.Sections) { text.AppendLine($"  Section {section.Target.Index}: {section.Target.Order} {section.Target.ResponseType}, target f0={section.Target.PoleFrequencyHz:0.###} Hz, Q={section.Target.Q:0.######}, target topology gain={section.Target.SectionGain:0.######}"); text.AppendLine($"    actual f0={section.ActualPoleFrequencyHz:0.###} Hz, Q={section.ActualQ:0.######}, intrinsic gain={section.IntrinsicTopologyGain:0.######}, interstage scale={section.InterstageScale:0.######}, polarity={(section.PolaritySign < 0 ? "inverting" : "non-inverting")}, errors f={section.FrequencyError:P3}, Q={section.QError:P3}, gain={section.GainError:P3}"); foreach (var value in section.Components) text.AppendLine($"    {value.Role}: theoretical={Format(value.TheoreticalValue, value.ComponentType)}, selected={Format(value.SelectedValue, value.ComponentType)}, error={value.RelativeError:P3}"); }
         if(result.AdditionalNetworkComponents.Count>0){text.AppendLine();text.AppendLine("Network components:");foreach(var value in result.AdditionalNetworkComponents)text.AppendLine($"  {value.Role}: theoretical={Format(value.TheoreticalValue,value.ComponentType)}, selected={Format(value.SelectedValue,value.ComponentType)}, error={value.RelativeError:P3}");}
         if (result.CircuitGraph != null) { text.AppendLine(); text.AppendLine($"CircuitGraph: {result.CircuitGraph.Components.Count} components, {result.CircuitGraph.Nets.Count} nets"); foreach (var component in result.CircuitGraph.Components) { text.AppendLine($"  {component.Reference} {component.Type}"); foreach (var parameter in component.Parameters.Values) text.AppendLine($"    {parameter.Key} = {parameter.Value:G9}"); } }
         foreach (var warning in result.Warnings) text.AppendLine($"WARNING: {warning}"); return text.ToString();

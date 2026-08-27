@@ -4,22 +4,40 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Sections;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Gain;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
 
 public sealed class FilterCircuitAssembler
 {
+    public CircuitGraph BuildActiveSection(FilterDesignRequest request, SynthesizedSection section)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(section);
+        if (request.Mode != FilterMode.Active) throw new ArgumentException("Section graph extraction is for active sections.", nameof(request));
+        var build = request.Implementation switch
+        {
+            FilterImplementationType.MultipleFeedback => BuildMfb(request, [section], 1),
+            FilterImplementationType.BainterNotch => BuildBainter(request, [section], 1),
+            FilterImplementationType.SallenKey => BuildSallenKey(request, [section], 1),
+            _ => throw new NotSupportedException($"No active section assembler exists for {request.Implementation}.")
+        };
+        return build.CircuitGraph;
+    }
+
     public FilterCircuitBuildResult Build(
         FilterDesignRequest request,
         NormalizedFilterSpecification specification,
         FilterPrototype prototype,
-        IReadOnlyList<SynthesizedSection> sections)
+        IReadOnlyList<SynthesizedSection> sections,
+        GainDistributionPlan gainPlan)
     {
         var activePrototypeNormalization = request.Mode == FilterMode.Active &&
                                            request.Approximation == FilterApproximation.ChebyshevTypeI &&
                                            prototype.Order % 2 == 0
             ? Math.Pow(10, -request.PassbandRippleDb / 20)
             : 1d;
+        activePrototypeNormalization *= gainPlan.OutputScale;
         return request.Mode == FilterMode.Active
             ? request.Implementation switch
             {
@@ -49,7 +67,7 @@ public sealed class FilterCircuitAssembler
         }
         var networkValues = AddOutputNormalization(builder, allocator, hints, request, outputNormalization, sections.Count);
         var graph = builder.Build();
-        FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
+        FilterCircuitGraphValidator.EnsureFilterRequirements(graph, request.Mode);
         return new FilterCircuitBuildResult(graph, hints, networkValues);
     }
 
@@ -110,7 +128,7 @@ public sealed class FilterCircuitAssembler
         }
         var networkValues = AddOutputNormalization(builder, allocator, hints, request, outputNormalization, sections.Count);
         var graph = builder.Build();
-        FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
+        FilterCircuitGraphValidator.EnsureFilterRequirements(graph, request.Mode);
         return new FilterCircuitBuildResult(graph, hints, networkValues);
     }
 
@@ -190,7 +208,7 @@ public sealed class FilterCircuitAssembler
         }
         var networkValues = AddOutputNormalization(builder, allocator, hints, request, outputNormalization, sections.Count);
         var graph = builder.Build();
-        FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
+        FilterCircuitGraphValidator.EnsureFilterRequirements(graph, request.Mode);
         return new FilterCircuitBuildResult(graph, hints, networkValues);
     }
 
@@ -314,21 +332,32 @@ public sealed class FilterCircuitAssembler
             series = constraints.ResistorSeries;
         }
 
+        var userAttenuation = request.PassbandGain < 1 - 1e-12;
+        var rolePrefix = userAttenuation ? "InterstageAttenuator" : "PrototypeNormalization";
         var values = new[]
         {
-            new SynthesizedComponentValue("PrototypeNormalizationSeries", ComponentType.Resistor,
+            new SynthesizedComponentValue($"{rolePrefix}Series", ComponentType.Resistor,
                 ComponentParameterNames.ResistanceOhm, theoreticalSeries, selectedSeries, series, constraints.ResistorTolerancePercent),
-            new SynthesizedComponentValue("PrototypeNormalizationShunt", ComponentType.Resistor,
+            new SynthesizedComponentValue($"{rolePrefix}Shunt", ComponentType.Resistor,
                 ComponentParameterNames.ResistanceOhm, theoreticalShunt, selectedShunt, series, constraints.ResistorTolerancePercent)
         };
         var seriesResistor = Add(builder, allocator, values[0]);
         var shuntResistor = Add(builder, allocator, values[1]);
         builder.Connect("N_FILTER_CORE_OUT", seriesResistor.GetPin("1"));
-        builder.Connect("VOUT", seriesResistor.GetPin("2"), shuntResistor.GetPin("1"));
+        var dividerOutput = userAttenuation ? "N_OUTPUT_SCALE" : "VOUT";
+        builder.Connect(dividerOutput, seriesResistor.GetPin("2"), shuntResistor.GetPin("1"));
         builder.Connect("GND", shuntResistor.GetPin("2"));
         var sectionIndex = Math.Max(1, sectionCount);
-        hints.Add(new(seriesResistor.Reference, sectionIndex, "PrototypeNormalizationSeries", 8, 0));
-        hints.Add(new(shuntResistor.Reference, sectionIndex, "PrototypeNormalizationShunt", 8, 1));
+        hints.Add(new(seriesResistor.Reference, sectionIndex, $"{rolePrefix}Series", 8, 0));
+        hints.Add(new(shuntResistor.Reference, sectionIndex, $"{rolePrefix}Shunt", 8, 1));
+        if (userAttenuation)
+        {
+            var buffer = builder.Add(ComponentFactory.OpAmp(allocator.Next(ComponentType.OpAmp)));
+            builder.Connect(dividerOutput, buffer.GetPin("IN+"));
+            builder.Connect("VOUT", buffer.GetPin("OUT"), buffer.GetPin("IN-"));
+            builder.Connect("VCC", buffer.GetPin("V+")); builder.Connect("VEE", buffer.GetPin("V-"));
+            hints.Add(new(buffer.Reference, sectionIndex, "OutputScaleBuffer", 9, 0));
+        }
         return values;
     }
 
@@ -342,12 +371,14 @@ public sealed class FilterCircuitAssembler
         { builder.Connect("VIN", r.GetPin("1")); builder.Connect("VOUT", r.GetPin("2"), c.GetPin("1")); builder.Connect("GND", c.GetPin("2")); hints.Add(new(r.Reference, 1, "Series", 0, 0)); hints.Add(new(c.Reference, 1, "Shunt", 1, 1)); }
         else
         { builder.Connect("VIN", c.GetPin("1")); builder.Connect("VOUT", c.GetPin("2"), r.GetPin("1")); builder.Connect("GND", r.GetPin("2")); hints.Add(new(c.Reference, 1, "Series", 0, 0)); hints.Add(new(r.Reference, 1, "Shunt", 1, 1)); }
-        var graph = builder.Build(); FilterCircuitGraphValidator.EnsureValid(graph, request.Mode); return new(graph, hints);
+        var graph = builder.Build(); FilterCircuitGraphValidator.EnsureFilterRequirements(graph, request.Mode); return new(graph, hints);
     }
 
     private static FilterCircuitBuildResult BuildPassiveLc(FilterDesignRequest request, NormalizedFilterSpecification specification, FilterPrototype prototype)
     {
-        var theoreticalBranches = new PassiveLcTransformationService().Transform(prototype.LadderGValues, prototype.Order, request.ResponseType, request.SourceResistanceOhm, specification);
+        var impedanceScale = request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : request.LoadResistanceOhm;
+        var ladderPrototype = prototype.LcLadderPrototype ?? throw new NotSupportedException($"{prototype.Approximation} does not provide a verified normalized LC ladder prototype.");
+        var theoreticalBranches = new PassiveLcTransformationService().Transform(ladderPrototype, request.ResponseType, impedanceScale, specification);
         var branches = new PassiveLcStandardValueOptimizer().Optimize(theoreticalBranches, request.ComponentConstraints, specification);
         var builder = new CircuitBuilder(); var allocator = new ReferenceDesignatorAllocator(); var hints = new List<FilterPlacementHint>(); builder.CreateNet("GND");
         var currentNet = "VIN"; var seriesBranches = branches.Count(item => item.Connection == LcBranchConnection.Series); var seriesPosition = 0; var layoutColumn = 0;
@@ -366,7 +397,7 @@ public sealed class FilterCircuitAssembler
             }
         }
         if (!string.Equals(currentNet, "VOUT", StringComparison.OrdinalIgnoreCase)) builder.CreateNet("VOUT");
-        var graph = builder.Build(); FilterCircuitGraphValidator.EnsureValid(graph, request.Mode);
+        var graph = builder.Build(); FilterCircuitGraphValidator.EnsureFilterRequirements(graph, request.Mode);
         var values=branches.SelectMany(branch=>branch.Parts.Select((part,index)=>new SynthesizedComponentValue($"g{branch.PrototypeIndex}:{part.ComponentType}{index+1}",part.ComponentType,part.ComponentType==ComponentType.Inductor?ComponentParameterNames.InductanceHenry:ComponentParameterNames.CapacitanceFarad,part.TheoreticalValue,part.Value,part.SelectedSeries,part.TolerancePercent))).ToArray();
         return new(graph, hints, values);
     }

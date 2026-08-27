@@ -25,6 +25,7 @@ public sealed record FilterDesignRequest
     public required double LoadResistanceOhm { get; init; }
     public required double PreferredResistanceOhm { get; init; }
     public required ComponentSelectionConstraints ComponentConstraints { get; init; }
+    public LcTerminationMode LcTerminationMode { get; init; } = LcTerminationMode.DoublyTerminated;
 
     public static FilterDesignRequest FromState(FilterDesignState state)
     {
@@ -66,7 +67,8 @@ public sealed record FilterDesignRequest
                 InductorMaximumH = state.InductorMaximumH,
                 OptimizeStandardValues = state.OptimizeStandardValues,
                 OptimizationTarget = state.OptimizationTarget
-            }
+            },
+            LcTerminationMode = state.LcTerminationMode
         };
     }
 }

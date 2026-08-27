@@ -26,7 +26,7 @@ public sealed class FilterSpiceExportService : IFilterSpiceExportService
         var terminatedLc = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc;
         var title = $"Circuit Module Designer - {request.Mode} {request.ResponseType} {request.Approximation} {request.Implementation}";
         return exporter.Export(graph, new CircuitSpiceExportOptions(title, analysis.StartFrequencyHz, analysis.StopFrequencyHz, analysis.PointsPerDecade,
-            SourceResistanceOhm: terminatedLc ? request.SourceResistanceOhm : null,
+            SourceResistanceOhm: terminatedLc && request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : null,
             LoadResistanceOhm: terminatedLc ? request.LoadResistanceOhm : null));
     }
 

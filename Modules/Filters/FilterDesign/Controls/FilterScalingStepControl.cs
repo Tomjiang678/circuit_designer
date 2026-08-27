@@ -11,11 +11,23 @@ public sealed class FilterScalingStepControl : FilterStepBase
         if (state.Mode == FilterMode.Passive && state.Implementation == FilterImplementationType.Lc)
         {
             var preset = Combo(new[] { "50 Ω", "75 Ω", "600 Ω", "Custom" }, value => value);
-            var rs = Number(state.SourceResistanceOhm, 0.001, 1e9);
+            var rs = Number(state.SourceResistanceOhm, 0, 1e9);
             var rl = Number(state.LoadResistanceOhm, 0.001, 1e9);
             AddRow(layout, "Impedance Preset:", preset);
-            AddRow(layout, "Source Impedance (Rs), Ω:", rs);
-            AddRow(layout, "Load Impedance (RL), Ω:", rl);
+            AddRow(layout, "Series Source Resistance (Rs), Ω:", rs);
+            AddRow(layout, "Load Resistance (RL, VOUT to GND), Ω:", rl);
+            AddRow(layout, "Termination Model:", new Label
+            {
+                Text = "Rs is a series source resistance; 0 Ω omits it from Analysis and CIR. " +
+                       "RL is the shunt load and supplies the LC impedance scale when Rs is 0 Ω.",
+                AutoSize = true,
+                MaximumSize = new Size(560, 0),
+                ForeColor = Color.DimGray
+            });
+            preset.SelectedIndex = state.SourceResistanceOhm == 50 && state.LoadResistanceOhm == 50 ? 0
+                : state.SourceResistanceOhm == 75 && state.LoadResistanceOhm == 75 ? 1
+                : state.SourceResistanceOhm == 600 && state.LoadResistanceOhm == 600 ? 2
+                : 3;
             rs.ValueChanged += (_, _) => { state.SourceResistanceOhm = (double)rs.Value; Changed(); };
             rl.ValueChanged += (_, _) => { state.LoadResistanceOhm = (double)rl.Value; Changed(); };
             preset.SelectedIndexChanged += (_, _) =>

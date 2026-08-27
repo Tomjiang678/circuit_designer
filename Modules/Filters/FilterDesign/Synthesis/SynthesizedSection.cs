@@ -24,4 +24,18 @@ public sealed record SynthesizedSection(
     double ActualGain,
     double FrequencyError,
     double QError,
-    double GainError);
+    double GainError)
+{
+    public TopologyGainRealization? TopologyGain { get; init; }
+    public double IntrinsicTopologyGain => TopologyGain?.IntrinsicTopologyGain ?? ActualGain;
+    public double InterstageScale { get; init; } = 1;
+    public int PolaritySign { get; init; } = 1;
+    public double ActualSignedGain => PolaritySign * ActualGain * InterstageScale;
+}
+
+public sealed record TopologyGainRealization(
+    double IntrinsicTopologyGain,
+    double MinimumAvailableGain,
+    double MaximumAvailableGain,
+    double RequiredOutputOrInterstageScale,
+    double ActualSectionGain);

@@ -19,6 +19,7 @@ public sealed class CircuitSpiceExporter : ICircuitSpiceExporter
 
         if (options.SourceResistanceOhm is > 0)
         {
+            text.AppendLine("* Thevenin input source: ideal voltage source followed by series source resistance Rs");
             text.AppendLine("V_INPUT N_SOURCE 0 DC 0 AC 1");
             text.AppendLine($"R_SOURCE N_SOURCE VIN {Number(options.SourceResistanceOhm.Value)}");
         }
@@ -43,9 +44,12 @@ public sealed class CircuitSpiceExporter : ICircuitSpiceExporter
             text.AppendLine($"{component.Reference} {first} {second} {Number(value)}");
         }
 
-        text.AppendLine(options.LoadResistanceOhm is > 0
-            ? $"R_LOAD VOUT 0 {Number(options.LoadResistanceOhm.Value)}"
-            : "R_OUTPUT_LOAD VOUT 0 1e9");
+        if (options.LoadResistanceOhm is > 0)
+        {
+            text.AppendLine("* Shunt load termination RL from VOUT to ground");
+            text.AppendLine($"R_LOAD VOUT 0 {Number(options.LoadResistanceOhm.Value)}");
+        }
+        else text.AppendLine("R_OUTPUT_LOAD VOUT 0 1e9");
         text.AppendLine();
         text.AppendLine($".AC DEC {options.PointsPerDecade} {Number(options.StartFrequencyHz)} {Number(options.StopFrequencyHz)}");
         text.AppendLine(".PRINT AC VM(VOUT) VP(VOUT)");

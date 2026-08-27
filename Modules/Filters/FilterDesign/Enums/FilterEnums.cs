@@ -18,6 +18,4 @@ public enum FilterOrderMode { CalculateAutomatically, SpecifyOrder }
 public enum BandFrequencyInputMode { Edges, CenterAndBandwidth }
 public enum StandardComponentSeries { E12, E24, E48, E96 }
 public enum FilterOptimizationTarget { MinimizeFrequencyError, MinimizeQError }
-public enum FrequencyUnit { Hz, KHz, MHz }
-public enum ResistanceUnit { Ohm, KOhm, MOhm }
-public enum CapacitanceUnit { PF, NF, UF, MF }
+public enum LcTerminationMode { IdealVoltageSource, DoublyTerminated }

@@ -1,5 +1,6 @@
 using CircuitModuleDesigner.Core.Schematic;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Schematic.Placement;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Schematic;
 
@@ -8,6 +9,12 @@ public sealed class FilterSchematicLayoutService
     private const double SectionWidth = 1380;
     private const double BaselineY = 360;
     private readonly SchematicOrthogonalRouter router = new();
+    private readonly IFilterPlacementTemplate[] templates =
+    [
+        new SallenKeyPlacementTemplate(),
+        new MfbPlacementTemplate(),
+        new PassiveLcPlacementTemplate()
+    ];
 
     public SchematicDocument Layout(FilterCircuitBuildResult buildResult)
     {
@@ -35,23 +42,16 @@ public sealed class FilterSchematicLayoutService
         return document;
     }
 
-    private static (SchematicPoint Position, ComponentOrientation Orientation) PlaceHint(double originX, FilterPlacementHint hint) => hint.SemanticRole switch
+    private (SchematicPoint Position, ComponentOrientation Orientation) PlaceHint(double originX, FilterPlacementHint hint)
     {
-        "Series" => (new SchematicPoint(originX + 90, BaselineY), ComponentOrientation.Right),
-        "Series1" => (new SchematicPoint(originX + 70, BaselineY), ComponentOrientation.Right),
-        "Series2" => (new SchematicPoint(originX + 225, BaselineY), ComponentOrientation.Right),
-        "Shunt" => (new SchematicPoint(originX + 330, BaselineY + 105), ComponentOrientation.Down),
-        "Feedback" => (new SchematicPoint(originX + 245, BaselineY - 115), ComponentOrientation.Right),
-        "Buffer" => (new SchematicPoint(originX + 445, BaselineY + 16), ComponentOrientation.Right),
-        "OpAmp" => (new SchematicPoint(originX + 465, BaselineY + 16), ComponentOrientation.Right),
-        "SectionGainFeedback" => (new SchematicPoint(originX + 420, BaselineY - 115), ComponentOrientation.Right),
-        "SectionGainShunt" => (new SchematicPoint(originX + 390, BaselineY + 125), ComponentOrientation.Down),
-        "MfbInput" => (new SchematicPoint(originX + 55, BaselineY), ComponentOrientation.Right),
-        "MfbToInput" => (new SchematicPoint(originX + 210, BaselineY), ComponentOrientation.Right),
-        "MfbShunt" => (new SchematicPoint(originX + 175, BaselineY + 115), ComponentOrientation.Down),
-        "MfbFeedbackTop" => (new SchematicPoint(originX + 275, BaselineY - 120), ComponentOrientation.Right),
-        "MfbFeedbackBottom" => (new SchematicPoint(originX + 350, BaselineY + 120), ComponentOrientation.Right),
-        "MfbOpAmp" => (new SchematicPoint(originX + 470, BaselineY + 16), ComponentOrientation.Right),
+        foreach (var template in templates)
+            if (template.TryPlace(originX, BaselineY, hint, out var placement))
+                return (new SchematicPoint(placement.X, placement.Y), placement.Orientation);
+        return PlaceLegacyHint(originX, hint);
+    }
+
+    private static (SchematicPoint Position, ComponentOrientation Orientation) PlaceLegacyHint(double originX, FilterPlacementHint hint) => hint.SemanticRole switch
+    {
         "SkBpInput" => (new SchematicPoint(originX + 35, BaselineY), ComponentOrientation.Right),
         "SkBpSeries" => (new SchematicPoint(originX + 155, BaselineY), ComponentOrientation.Right),
         "SkBpFeedback" => (new SchematicPoint(originX + 230, BaselineY - 120), ComponentOrientation.Right),
@@ -94,15 +94,6 @@ public sealed class FilterSchematicLayoutService
         "BainterGainShunt" => (new SchematicPoint(originX + 980, BaselineY + 140), ComponentOrientation.Down),
         "PrototypeNormalizationSeries" => (new SchematicPoint(originX + 1190, BaselineY), ComponentOrientation.Right),
         "PrototypeNormalizationShunt" => (new SchematicPoint(originX + 1240, BaselineY + 125), ComponentOrientation.Down),
-        "SeriesInductor" => (new SchematicPoint(originX + 75 + hint.Column * 145, BaselineY), ComponentOrientation.Right),
-        "ShuntCapacitor" => (new SchematicPoint(originX + 75 + hint.Column * 145, BaselineY + 105), ComponentOrientation.Down),
-        "SeriesElement" => (new SchematicPoint(originX + 75 + hint.Column * 135, BaselineY), ComponentOrientation.Right),
-        "ParallelSeriesTop" => (new SchematicPoint(originX + 95 + hint.Column * 135, BaselineY - 55), ComponentOrientation.Right),
-        "ParallelSeriesBottom" => (new SchematicPoint(originX + 95 + hint.Column * 135, BaselineY + 55), ComponentOrientation.Right),
-        "ParallelShuntLeft" => (new SchematicPoint(originX + 70 + hint.Column * 135, BaselineY + 110), ComponentOrientation.Down),
-        "ParallelShuntRight" => (new SchematicPoint(originX + 125 + hint.Column * 135, BaselineY + 110), ComponentOrientation.Down),
-        "ShuntSeriesUpper" => (new SchematicPoint(originX + 95 + hint.Column * 135, BaselineY + 75), ComponentOrientation.Down),
-        "ShuntSeriesLower" => (new SchematicPoint(originX + 95 + hint.Column * 135, BaselineY + 180), ComponentOrientation.Down),
         _ => (new SchematicPoint(originX + 75 + hint.Column * 140, BaselineY + hint.Row * 105), ComponentOrientation.Right)
     };
 }

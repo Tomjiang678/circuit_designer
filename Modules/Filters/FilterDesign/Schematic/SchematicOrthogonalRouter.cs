@@ -1,6 +1,7 @@
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Core.Schematic;
 using CircuitModuleDesigner.Core.Schematic.Symbols;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Schematic.Routing;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Schematic;
 
@@ -9,6 +10,7 @@ internal sealed class SchematicOrthogonalRouter
     private const double Clearance = 18;
     private const double PortLength = 75;
     private const double PinEscapeLength = 28;
+    private readonly RoutingObstacleChecker obstacleChecker = new();
 
     public void Route(SchematicDocument document)
     {
@@ -229,7 +231,7 @@ internal sealed class SchematicOrthogonalRouter
         var direct = Compact([start, end]);
         var alignedX = NearlyEqual(start.X, end.X);
         var alignedY = NearlyEqual(start.Y, end.Y);
-        if ((alignedX || alignedY) && CollisionScore(direct, bounds) == 0)
+        if ((alignedX || alignedY) && obstacleChecker.CollisionScore(direct, bounds) == 0)
         {
             document.AddWire(new SchematicWire(netName, direct));
             return;
@@ -237,8 +239,8 @@ internal sealed class SchematicOrthogonalRouter
 
         var horizontalFirst = Compact([start, new SchematicPoint(end.X, start.Y), end]);
         var verticalFirst = Compact([start, new SchematicPoint(start.X, end.Y), end]);
-        var horizontalScore = CollisionScore(horizontalFirst, bounds);
-        var verticalScore = CollisionScore(verticalFirst, bounds);
+        var horizontalScore = obstacleChecker.CollisionScore(horizontalFirst, bounds);
+        var verticalScore = obstacleChecker.CollisionScore(verticalFirst, bounds);
         IReadOnlyList<SchematicPoint> selected = horizontalScore <= verticalScore ? horizontalFirst : verticalFirst;
 
         if (Math.Min(horizontalScore, verticalScore) > 0)
@@ -247,30 +249,9 @@ internal sealed class SchematicOrthogonalRouter
             var bottom = bounds.Max(item => item.Y + item.Height) + 30;
             var topRoute = Compact([start, new SchematicPoint(start.X, top), new SchematicPoint(end.X, top), end]);
             var bottomRoute = Compact([start, new SchematicPoint(start.X, bottom), new SchematicPoint(end.X, bottom), end]);
-            selected = CollisionScore(topRoute, bounds) <= CollisionScore(bottomRoute, bounds) ? topRoute : bottomRoute;
+            selected = obstacleChecker.CollisionScore(topRoute, bounds) <= obstacleChecker.CollisionScore(bottomRoute, bounds) ? topRoute : bottomRoute;
         }
         document.AddWire(new SchematicWire(netName, selected));
-    }
-
-    private static int CollisionScore(IReadOnlyList<SchematicPoint> route, IReadOnlyList<SchematicRect> bounds)
-    {
-        var score = 0;
-        for (var i = 1; i < route.Count; i++)
-        {
-            foreach (var box in bounds)
-            {
-                if (SegmentIntersectsBox(route[i - 1], route[i], box))
-                    score++;
-            }
-        }
-        return score;
-    }
-
-    private static bool SegmentIntersectsBox(SchematicPoint a, SchematicPoint b, SchematicRect box)
-    {
-        var minX = Math.Min(a.X, b.X); var maxX = Math.Max(a.X, b.X);
-        var minY = Math.Min(a.Y, b.Y); var maxY = Math.Max(a.Y, b.Y);
-        return maxX >= box.X && minX <= box.X + box.Width && maxY >= box.Y && minY <= box.Y + box.Height;
     }
 
     private static SchematicPoint FindNearest(SchematicPoint point, IReadOnlyList<PinAnchor> candidates) =>

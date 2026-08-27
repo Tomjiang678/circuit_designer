@@ -25,7 +25,8 @@ public sealed class FilterDesignState
     public double CenterFrequencyHz { get; set; } = 1_000;
     public double PassbandBandwidthHz { get; set; } = 200;
     public double StopbandBandwidthHz { get; set; } = 1_000;
-    public double SourceResistanceOhm { get; set; } = 50;
+    public double SourceResistanceOhm { get; set; }
+    public LcTerminationMode LcTerminationMode { get; set; } = LcTerminationMode.IdealVoltageSource;
     public double LoadResistanceOhm { get; set; } = 50;
     public double PreferredResistanceOhm { get; set; } = 10_000;
     public double PreferredResistorMinOhm { get; set; } = 1_000;

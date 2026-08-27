@@ -1,5 +1,6 @@
 using System.Numerics;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.PassiveLc;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Approximation;
 
@@ -23,7 +24,18 @@ public sealed class ChebyshevPrototypeDesigner : IFilterPrototypeDesigner
                 -Math.Sinh(mu) * Math.Sin(theta),
                 Math.Cosh(mu) * Math.Cos(theta));
         }
-        return new FilterPrototype(Approximation, order, poles, CalculateLadderValues(order, epsilon));
+        var ladder = CalculateLadderValues(order, epsilon);
+        return new FilterPrototype(Approximation, order, poles, ladder,
+            Normalization: new PrototypeNormalizationInfo(
+                PrototypeNormalizationKind.PassbandRipple,
+                "Chebyshev-I passband-ripple prototype",
+                "The normalized passband edge is Ω=1 and ripple is set by epsilon=sqrt(10^(Rp/10)-1).",
+                "Closed-form Chebyshev-I order equation",
+                "Classical Chebyshev Type-I all-pole prototype"),
+            Description: "Equiripple passband magnitude with monotonic stopband attenuation.",
+            Parameters: new Dictionary<string, double> { ["Epsilon"] = epsilon },
+            LcLadderPrototype: ClassicLcPrototypeFactory.Create(Approximation, order, ladder,
+                $"{passbandRippleDb:G6} dB equal-ripple insertion-loss ladder", "Closed-form Chebyshev-I g-values"));
     }
 
     private static IReadOnlyList<double> CalculateLadderValues(int order, double epsilon)

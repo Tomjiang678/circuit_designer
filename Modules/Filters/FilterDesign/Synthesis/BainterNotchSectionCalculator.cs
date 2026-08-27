@@ -4,6 +4,8 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Sections;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.Verification;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis;
 
@@ -39,41 +41,59 @@ public sealed class BainterNotchSectionCalculator
         var capacitorTheory = Math.Sqrt(capacitorMinimum * capacitorMaximum);
         var resistorTheory = Math.Sqrt(x.ResistorMinimumOhm * x.ResistorMaximumOhm);
         var capacitorCandidates = x.OptimizeStandardValues
-            ? StandardValueSeries.GetNearby(capacitorTheory, x.CapacitorSeries, capacitorMinimum, capacitorMaximum, 4)
+            ? StandardValueSeries.GetNearby(capacitorTheory, x.CapacitorSeries, capacitorMinimum, capacitorMaximum, 1)
             : new[] { capacitorTheory };
         var gainDesign = SelectGainNetwork(targetGain, x);
-        Candidate? best = null;
+        var generated = new List<Candidate>();
         foreach (var capacitor in capacitorCandidates)
         {
             var r1 = Select(resistorTheory, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
             var r2 = r1;
-            var r3 = Select(coefficients[0] / capacitor, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
-            var r4 = Select(coefficients[1] / capacitor, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
-            var r5 = Select(coefficients[2] / capacitor, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
+            var r3Candidates = Nearby(coefficients[0] / capacitor, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
+            var r4Candidates = Nearby(coefficients[1] / capacitor, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
+            var r5Candidates = Nearby(coefficients[2] / capacitor, x.ResistorSeries, x.ResistorMinimumOhm, x.ResistorMaximumOhm, x.OptimizeStandardValues);
+            foreach (var r3 in r3Candidates)
+            foreach (var r4 in r4Candidates)
+            foreach (var r5 in r5Candidates)
             foreach (var gainCandidate in gainDesign.Candidates)
             {
                 var candidate = Verify(r1, r2, r3, r4, r5, r5, capacitor, capacitor, gainCandidate.Gain, gainCandidate.R7, gainCandidate.R8, wp, wz, section.Q, targetGain);
-                if (best == null || candidate.Score < best.Score) best = candidate;
+                generated.Add(candidate);
             }
         }
-        var selected = best ?? throw new InvalidOperationException("No Bainter component candidate could be generated inside the selected ranges.");
-        if (Math.Abs(selected.FrequencyError) > .05 || Math.Abs(selected.QError) > .08 || Math.Abs(selected.GainError) > .08)
-            throw new InvalidOperationException($"Bainter standard values exceed the verification limit (f0 error {selected.FrequencyError:P2}, Q error {selected.QError:P2}, gain error {selected.GainError:P2}).");
         var requiredMagnitude = Math.Pow(10, -request.StopbandAttenuationDb / 20);
-        if (selected.NotchMagnitude > requiredMagnitude)
-            throw new InvalidOperationException($"Selected Bainter values provide {-20 * Math.Log10(selected.NotchMagnitude):0.##} dB nominal attenuation at the requested notch; {request.StopbandAttenuationDb:0.##} dB is required. Choose a finer E-series or disable standard-value optimization.");
-
         var theories = new[] { resistorTheory, resistorTheory, coefficients[0] / capacitorTheory, coefficients[1] / capacitorTheory, coefficients[2] / capacitorTheory, coefficients[2] / capacitorTheory };
-        var resistors = new[] { selected.R1, selected.R2, selected.R3, selected.R4, selected.R5, selected.R6 };
-        var components = Enumerable.Range(0, 6).Select(index => R($"R{index + 1}", theories[index], resistors[index], x))
-            .Concat(new[] { C("C1", capacitorTheory, selected.C1, x), C("C2", capacitorTheory, selected.C2, x) }).ToList();
-        if (gainDesign.R7 > 0)
+        VerifiedCandidate? verified = null;
+        foreach (var candidate in generated)
         {
-            components.Add(R("R7", gainDesign.R7, selected.R7, x));
-            components.Add(R("R8", gainDesign.R8, selected.R8, x));
+            var candidateComponents = CreateComponents(candidate, theories, capacitorTheory, gainDesign, x);
+            var provisionalCandidate = new SynthesizedSection(section, candidateComponents,
+                candidate.PoleFrequency / (2 * Math.PI), candidate.Q, candidate.Gain,
+                candidate.FrequencyError, candidate.QError, candidate.GainError);
+            var graph = new FilterCircuitAssembler().BuildActiveSection(request, provisionalCandidate);
+            var measurement = new CircuitSectionMnaVerifier().Verify(graph, SectionTransferTarget.FromSection(section),
+                new SectionTransferVerificationOptions(1, 1, PointsPerDecade: 6));
+            var notchPenalty = measurement.TargetZeroGainMagnitude is double notch
+                ? Math.Max(0, notch / requiredMagnitude - 1)
+                : 1e6;
+            var score = Math.Abs(measurement.FrequencyError) + 1.5 * Math.Abs(measurement.QError) +
+                        Math.Abs(measurement.ZeroFrequencyError ?? 1) + .5 * Math.Abs(measurement.GainError) +
+                        8 * notchPenalty + .002 * ComponentSpread(candidateComponents);
+            if (verified == null || score < verified.Score)
+                verified = new(candidate, candidateComponents, measurement, score);
         }
-        return new SynthesizedSection(section, components, selected.PoleFrequency / (2 * Math.PI), selected.Q, selected.Gain,
-            selected.FrequencyError, selected.QError, selected.GainError);
+        if (verified == null)
+            throw new InvalidOperationException("No Bainter component candidate could be generated and verified inside the selected ranges.");
+        var selectedComponents = verified.Components;
+        var measured = verified.Measurement;
+        if (measured.TargetZeroGainMagnitude is not double notchMagnitude || notchMagnitude > requiredMagnitude)
+            throw new InvalidOperationException($"BainterNotchDepthInsufficientWithSelectedSeries: selected {x.ResistorSeries}/{x.CapacitorSeries} values provide {measured.NotchAttenuationDb:0.##} dB nominal attenuation at the requested notch; {request.StopbandAttenuationDb:0.##} dB is required. Use E96, tighter tolerance, disable standard-value optimization, or lower As.");
+        if (Math.Abs(measured.FrequencyError) > .05 || Math.Abs(measured.QError) > .08 || Math.Abs(measured.GainError) > .08 ||
+            Math.Abs(measured.ZeroFrequencyError ?? double.PositiveInfinity) > .02)
+            throw new InvalidOperationException($"Bainter selected values exceed the verification limit (f0 error {measured.FrequencyError:P2}, Q error {measured.QError:P2}, zero error {measured.ZeroFrequencyError:P2}, gain error {measured.GainError:P2}).");
+
+        return new SynthesizedSection(section, selectedComponents, measured.PoleAngularFrequency / (2 * Math.PI), measured.Q, measured.GainMagnitude,
+            measured.FrequencyError, measured.QError, measured.GainError);
     }
 
     private static Candidate Verify(double r1, double r2, double r3, double r4, double r5, double r6, double c1, double c2,
@@ -113,6 +133,39 @@ public sealed class BainterNotchSectionCalculator
         return optimize ? StandardValueSeries.GetNearby(theory, series, minimum, maximum).MinBy(value => Math.Abs(Math.Log(value / theory))) : theory;
     }
 
+    private static IReadOnlyList<double> Nearby(double theory, StandardComponentSeries series, double minimum, double maximum, bool optimize)
+    {
+        if (theory < minimum || theory > maximum)
+            throw new InvalidOperationException($"Theoretical resistance {theory:G6} ohm is outside {minimum:G6}..{maximum:G6} ohm.");
+        return optimize ? StandardValueSeries.GetNearby(theory, series, minimum, maximum, 1) : [theory];
+    }
+
+    private static IReadOnlyList<SynthesizedComponentValue> CreateComponents(Candidate selected, IReadOnlyList<double> theories,
+        double capacitorTheory, GainDesign gainDesign, ComponentSelectionConstraints x)
+    {
+        var resistors = new[] { selected.R1, selected.R2, selected.R3, selected.R4, selected.R5, selected.R6 };
+        var components = Enumerable.Range(0, 6).Select(index => R($"R{index + 1}", theories[index], resistors[index], x))
+            .Concat(new[] { C("C1", capacitorTheory, selected.C1, x), C("C2", capacitorTheory, selected.C2, x) }).ToList();
+        if (gainDesign.R7 > 0)
+        {
+            components.Add(R("R7", gainDesign.R7, selected.R7, x));
+            components.Add(R("R8", gainDesign.R8, selected.R8, x));
+        }
+        return components;
+    }
+
+    private static double ComponentSpread(IReadOnlyList<SynthesizedComponentValue> components)
+    {
+        static double Spread(IEnumerable<double> values)
+        {
+            var selected = values.ToArray();
+            return selected.Length == 0 ? 1 : selected.Max() / selected.Min();
+        }
+        var resistorSpread = Spread(components.Where(value => value.ComponentType == ComponentType.Resistor).Select(value => value.SelectedValue));
+        var capacitorSpread = Spread(components.Where(value => value.ComponentType == ComponentType.Capacitor).Select(value => value.SelectedValue));
+        return Math.Log10(Math.Max(1, resistorSpread * capacitorSpread));
+    }
+
     private static SynthesizedComponentValue R(string role, double theory, double selected, ComponentSelectionConstraints x) =>
         new(role, ComponentType.Resistor, ComponentParameterNames.ResistanceOhm, theory, selected, selected == theory ? null : x.ResistorSeries, x.ResistorTolerancePercent);
     private static SynthesizedComponentValue C(string role, double theory, double selected, ComponentSelectionConstraints x) =>
@@ -122,4 +175,6 @@ public sealed class BainterNotchSectionCalculator
     private sealed record GainDesign(double R7, double R8, IReadOnlyList<GainCandidate> Candidates);
     private sealed record Candidate(double R1, double R2, double R3, double R4, double R5, double R6, double R7, double R8, double C1, double C2,
         double PoleFrequency, double Q, double Gain, double NotchMagnitude, double FrequencyError, double QError, double GainError, double Score);
+    private sealed record VerifiedCandidate(Candidate Candidate, IReadOnlyList<SynthesizedComponentValue> Components,
+        SectionTransferMeasurement Measurement, double Score);
 }

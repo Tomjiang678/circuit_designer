@@ -27,7 +27,7 @@ public sealed class FilterAnalysisService
     {
         var terminatedLc = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc;
         var options = CreateOptions(request);
-        if (terminatedLc)
+        if (terminatedLc && request.SourceResistanceOhm > 0)
         {
             // Express voltage as transducer power gain relative to the Thevenin
             // source's available power. The equivalent voltage reference is
@@ -41,6 +41,8 @@ public sealed class FilterAnalysisService
                 MagnitudeReferenceDescription = $"Transducer gain relative to available source power, Rs={request.SourceResistanceOhm:G6} ohm / RL={request.LoadResistanceOhm:G6} ohm"
             };
         }
-        return analyzer.Analyze(graph, options, terminatedLc ? request.SourceResistanceOhm : null, terminatedLc ? request.LoadResistanceOhm : null);
+        return analyzer.Analyze(graph, options,
+            terminatedLc && request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : null,
+            terminatedLc ? request.LoadResistanceOhm : null);
     }
 }
