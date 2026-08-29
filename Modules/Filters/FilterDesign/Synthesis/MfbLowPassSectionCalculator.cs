@@ -26,7 +26,9 @@ public sealed class MfbLowPassSectionCalculator
         if (minimum > maximum) throw new InvalidOperationException($"This MFB low-pass section cannot fit the selected R/C ranges (f0={section.PoleFrequencyHz:0.###} Hz, Q={section.Q:0.###}, gain={gain:0.###}).");
         var resistance = Math.Sqrt(minimum * maximum);
         var theory = new Candidate(resistance, gain * resistance, m * resistance, c1Coefficient / resistance, n * c1Coefficient / resistance);
-        var best = SelectCandidate(theory, section, constraints);
+        var selection = SelectCandidate(theory, section, constraints);
+        theory = selection.Theory;
+        var best = selection.Selected;
         var actual = Verify(best.R1, best.R2, best.R3, best.C1, best.C2);
         var frequencyError = Relative(actual.FrequencyHz, section.PoleFrequencyHz);
         var qError = Relative(actual.Q, section.Q);
@@ -52,28 +54,55 @@ public sealed class MfbLowPassSectionCalculator
         return new MfbActualParameters(frequency, q, r2 / r1);
     }
 
-    private static Candidate SelectCandidate(Candidate theory, AnalogFilterSection section, ComponentSelectionConstraints constraints)
+    private static Selection SelectCandidate(Candidate theory, AnalogFilterSection section, ComponentSelectionConstraints constraints)
     {
-        if (!constraints.OptimizeStandardValues) return theory;
-        var r1 = StandardValueSeries.GetNearby(theory.R1, constraints.ResistorSeries, constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm);
-        var r2 = StandardValueSeries.GetNearby(theory.R2, constraints.ResistorSeries, constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm);
-        var r3 = StandardValueSeries.GetNearby(theory.R3, constraints.ResistorSeries, constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm);
-        var c1 = StandardValueSeries.GetNearby(theory.C1, constraints.CapacitorSeries, constraints.CapacitorMinimumF, constraints.CapacitorMaximumF);
-        var c2 = StandardValueSeries.GetNearby(theory.C2, constraints.CapacitorSeries, constraints.CapacitorMinimumF, constraints.CapacitorMaximumF);
-        Candidate? best = null; var bestScore = double.PositiveInfinity;
-        foreach (var a in r1) foreach (var b in r2) foreach (var c in r3) foreach (var d in c1) foreach (var e in c2)
+        if (!constraints.OptimizeStandardValues) return new(theory, theory);
+        Candidate? best = null; Candidate? bestTheory = null; var bestScore = double.PositiveInfinity;
+        foreach (var scale in EquivalentScales(theory, constraints))
         {
-            var actual = Verify(a, b, c, d, e);
-            var score = Math.Abs(Relative(actual.FrequencyHz, section.PoleFrequencyHz)) + 1.5 * Math.Abs(Relative(actual.Q, section.Q)) + 0.5 * Math.Abs(Relative(actual.GainMagnitude, section.SectionGain));
-            if (score < bestScore) { bestScore = score; best = new Candidate(a, b, c, d, e); }
+            var scaled = new Candidate(theory.R1 * scale, theory.R2 * scale, theory.R3 * scale, theory.C1 / scale, theory.C2 / scale);
+            var r1 = StandardValueSeries.GetNearby(scaled.R1, constraints.ResistorSeries, constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm);
+            var r2 = StandardValueSeries.GetNearby(scaled.R2, constraints.ResistorSeries, constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm);
+            var r3 = StandardValueSeries.GetNearby(scaled.R3, constraints.ResistorSeries, constraints.ResistorMinimumOhm, constraints.ResistorMaximumOhm);
+            var c1 = StandardValueSeries.GetNearby(scaled.C1, constraints.CapacitorSeries, constraints.CapacitorMinimumF, constraints.CapacitorMaximumF);
+            var c2 = StandardValueSeries.GetNearby(scaled.C2, constraints.CapacitorSeries, constraints.CapacitorMinimumF, constraints.CapacitorMaximumF);
+            foreach (var a in r1) foreach (var b in r2) foreach (var c in r3) foreach (var d in c1) foreach (var e in c2)
+            {
+                var actual = Verify(a, b, c, d, e);
+                var score = Math.Abs(Relative(actual.FrequencyHz, section.PoleFrequencyHz)) + 1.5 * Math.Abs(Relative(actual.Q, section.Q)) + 0.5 * Math.Abs(Relative(actual.GainMagnitude, section.SectionGain));
+                if (score < bestScore) { bestScore = score; best = new Candidate(a, b, c, d, e); bestTheory = scaled; }
+            }
         }
-        return best ?? throw new InvalidOperationException("No valid MFB standard-value candidate was found.");
+        return new(bestTheory ?? throw new InvalidOperationException("No valid MFB standard-value scale was found."),
+            best ?? throw new InvalidOperationException("No valid MFB standard-value candidate was found."));
+    }
+
+    private static IEnumerable<double> EquivalentScales(Candidate theory, ComponentSelectionConstraints constraints)
+    {
+        var minimum = new[]
+        {
+            constraints.ResistorMinimumOhm / theory.R1, constraints.ResistorMinimumOhm / theory.R2,
+            constraints.ResistorMinimumOhm / theory.R3, theory.C1 / constraints.CapacitorMaximumF,
+            theory.C2 / constraints.CapacitorMaximumF
+        }.Max();
+        var maximum = new[]
+        {
+            constraints.ResistorMaximumOhm / theory.R1, constraints.ResistorMaximumOhm / theory.R2,
+            constraints.ResistorMaximumOhm / theory.R3, theory.C1 / constraints.CapacitorMinimumF,
+            theory.C2 / constraints.CapacitorMinimumF
+        }.Min();
+        if (minimum > maximum) yield break;
+        const int samples = 13;
+        for (var index = 0; index < samples; index++)
+            yield return minimum * Math.Pow(maximum / minimum, index / (samples - 1d));
+        if (minimum <= 1 && maximum >= 1) yield return 1;
     }
 
     private static SynthesizedComponentValue Value(string role, ComponentType type, string parameter, double theory, double selected, StandardComponentSeries series, double tolerance) =>
         new(role, type, parameter, theory, selected, selected == theory ? null : series, tolerance);
     private static double Relative(double actual, double target) => (actual - target) / target;
     private sealed record Candidate(double R1, double R2, double R3, double C1, double C2);
+    private sealed record Selection(Candidate Theory, Candidate Selected);
 }
 
 public sealed record MfbActualParameters(double FrequencyHz, double Q, double GainMagnitude);

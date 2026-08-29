@@ -13,12 +13,12 @@ public sealed class FilterSpecificationsStepControl : FilterStepBase
     private readonly NumericUpDown rp;
     private readonly NumericUpDown attenuation;
     private readonly NumericUpDown gain;
-    private readonly NumericUpDown fp;
-    private readonly NumericUpDown fs;
-    private readonly NumericUpDown fs1;
-    private readonly NumericUpDown fp1;
-    private readonly NumericUpDown fp2;
-    private readonly NumericUpDown fs2;
+    private readonly EngineeringValueInput fp;
+    private readonly EngineeringValueInput fs;
+    private readonly EngineeringValueInput fs1;
+    private readonly EngineeringValueInput fp1;
+    private readonly EngineeringValueInput fp2;
+    private readonly EngineeringValueInput fs2;
     private bool configuringSplit;
 
     public FilterSpecificationsStepControl(FilterDesignState state) : base(state)
@@ -30,12 +30,12 @@ public sealed class FilterSpecificationsStepControl : FilterStepBase
         rp = Number(state.PassbandRippleDb, 0, 100);
         attenuation = Number(state.StopbandAttenuationDb, 0, 200);
         gain = Number(state.PassbandGain, 0.001, 1000);
-        fp = Number(state.PassbandEdgeHz, 0.001);
-        fs = Number(state.StopbandEdgeHz, 0.001);
-        fs1 = Number(state.StopbandLowerHz, 0.001);
-        fp1 = Number(state.PassbandLowerHz, 0.001);
-        fp2 = Number(state.PassbandUpperHz, 0.001);
-        fs2 = Number(state.StopbandUpperHz, 0.001);
+        fp = Frequency(state.PassbandEdgeHz);
+        fs = Frequency(state.StopbandEdgeHz);
+        fs1 = Frequency(state.StopbandLowerHz);
+        fp1 = Frequency(state.PassbandLowerHz);
+        fp2 = Frequency(state.PassbandUpperHz);
+        fs2 = Frequency(state.StopbandUpperHz);
 
         AddRow(inputLayout, "Allowable Passband Ripple (Rp), dB:", rp);
         AddRow(inputLayout, "Stopband Attenuation (As/Asb), dB:", attenuation);
@@ -43,8 +43,10 @@ public sealed class FilterSpecificationsStepControl : FilterStepBase
             AddRow(inputLayout, "Passband Gain (A0), V/V:", gain);
         BuildFrequencyRows();
 
-        foreach (var number in new[] { rp, attenuation, gain, fp, fs, fs1, fp1, fp2, fs2 })
+        foreach (var number in new[] { rp, attenuation, gain })
             number.ValueChanged += (_, _) => UpdateStateAndPreview();
+        foreach (var frequency in new[] { fp, fs, fs1, fp1, fp2, fs2 })
+            frequency.ValueChanged += (_, _) => UpdateStateAndPreview();
 
         var inputGroup = new GroupBox
         {
@@ -84,24 +86,24 @@ public sealed class FilterSpecificationsStepControl : FilterStepBase
     {
         if (state.ResponseType is FilterResponseType.LowPass or FilterResponseType.HighPass)
         {
-            AddRow(inputLayout, "Passband Edge Frequency (fp), Hz:", fp);
-            AddRow(inputLayout, "Stopband Edge Frequency (fs), Hz:", fs);
+            AddRow(inputLayout, "Passband Edge Frequency (fp):", fp);
+            AddRow(inputLayout, "Stopband Edge Frequency (fs):", fs);
             return;
         }
 
         if (state.ResponseType == FilterResponseType.BandPass)
         {
-            AddRow(inputLayout, "Lower Stopband Edge (fs1), Hz:", fs1);
-            AddRow(inputLayout, "Lower Passband Edge (fp1), Hz:", fp1);
-            AddRow(inputLayout, "Upper Passband Edge (fp2), Hz:", fp2);
-            AddRow(inputLayout, "Upper Stopband Edge (fs2), Hz:", fs2);
+            AddRow(inputLayout, "Lower Stopband Edge (fs1):", fs1);
+            AddRow(inputLayout, "Lower Passband Edge (fp1):", fp1);
+            AddRow(inputLayout, "Upper Passband Edge (fp2):", fp2);
+            AddRow(inputLayout, "Upper Stopband Edge (fs2):", fs2);
         }
         else
         {
-            AddRow(inputLayout, "Lower Passband Edge (fp1), Hz:", fp1);
-            AddRow(inputLayout, "Lower Stopband Edge (fs1), Hz:", fs1);
-            AddRow(inputLayout, "Upper Stopband Edge (fs2), Hz:", fs2);
-            AddRow(inputLayout, "Upper Passband Edge (fp2), Hz:", fp2);
+            AddRow(inputLayout, "Lower Passband Edge (fp1):", fp1);
+            AddRow(inputLayout, "Lower Stopband Edge (fs1):", fs1);
+            AddRow(inputLayout, "Upper Stopband Edge (fs2):", fs2);
+            AddRow(inputLayout, "Upper Passband Edge (fp2):", fp2);
         }
     }
 
@@ -139,13 +141,16 @@ public sealed class FilterSpecificationsStepControl : FilterStepBase
         state.PassbandRippleDb = (double)rp.Value;
         state.StopbandAttenuationDb = (double)attenuation.Value;
         state.PassbandGain = (double)gain.Value;
-        state.PassbandEdgeHz = (double)fp.Value;
-        state.StopbandEdgeHz = (double)fs.Value;
-        state.StopbandLowerHz = (double)fs1.Value;
-        state.PassbandLowerHz = (double)fp1.Value;
-        state.PassbandUpperHz = (double)fp2.Value;
-        state.StopbandUpperHz = (double)fs2.Value;
+        state.PassbandEdgeHz = fp.ValueBaseUnit;
+        state.StopbandEdgeHz = fs.ValueBaseUnit;
+        state.StopbandLowerHz = fs1.ValueBaseUnit;
+        state.PassbandLowerHz = fp1.ValueBaseUnit;
+        state.PassbandUpperHz = fp2.ValueBaseUnit;
+        state.StopbandUpperHz = fs2.ValueBaseUnit;
         plot.Model = FilterSpecPlotBuilder.Build(state);
         Changed();
     }
+
+    private static EngineeringValueInput Frequency(double valueHz) =>
+        new(valueHz, EngineeringUnits.Frequency, 0.001, 1e12);
 }

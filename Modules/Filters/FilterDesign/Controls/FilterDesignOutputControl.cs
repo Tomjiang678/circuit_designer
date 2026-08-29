@@ -34,20 +34,22 @@ public sealed class FilterDesignOutputControl : UserControl
         var html = new Button { Text = "Export HTML Report...", AutoSize = true, MinimumSize = new Size(145, 28) };
         var json = new Button { Text = "Export JSON Snapshot...", AutoSize = true, MinimumSize = new Size(155, 28) };
         var service = new FilterDesignReportService();
+        var report = service.Build(result);
         html.Click += (_, _) => ExportReport(page, result, service, false);
         json.Click += (_, _) => ExportReport(page, result, service, true);
         buttons.Controls.Add(html);
         buttons.Controls.Add(json);
-        var explanation = new Label
+        var preview = new WebBrowser
         {
             Dock = DockStyle.Fill,
-            AutoSize = false,
-            Padding = new Padding(2, 14, 2, 2),
-            ForeColor = Color.DimGray,
-            Text = "The offline HTML report contains the design inputs, approximation definition, prototype poles, sections, theoretical and selected components, gain distribution, final verification, warnings, circuit summary, and calculation trace.\r\n\r\nThe JSON snapshot stores normalized SI-unit inputs and selected values for reproducibility. Reports are available only for a completed, verifier-approved design."
+            AllowWebBrowserDrop = false,
+            IsWebBrowserContextMenuEnabled = true,
+            ScriptErrorsSuppressed = true,
+            WebBrowserShortcutsEnabled = true,
+            DocumentText = new HtmlFilterReportExporter().Export(report)
         };
         layout.Controls.Add(buttons, 0, 0);
-        layout.Controls.Add(explanation, 0, 1);
+        layout.Controls.Add(preview, 0, 1);
         page.Controls.Add(layout);
         return page;
     }
@@ -85,14 +87,13 @@ public sealed class FilterDesignOutputControl : UserControl
     private static TabPage CreateAnalysisPage(FilterDesignResult result)
     {
         var page = new TabPage("Analysis") { BackColor = SystemColors.Window };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.Controls.Add(new FilterAnalysisPlotControl { Dock = DockStyle.Fill, Analysis = result.AnalysisResult, Request = result.DesignRequest }, 0, 0);
-        var status = result.AnalysisResult == null
-            ? "AC analysis unavailable."
-            : $"Sweep: {result.AnalysisResult.StartFrequencyHz:G5} Hz to {result.AnalysisResult.StopFrequencyHz:G5} Hz, {result.AnalysisResult.Points.Count} points. Reference: {result.AnalysisResult.MagnitudeReferenceDescription}. Move the mouse over the plot; click to pin/unpin the cursor.  " + string.Join(" ", result.AnalysisResult.Warnings);
-        layout.Controls.Add(new Label { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(8, 5, 8, 5), ForeColor = Color.DarkGoldenrod, Text = status }, 0, 1);
-        page.Controls.Add(layout); return page;
+        page.Controls.Add(new FilterAnalysisPlotControl
+        {
+            Dock = DockStyle.Fill,
+            Analysis = result.AnalysisResult,
+            Request = result.DesignRequest
+        });
+        return page;
     }
 
     private static TabPage CreateSpicePage(FilterDesignResult result)

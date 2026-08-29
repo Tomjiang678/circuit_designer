@@ -30,6 +30,8 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
     private readonly MfbBandPassSectionCalculator mfbBandPassCalculator = new();
     private readonly PassiveRcSectionCalculator passiveRcCalculator = new();
     private readonly BainterNotchSectionSolver bainterNotchSolver = new();
+    private readonly BainterNotchCascadeOptimizer bainterNotchCascadeOptimizer = new();
+    private readonly SallenKeyBandPassCascadeOptimizer sallenKeyBandPassCascadeOptimizer = new();
     private readonly FilterCircuitAssembler circuitAssembler = new();
     private readonly FilterSchematicLayoutService layoutService = new();
     private readonly FilterAnalysisService analysisService = new();
@@ -65,8 +67,17 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
 
     public FilterDesignAvailability GetAvailability(FilterDesignRequest request)
     {
-        TryPrepare(request, out _, out var availability);
-        return availability;
+        var support = FilterSupportMatrix.Evaluate(request);
+        if (!support.IsSupported) return FilterDesignAvailability.Unavailable(support.Message);
+        try
+        {
+            ValidateRequest(request);
+            return FilterDesignAvailability.Available("Supported. Final feasibility is checked when Design Filter runs.");
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            return FilterDesignAvailability.Unavailable(exception.Message);
+        }
     }
 
     public FilterDesignResult Design(FilterDesignRequest request)
@@ -119,17 +130,27 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 .Concat(compliance.Warnings)
                 .Concat(verification.Warnings)
                 .ToArray();
+            var meetsSpecifications = prepared.Specification.MeetsOrderRequirement && compliance.MeetsAllEdges;
+            var capability = meetsSpecifications
+                ? new FilterCapabilityEvaluation(FilterCapabilityLevel.FinalCircuitVerification, true,
+                    FilterSupportReasonCode.Supported, "All synthesis and final CircuitGraph verification gates passed.", string.Empty)
+                : new FilterCapabilityEvaluation(FilterCapabilityLevel.FinalCircuitVerification, false,
+                    FilterSupportReasonCode.FinalCircuitSpecificationNotMet,
+                    $"The circuit was generated and verified, but implemented order {prepared.Specification.ImplementedOrder} " +
+                    $"does not satisfy all entered edge specifications; calculated minimum order is {prepared.Specification.RequiredOrder}.",
+                    $"Use automatic order or specify order {prepared.Specification.RequiredOrder} or higher, then re-run selected-value verification.");
             var result = new FilterDesignResult
             {
                 Status = FilterDesignStatus.Success,
-                Message = "Filter circuit generated successfully.",
-                Capability = new FilterCapabilityEvaluation(FilterCapabilityLevel.FinalCircuitVerification, true,
-                    FilterSupportReasonCode.Supported, "All synthesis and final CircuitGraph verification gates passed.", string.Empty),
+                Message = meetsSpecifications
+                    ? "Filter circuit generated successfully."
+                    : "Filter circuit generated, but it does not meet all entered edge specifications.",
+                Capability = capability,
                 RequiredOrder = prepared.Specification.RequiredOrder,
                 PrototypeOrder = prepared.Specification.ImplementedOrder,
                 RealizedOrder = prepared.Transformed.RealizedOrder,
                 MeetsRequestedOrder = prepared.Specification.MeetsOrderRequirement,
-                MeetsSpecifications = prepared.Specification.MeetsOrderRequirement && compliance.MeetsAllEdges,
+                MeetsSpecifications = meetsSpecifications,
                 NormalizedSpecification = prepared.Specification,
                 PrototypePoles = prepared.Prototype.Poles,
                 PrototypeZeros = prepared.Prototype.Zeros,
@@ -210,7 +231,10 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                     0,
                     0,
                     0)).ToArray()
-                : targetSections.Select(section => ApplyTopologyPolarity(CalculateComponents(section, request), request)).ToArray();
+                : request.Implementation == FilterImplementationType.BainterNotch
+                    ? bainterNotchCascadeOptimizer.Optimize(targetSections, request, prototype, gainPlan).ToArray()
+                    : targetSections.Select(section => ApplyTopologyPolarity(CalculateComponents(section, request), request)).ToArray();
+            synthesizedSections = sallenKeyBandPassCascadeOptimizer.Optimize(request, prototype, gainPlan, synthesizedSections).ToArray();
 
             prepared = new PreparedDesign(specification, prototype, transformed, gainPlan, synthesizedSections);
             availability = FilterDesignAvailability.Available(support.Message);

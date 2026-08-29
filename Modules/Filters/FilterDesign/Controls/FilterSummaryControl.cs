@@ -56,22 +56,25 @@ public sealed class FilterSummaryControl : FilterStepBase
         designButton.Click += (_, _) => DesignRequested?.Invoke(this, EventArgs.Empty);
         var unavailableReason = new Label
         {
-            Text = availability.Message,
+            Text = availability.CanDesign ? "Ready" : availability.Message,
             AutoSize = true,
             ForeColor = availability.CanDesign ? Color.DarkGreen : Color.Firebrick,
-            Margin = new Padding(6, 7, 10, 0)
+            Margin = new Padding(6, 7, 10, 0),
+            MaximumSize = new Size(620, 0)
         };
-        var commandBar = new FlowLayoutPanel
+        var commandBar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoSize = true,
-            FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
+            ColumnCount = 2,
+            RowCount = 1,
             Padding = new Padding(6),
             Margin = Padding.Empty
         };
-        commandBar.Controls.Add(designButton);
-        commandBar.Controls.Add(unavailableReason);
+        commandBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        commandBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        commandBar.Controls.Add(unavailableReason, 0, 0);
+        commandBar.Controls.Add(designButton, 1, 0);
 
         var root = new TableLayoutPanel
         {

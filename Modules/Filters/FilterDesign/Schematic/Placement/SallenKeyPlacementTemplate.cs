@@ -16,7 +16,10 @@ public sealed class SallenKeyPlacementTemplate : IFilterPlacementTemplate
             "Feedback" => new(x + 245, y - 115, ComponentOrientation.Right),
             "Buffer" => new(x + 445, y + 16, ComponentOrientation.Right),
             "OpAmp" => new(x + 465, y + 16, ComponentOrientation.Right),
-            "SectionGainFeedback" => new(x + 420, y - 115, ComponentOrientation.Right),
+            // Keep the feedback resistor's left pin to the right of the gain-net
+            // trunk. Otherwise its route doubles back through the symbol lead and
+            // makes the pin look open even though CircuitGraph is connected.
+            "SectionGainFeedback" => new(x + 455, y - 115, ComponentOrientation.Right),
             "SectionGainShunt" => new(x + 390, y + 125, ComponentOrientation.Down),
             "InterstageAttenuatorSeries" => new(x + 1190, y, ComponentOrientation.Right),
             "InterstageAttenuatorShunt" => new(x + 1240, y + 125, ComponentOrientation.Down),

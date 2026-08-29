@@ -32,7 +32,7 @@ public sealed class FilterImplementationStepControl : FilterStepBase
         void RefreshAvailability()
         {
             var current = new FilterDesignEngine().GetAvailability(FilterDesignRequest.FromState(state));
-            selectedCombination.Text = current.Message;
+            selectedCombination.Text = current.CanDesign ? "Supported" : current.Message;
             selectedCombination.ForeColor = current.CanDesign ? Color.DarkGreen : Color.Firebrick;
         }
 

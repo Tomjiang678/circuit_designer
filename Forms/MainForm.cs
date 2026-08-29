@@ -13,7 +13,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Circuit Module Designer — 参数化电路模块设计工具";
+        Text = "Circuit Module Designer";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1280, 800);
         MinimumSize = new Size(1024, 700);
@@ -47,7 +47,7 @@ public sealed class MainForm : Form
         var box = new GroupBox { Text = "Circuit Selection", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(10, 16, 10, 8), Margin = new Padding(8, 4, 8, 4) };
         var row = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Margin = Padding.Empty, Padding = Padding.Empty };
         row.Controls.Add(new Label { Text = "Circuit Category:", AutoSize = true, Margin = new Padding(0, 5, 10, 0) });
-        categoryCombo.DropDownStyle = ComboBoxStyle.DropDownList; categoryCombo.Width = 560; categoryCombo.DropDownWidth = 560; categoryCombo.Items.AddRange(new object[] { "Select a circuit category...", "Precision Analog Computing - 精密模拟计算", "Precision Signal Conditioning - 精密信号调理", "Filters - 滤波器", "Comparators & Threshold Control - 比较器与阈值控制", "Oscillators & Function Generators - 振荡器与函数发生器", "Switching Power Supplies - 开关电源", "Control & Loop Compensation - 控制与环路补偿" }); categoryCombo.SelectedIndex = 0; categoryCombo.SelectedIndexChanged += CategoryChanged; row.Controls.Add(categoryCombo); box.Controls.Add(row); return box;
+        categoryCombo.DropDownStyle = ComboBoxStyle.DropDownList; categoryCombo.Width = 560; categoryCombo.DropDownWidth = 560; categoryCombo.Items.AddRange(new object[] { "Select a circuit category...", "Precision Analog Computing", "Precision Signal Conditioning", "Filters", "Comparators & Threshold Control", "Oscillators & Function Generators", "Switching Power Supplies", "Control & Loop Compensation" }); categoryCombo.SelectedIndex = 0; categoryCombo.SelectedIndexChanged += CategoryChanged; row.Controls.Add(categoryCombo); box.Controls.Add(row); return box;
     }
 
     private Control CreateWorkArea()

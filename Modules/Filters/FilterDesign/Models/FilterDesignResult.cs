@@ -26,7 +26,8 @@ public sealed class FilterDesignResult
     public string Message { get; init; } = string.Empty;
     public FilterCapabilityEvaluation? Capability { get; init; }
     public bool IsImplemented => Status == FilterDesignStatus.Success;
-    public bool IsFullySupported => Status == FilterDesignStatus.Success;
+    public bool IsFullySupported => Status == FilterDesignStatus.Success &&
+                                    Capability?.IsSupported == true && MeetsSpecifications;
     public int RequiredOrder { get; init; }
     public int PrototypeOrder { get; init; }
     public int RealizedOrder { get; init; }

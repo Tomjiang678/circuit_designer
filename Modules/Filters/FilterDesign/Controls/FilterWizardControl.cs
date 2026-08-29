@@ -27,6 +27,8 @@ public sealed class FilterWizardControl : UserControl
     };
     private int currentIndex;
     private bool updatingNavigation;
+    private bool designInProgress;
+    private int stateRevision;
 
     public FilterDesignState State => state;
 
@@ -129,6 +131,7 @@ public sealed class FilterWizardControl : UserControl
             var step = CreateStep(currentIndex);
             step.StateChanged += (_, _) =>
             {
+                stateRevision++;
                 if (lastResult != null) resultIsStale = true;
                 if (currentIndex == 0) ShowStep(0); else UpdateNavigationState();
             };
@@ -155,24 +158,53 @@ public sealed class FilterWizardControl : UserControl
         _ => new FilterSummaryControl(state)
     };
 
-    private void ExecuteDesign()
+    private async void ExecuteDesign()
     {
+        if (designInProgress) return;
+        designInProgress = true;
+        var revision = stateRevision;
+        var request = FilterDesignRequest.FromState(state);
         UseWaitCursor = true;
+        nextButton.Enabled = false;
         try
         {
-            var result = new FilterDesignEngine().Design(FilterDesignRequest.FromState(state));
+            var result = await Task.Run(() => new FilterDesignEngine().Design(request));
+            if (IsDisposed) return;
+            if (revision != stateRevision)
+            {
+                MessageBox.Show(this, "Filter settings changed while the design was running. The stale result was discarded; run Design Filter again.",
+                    "Filter Design", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             if (!result.IsImplemented)
             {
-                MessageBox.Show(this, result.Message, "Filter Design", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var capability = result.Capability;
+                var details = $"Status: {result.Status}\r\n" +
+                              $"CapabilityLevel: {capability?.Level.ToString() ?? "Not recorded"}\r\n" +
+                              $"CapabilityReasonCode: {capability?.ReasonCode.ToString() ?? "Not recorded"}\r\n\r\n" +
+                              result.Message;
+                if (!string.IsNullOrWhiteSpace(capability?.SuggestedAlternative))
+                    details += $"\r\n\r\nSuggested alternative: {capability.SuggestedAlternative}";
+                MessageBox.Show(this, details, "Filter Design", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             lastResult = result;
             resultIsStale = false;
             ShowStep(titles.Length - 1);
         }
+        catch (Exception exception)
+        {
+            if (!IsDisposed)
+                MessageBox.Show(this, exception.Message, "Filter Design", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
         finally
         {
-            UseWaitCursor = false;
+            if (!IsDisposed)
+            {
+                designInProgress = false;
+                UseWaitCursor = false;
+                nextButton.Enabled = currentIndex < titles.Length - 2 || currentIndex == titles.Length - 2 && lastResult != null;
+            }
         }
     }
 

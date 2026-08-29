@@ -55,7 +55,14 @@ public static class StandardValueSeries
     };
 
     private static double[] GenerateFormulaSeries(int count) => Enumerable.Range(0, count)
-        .Select(index => Math.Round(Math.Pow(10, index / (double)count), 3, MidpointRounding.AwayFromZero))
+        .Select(index => RoundToSignificantDigits(Math.Pow(10, index / (double)count), 3))
         .Distinct()
         .ToArray();
+
+    private static double RoundToSignificantDigits(double value, int digits)
+    {
+        if (value == 0) return 0;
+        var scale = Math.Pow(10, digits - 1 - Math.Floor(Math.Log10(Math.Abs(value))));
+        return Math.Round(value * scale, MidpointRounding.AwayFromZero) / scale;
+    }
 }

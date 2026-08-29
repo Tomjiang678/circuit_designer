@@ -20,6 +20,7 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.Verification;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.PassiveLc;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Validation;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -103,6 +104,12 @@ var tests = new (string Name, Action Run)[]
     ,("Zero-ohm LC termination is rejected honestly", TestZeroOhmDefaultSource)
     ,("Filter design report model", TestFilterDesignReportModel)
     ,("Offline HTML and JSON report export", TestFilterDesignReportExport)
+    ,("Engineering unit conversion and editable ranges", TestEngineeringUnitConversionAndRanges)
+    ,("Sallen-Key gain feedback pin exits outward", TestSallenKeyGainFeedbackPinExit)
+    ,("Official E48/E96 significant-digit values", TestOfficialHighDensityESeriesValues)
+    ,("Manual under-order capability is not Supported", TestManualUnderOrderCapability)
+    ,("Bounded E24 cascade optimization", TestBoundedE24CascadeOptimization)
+    ,("Bainter K1 range freedom and lightweight availability", TestBainterK1RangeFreedomAndAvailability)
 };
 
 var failures = new List<string>();
@@ -122,6 +129,67 @@ static void TestChebyshevLadderPrototype()
 {
     var values = new ChebyshevPrototypeDesigner().Design(3, 1).LadderGValues;
     Equal(5, values.Count); Require(Nearly(values[1], 2.0236, 5e-4), "Unexpected 1 dB Chebyshev g1."); Require(Nearly(values[2], 0.9941, 5e-4), "Unexpected 1 dB Chebyshev g2."); Require(Nearly(values[3], 2.0236, 5e-4), "Unexpected 1 dB Chebyshev g3."); Require(Nearly(values[4], 1, 1e-12), "Odd-order Chebyshev termination must be unity.");
+}
+
+static void TestEngineeringUnitConversionAndRanges()
+{
+    var kilohertz = EngineeringUnits.Frequency.Single(unit => unit.Symbol == "kHz");
+    var microfarad = EngineeringUnits.Capacitance.Single(unit => unit.Symbol == "µF");
+    var millihenry = EngineeringUnits.Inductance.Single(unit => unit.Symbol == "mH");
+    Require(Nearly(kilohertz.ToBase(2.5), 2_500, 1e-12), "kHz input did not convert to Hz.");
+    Require(Nearly(microfarad.ToBase(0.47), 470e-9, 1e-12), "µF input did not convert to farads.");
+    Require(Nearly(millihenry.FromBase(0.015), 15, 1e-12), "Henry value did not convert to mH.");
+    Require(EngineeringUnits.BestFor(1_000, EngineeringUnits.Frequency).Symbol == "kHz", "Frequency did not choose a compact unit.");
+
+    var activeState = new FilterDesignState
+    {
+        Mode = FilterMode.Active,
+        PreferredCapacitorMinF = 220e-12,
+        PreferredCapacitorMaxF = 470e-9
+    };
+    var activeRequest = FilterDesignRequest.FromState(activeState);
+    Require(Nearly(activeRequest.ComponentConstraints.CapacitorMinimumF, 220e-12, 1e-12), "Active editable capacitor minimum was not mapped to the request.");
+    Require(Nearly(activeRequest.ComponentConstraints.CapacitorMaximumF, 470e-9, 1e-12), "Active editable capacitor maximum was not mapped to the request.");
+
+    var lcState = new FilterDesignState
+    {
+        Mode = FilterMode.Passive,
+        Implementation = FilterImplementationType.Lc,
+        PassiveLcCapacitorMinimumF = 10e-12,
+        PassiveLcCapacitorMaximumF = 22e-6,
+        InductorMinimumH = 1e-6,
+        InductorMaximumH = 100e-3
+    };
+    var lcRequest = FilterDesignRequest.FromState(lcState);
+    Require(Nearly(lcRequest.ComponentConstraints.CapacitorMinimumF, 10e-12, 1e-12), "LC editable capacitor minimum was not mapped to the request.");
+    Require(Nearly(lcRequest.ComponentConstraints.CapacitorMaximumF, 22e-6, 1e-12), "LC editable capacitor maximum was not mapped to the request.");
+    Require(Nearly(lcRequest.ComponentConstraints.InductorMinimumH, 1e-6, 1e-12), "LC editable inductor minimum was not mapped to the request.");
+    Require(Nearly(lcRequest.ComponentConstraints.InductorMaximumH, 100e-3, 1e-12), "LC editable inductor maximum was not mapped to the request.");
+}
+
+static void TestSallenKeyGainFeedbackPinExit()
+{
+    var request = Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.SallenKey, 2_000, 8_000, manualOrder: 2) with { PassbandGain = 2 };
+    request.ComponentConstraints.ResistorMinimumOhm = 1_000;
+    request.ComponentConstraints.ResistorMaximumOhm = 100_000;
+    request.ComponentConstraints.CapacitorMinimumF = 100e-12;
+    request.ComponentConstraints.CapacitorMaximumF = 1e-6;
+    request.ComponentConstraints.OptimizeStandardValues = true;
+
+    var result = new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, result.Message);
+    var document = result.SchematicDocument!;
+    var feedback = document.PlacedComponents.Single(item => item.Component.Reference == "R3");
+    var leftPin = SchematicGeometry.GetWorldPin(feedback, "1");
+    var attachedSegments = document.Wires
+        .SelectMany(wire => wire.Points.Zip(wire.Points.Skip(1), (first, second) => (first, second)))
+        .Where(segment => NearlyPoint(segment.first, leftPin) || NearlyPoint(segment.second, leftPin))
+        .ToArray();
+    Require(attachedSegments.Length > 0, "R3 left pin has no visible wire segment.");
+    Require(attachedSegments.Any(segment =>
+            (NearlyPoint(segment.first, leftPin) ? segment.second : segment.first).X < leftPin.X - .01),
+        "R3 left-pin wire must leave to the left instead of doubling back through the resistor symbol.");
 }
 
 static void TestButterworthPoles()
@@ -454,6 +522,38 @@ static void TestStandardValueOptimization()
     var request = Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Butterworth, FilterImplementationType.SallenKey, 1_000, 4_000, optimize: true);
     var result = new SallenKeySectionCalculator().Calculate(section, request);
     Require(result.Components.All(value => value.Series == null || StandardValueSeries.IsSeriesValue(value.SelectedValue, value.Series.Value, 5e-3)), "Selected values must belong to the requested E-series.");
+}
+
+static void TestOfficialHighDensityESeriesValues()
+{
+    Require(StandardValueSeries.IsSeriesValue(1_050, StandardComponentSeries.E48), "1.05 kΩ must be an official E48 value.");
+    Require(StandardValueSeries.IsSeriesValue(9_310, StandardComponentSeries.E96), "9.31 kΩ must be an official E96 value.");
+    Require(StandardValueSeries.IsSeriesValue(49_900, StandardComponentSeries.E96), "49.9 kΩ must be an official E96 value.");
+    Require(!StandardValueSeries.IsSeriesValue(9_306, StandardComponentSeries.E96), "9.306 kΩ is a formula artifact, not the 3-significant-digit E96 nominal value.");
+}
+
+static void TestManualUnderOrderCapability()
+{
+    var request = Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.SallenKey, 2_000, 8_000, optimize: true, manualOrder: 2) with
+    {
+        StopbandAttenuationDb = 30,
+        PassbandGain = 2
+    };
+    request.ComponentConstraints.ResistorMinimumOhm = 1_000;
+    request.ComponentConstraints.ResistorMaximumOhm = 100_000;
+    request.ComponentConstraints.CapacitorMinimumF = 100e-12;
+    request.ComponentConstraints.CapacitorMaximumF = 1e-6;
+
+    var result = new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, "A manually requested under-order circuit should remain inspectable.");
+    Require(result.RequiredOrder == 3 && result.PrototypeOrder == 2, "Manual-order audit did not reproduce test point 2.");
+    Require(!result.MeetsRequestedOrder && !result.MeetsSpecifications, "Under-order design incorrectly claims specification compliance.");
+    Require(result.Capability is { IsSupported: false, ReasonCode: FilterSupportReasonCode.FinalCircuitSpecificationNotMet },
+        "Under-order design must expose a structured final-circuit capability failure.");
+    Require(!result.IsFullySupported, "Under-order circuit must not be advertised as fully supported.");
+    Require(result.SpecificationCompliance!.Edges.Single(edge => edge.Label == "fs").MeetsLimit == false,
+        "Test point 2 unexpectedly meets its requested fs attenuation.");
 }
 
 static void TestActiveLowPassEndToEnd()
@@ -1312,6 +1412,9 @@ static void TestFilterDesignReportModel()
     var generated = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
     var report = new FilterDesignReportBuilder().Build(result, generated);
     Require(report.GeneratedAtUtc == generated, "Report generation time is not deterministic.");
+    Require(report.DesignSummary.Any(field => field.Name == "Design status" && field.Value == "Success"), "Report summary does not expose Design status.");
+    Require(report.DesignSummary.Any(field => field.Name == "Capability level" && field.Value == "FinalCircuitVerification"), "Report summary does not expose CapabilityLevel.");
+    Require(report.DesignSummary.Any(field => field.Name == "Capability reason" && field.Value == "Supported"), "Report summary does not expose CapabilityReasonCode.");
     Require(report.DesignSummary.Any(field => field.Name == "Approximation" && field.Value == "Bessel"), "Report summary lost the approximation.");
     Require(report.ApproximationDetails.Any(field => field.Name == "Normalization" && field.Value.Contains("3 dB", StringComparison.Ordinal)), "Report omitted Bessel normalization.");
     Require(report.PrototypePolesAndZeros.Count(value => !value.IsZero) == result.PrototypeOrder, "Report pole table is incomplete.");
@@ -1367,6 +1470,74 @@ static void TestSchematicJunctionsAreRealBranches()
         }
         Require(directions.Count>=3,$"Junction {junction.NetName}@{junction.Position} is not a real three-way-or-greater wire branch.");
     }
+}
+
+static void TestBoundedE24CascadeOptimization()
+{
+    var lowPass = Request(FilterMode.Active, FilterResponseType.LowPass, FilterApproximation.ChebyshevTypeI,
+        FilterImplementationType.MultipleFeedback, 2_000, 8_000, optimize: true) with
+    {
+        PassbandRippleDb = .5,
+        StopbandAttenuationDb = 45
+    };
+    lowPass.ComponentConstraints.CapacitorMinimumF = 100e-12;
+    lowPass.ComponentConstraints.CapacitorMaximumF = 1e-6;
+
+    var bandPass = Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Butterworth,
+        FilterImplementationType.SallenKey, 1_000, 4_000, optimize: true) with
+    {
+        StopbandLowerHz = 500,
+        PassbandLowerHz = 1_000,
+        PassbandUpperHz = 2_000,
+        StopbandUpperHz = 4_000
+    };
+    bandPass.ComponentConstraints.CapacitorMinimumF = 100e-12;
+    bandPass.ComponentConstraints.CapacitorMaximumF = 1e-6;
+
+    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+    var lowPassResult = new FilterDesignEngine().Design(lowPass);
+    Require(lowPassResult.IsFullySupported, $"First-period point 3 must pass E24 cascade optimization: {lowPassResult.Message}");
+    var bandPassResult = new FilterDesignEngine().Design(bandPass);
+    stopwatch.Stop();
+    Require(bandPassResult.IsFullySupported, $"First-period point 13 must pass E24 cascade optimization: {bandPassResult.Message}");
+    Require(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"Bounded E24 cascade optimization took {stopwatch.Elapsed.TotalSeconds:0.###} s.");
+}
+
+static void TestBainterK1RangeFreedomAndAvailability()
+{
+    var request = Request(FilterMode.Active, FilterResponseType.BandStop, FilterApproximation.Butterworth,
+        FilterImplementationType.BainterNotch, 1_000, 2_000, optimize: true) with
+    {
+        PassbandRippleDb = 1,
+        StopbandAttenuationDb = 40,
+        PassbandLowerHz = 1_000,
+        StopbandLowerHz = 2_000,
+        StopbandUpperHz = 4_000,
+        PassbandUpperHz = 8_000
+    };
+    request.ComponentConstraints.ResistorSeries = StandardComponentSeries.E96;
+    request.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E96;
+    request.ComponentConstraints.ResistorMinimumOhm = 1_000;
+    request.ComponentConstraints.ResistorMaximumOhm = 100_000;
+    request.ComponentConstraints.CapacitorMinimumF = 100e-12;
+    request.ComponentConstraints.CapacitorMaximumF = 1e-6;
+
+    var engine = new FilterDesignEngine();
+    _ = engine.GetAvailability(request); // JIT warm-up is not part of the UI latency assertion.
+    var availabilityWatch = System.Diagnostics.Stopwatch.StartNew();
+    var availability = engine.GetAvailability(request);
+    availabilityWatch.Stop();
+    Require(availability.CanDesign, availability.Message);
+    Require(availabilityWatch.Elapsed < TimeSpan.FromMilliseconds(500),
+        $"Capability lookup blocked for {availabilityWatch.Elapsed.TotalMilliseconds:0.###} ms.");
+
+    var result = engine.Design(request);
+    Require(result.IsFullySupported, $"E96 Bainter range-freedom regression failed: {result.Message}");
+    Require(result.Sections.Any(section =>
+    {
+        var values = section.Components.ToDictionary(component => component.Role, component => component.SelectedValue);
+        return Math.Abs(values["R2"] / values["R1"] - 1) > .01;
+    }), "Bainter synthesis did not exercise the K1=R2/R1 range-balancing freedom.");
 }
 
 static FilterDesignRequest Request(FilterMode mode, FilterResponseType response, FilterApproximation approximation, FilterImplementationType implementation, double fp, double fs, bool optimize = false, int? manualOrder = null) => new()

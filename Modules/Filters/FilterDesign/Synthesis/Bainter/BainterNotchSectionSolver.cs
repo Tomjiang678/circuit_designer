@@ -9,8 +9,13 @@ public sealed class BainterNotchSectionSolver
 
     public SynthesizedSection Solve(AnalogFilterSection section, FilterDesignRequest request)
     {
-        var solved = calculator.Calculate(section, request);
-        return solved with
+        return WithTopologyGain(calculator.Calculate(section, request));
+    }
+
+    public IReadOnlyList<SynthesizedSection> SolveCandidates(AnalogFilterSection section, FilterDesignRequest request) =>
+        calculator.CalculateCandidates(section, request).Select(WithTopologyGain).ToArray();
+
+    private static SynthesizedSection WithTopologyGain(SynthesizedSection solved) => solved with
         {
             TopologyGain = new TopologyGainRealization(
                 solved.ActualGain,
@@ -19,5 +24,4 @@ public sealed class BainterNotchSectionSolver
                 1,
                 solved.ActualGain)
         };
-    }
 }

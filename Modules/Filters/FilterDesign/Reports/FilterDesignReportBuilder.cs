@@ -52,11 +52,17 @@ public sealed class FilterDesignReportBuilder
     private static IReadOnlyList<ReportField> BuildSummary(FilterDesignResult result, FilterDesignRequest request) =>
     [
         new("Design time (UTC)", result.DesignedAtUtc.ToString("u", CultureInfo.InvariantCulture)),
+        new("Design status", result.Status.ToString()),
+        new("Capability supported", (result.Capability?.IsSupported == true).ToString()),
+        new("Capability level", result.Capability?.Level.ToString() ?? "Not recorded"),
+        new("Capability reason", result.Capability?.ReasonCode.ToString() ?? "Not recorded"),
+        new("Capability message", result.Capability?.Message ?? "Not recorded"),
+        new("Suggested alternative", string.IsNullOrWhiteSpace(result.Capability?.SuggestedAlternative)
+            ? "None required"
+            : result.Capability.SuggestedAlternative),
         new("Filter type", request.Mode.ToString()), new("Response", request.ResponseType.ToString()),
         new("Approximation", request.Approximation.ToString()), new("Implementation", request.Implementation.ToString()),
         new("Signal architecture", request.SignalArchitecture.ToString()), new("Requested A0", F(request.PassbandGain), "V/V"),
-        new("Capability level", result.Capability?.Level.ToString() ?? "Not recorded"),
-        new("Capability reason", result.Capability?.ReasonCode.ToString() ?? "Not recorded"),
         new("Required prototype order", result.RequiredOrder.ToString(CultureInfo.InvariantCulture)),
         new("Implemented prototype order", result.PrototypeOrder.ToString(CultureInfo.InvariantCulture)),
         new("Realized transfer-function order", result.RealizedOrder.ToString(CultureInfo.InvariantCulture)),

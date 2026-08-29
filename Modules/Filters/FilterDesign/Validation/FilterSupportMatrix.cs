@@ -21,6 +21,7 @@ public enum FilterSupportReasonCode
     ,LcFinalReconstructionFailed
     ,BainterNotchDepthInsufficientWithSelectedSeries
     ,ComponentRangeInfeasible
+    ,FinalCircuitSpecificationNotMet
 }
 
 public enum FilterCapabilityLevel
@@ -59,6 +60,7 @@ public static class FilterSupportDecision
             FilterSupportReasonCode.ComponentRangeInfeasible => FilterCapabilityLevel.ComponentRangeFeasibility,
             FilterSupportReasonCode.LcPrototypeNotPositiveReal or FilterSupportReasonCode.LcLadderExtractionProducedNegativeElement or FilterSupportReasonCode.LcFinalReconstructionFailed => FilterCapabilityLevel.LcPositiveRealFeasibility,
             FilterSupportReasonCode.PendingIndependentVerification => FilterCapabilityLevel.FinalCircuitVerification,
+            FilterSupportReasonCode.FinalCircuitSpecificationNotMet => FilterCapabilityLevel.FinalCircuitVerification,
             _ => FilterCapabilityLevel.SectionFeasibility
         };
         var alternative = reasonCode switch
@@ -67,6 +69,7 @@ public static class FilterSupportDecision
             FilterSupportReasonCode.LcPrototypeNotPositiveReal or FilterSupportReasonCode.LcLadderExtractionProducedNegativeElement => "Choose a supported family/order, or use the verified active-filter realization.",
             FilterSupportReasonCode.ResponseUnavailable => "Choose the response-specific v1 topology shown by the implementation selector.",
             FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries => "Use E96, tighter component tolerance, theoretical values, or a lower notch-depth requirement.",
+            FilterSupportReasonCode.FinalCircuitSpecificationNotMet => "Use automatic order, specify at least the calculated required order, or choose tighter standard-value constraints.",
             _ => "Adjust the selected architecture, approximation, order, component constraints, or standard-value series as indicated."
         };
         return new(level, false, reasonCode, message, alternative);

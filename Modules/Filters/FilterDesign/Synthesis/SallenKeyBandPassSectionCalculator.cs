@@ -23,7 +23,8 @@ public sealed class SallenKeyBandPassSectionCalculator
         if(scaleMinimum>scaleMaximum)throw new InvalidOperationException($"This Sallen-Key band-pass section cannot fit the selected R/C ranges (f0={section.PoleFrequencyHz:0.###} Hz, Q={q:0.###}).");
         var scale=Math.Sqrt(scaleMinimum*scaleMaximum);
         var c1=2/(w*scale); var r1=scale; var theory=new Candidate(r1,r1/3,2*r1,c1,c1/2,scale,scale/(innerGain-1),scale*(1-attenuation)/attenuation,scale);
-        var best=x.OptimizeStandardValues?Optimize(theory,section,x):theory; var actual=Verify(best);
+        var selection=x.OptimizeStandardValues?Optimize(theory,section,x):new Selection(theory,theory);
+        theory=selection.Theory; var best=selection.Selected; var actual=Verify(best);
         var fe=Rel(actual.FrequencyHz,section.PoleFrequencyHz);var qe=Rel(actual.Q,q);var ge=Rel(actual.GainMagnitude,section.SectionGain);
         if(Math.Abs(fe)>.08||Math.Abs(qe)>.12||Math.Abs(ge)>.08)throw new InvalidOperationException($"Sallen-Key BP values exceed error limits (f0 {fe:P2}, Q {qe:P2}, gain {ge:P2}).");
         return new(section,[
@@ -44,16 +45,41 @@ public sealed class SallenKeyBandPassSectionCalculator
         return new(w/(2*Math.PI),q,centerGain*divider);
     }
 
-    private static Candidate Optimize(Candidate t,AnalogFilterSection s,ComponentSelectionConstraints x)
+    private static Selection Optimize(Candidate t,AnalogFilterSection s,ComponentSelectionConstraints x)
     {
-        IReadOnlyList<double> R(double v)=>StandardValueSeries.GetNearby(v,x.ResistorSeries,x.ResistorMinimumOhm,x.ResistorMaximumOhm).Take(3).ToArray();
-        IReadOnlyList<double> C(double v)=>StandardValueSeries.GetNearby(v,x.CapacitorSeries,x.CapacitorMinimumF,x.CapacitorMaximumF).Take(3).ToArray();
-        Candidate? best=null;var score=double.PositiveInfinity;
-        foreach(var r1 in R(t.R1))foreach(var r2 in R(t.R2))foreach(var r3 in R(t.R3))foreach(var c1 in C(t.C1))foreach(var c2 in C(t.C2))foreach(var r4 in R(t.R4))foreach(var r5 in R(t.R5))foreach(var ra in R(t.Ra))foreach(var rb in R(t.Rb))
-        {var p=new Candidate(r1,r2,r3,c1,c2,r4,r5,ra,rb);var a=Verify(p);if(!double.IsFinite(a.Q)||a.Q<=0)continue;var z=Math.Abs(Rel(a.FrequencyHz,s.PoleFrequencyHz))+1.5*Math.Abs(Rel(a.Q,s.Q))+.5*Math.Abs(Rel(a.GainMagnitude,s.SectionGain));if(z<score){score=z;best=p;}}
-        return best??throw new InvalidOperationException("No valid standard-value Sallen-Key band-pass candidate was found.");
+        IReadOnlyList<double> R(double v)=>StandardValueSeries.GetNearby(v,x.ResistorSeries,x.ResistorMinimumOhm,x.ResistorMaximumOhm)
+            .OrderBy(candidate=>Math.Abs(Math.Log(candidate/v))).Take(3).ToArray();
+        IReadOnlyList<double> C(double v)=>StandardValueSeries.GetNearby(v,x.CapacitorSeries,x.CapacitorMinimumF,x.CapacitorMaximumF)
+            .OrderBy(candidate=>Math.Abs(Math.Log(candidate/v))).Take(3).ToArray();
+        Candidate? best=null; Candidate? bestTheory=null;var score=double.PositiveInfinity;
+        foreach(var scale in EquivalentScales(t,x))
+        {
+            var q=new Candidate(t.R1*scale,t.R2*scale,t.R3*scale,t.C1/scale,t.C2/scale,t.R4*scale,t.R5*scale,t.Ra*scale,t.Rb*scale);
+            foreach(var r1 in R(q.R1))foreach(var r2 in R(q.R2))foreach(var r3 in R(q.R3))foreach(var c1 in C(q.C1))foreach(var c2 in C(q.C2))foreach(var r4 in R(q.R4))foreach(var r5 in R(q.R5))foreach(var ra in R(q.Ra))foreach(var rb in R(q.Rb))
+            {
+                var p=new Candidate(r1,r2,r3,c1,c2,r4,r5,ra,rb);var a=Verify(p);if(!double.IsFinite(a.Q)||a.Q<=0)continue;
+                var z=Math.Abs(Rel(a.FrequencyHz,s.PoleFrequencyHz))+1.5*Math.Abs(Rel(a.Q,s.Q))+2*Math.Abs(Rel(a.GainMagnitude,s.SectionGain));
+                if(z<score){score=z;best=p;bestTheory=q;}
+            }
+        }
+        return new(bestTheory??throw new InvalidOperationException("No valid standard-value Sallen-Key band-pass scale was found."),
+            best??throw new InvalidOperationException("No valid standard-value Sallen-Key band-pass candidate was found."));
     }
+
+    private static IEnumerable<double> EquivalentScales(Candidate theory,ComponentSelectionConstraints x)
+    {
+        var resistors=new[]{theory.R1,theory.R2,theory.R3,theory.R4,theory.R5,theory.Ra,theory.Rb};
+        var capacitors=new[]{theory.C1,theory.C2};
+        var minimum=Math.Max(resistors.Max(value=>x.ResistorMinimumOhm/value),capacitors.Max(value=>value/x.CapacitorMaximumF));
+        var maximum=Math.Min(resistors.Min(value=>x.ResistorMaximumOhm/value),capacitors.Min(value=>value/x.CapacitorMinimumF));
+        if(minimum>maximum)yield break;
+        const int samples=3;
+        for(var index=0;index<samples;index++)yield return minimum*Math.Pow(maximum/minimum,index/(samples-1d));
+        if(minimum<=1&&maximum>=1)yield return 1;
+    }
+
     private static SynthesizedComponentValue V(string role,ComponentType type,string parameter,double theory,double selected,StandardComponentSeries series,double tolerance)=>new(role,type,parameter,theory,selected,selected==theory?null:series,tolerance);
     private static double Rel(double a,double t)=>(a-t)/t;
     private sealed record Candidate(double R1,double R2,double R3,double C1,double C2,double R4,double R5,double Ra,double Rb);
+    private sealed record Selection(Candidate Theory,Candidate Selected);
 }

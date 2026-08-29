@@ -8,7 +8,7 @@ public sealed class FilterTypeStepControl : FilterStepBase
     public FilterTypeStepControl(FilterDesignState state) : base(state)
     {
         var layout = FormLayout();
-        var mode = Combo(Enum.GetValues<FilterMode>(), value => value == FilterMode.Active ? "Active Filter - 有源滤波器" : "Passive Filter - 无源滤波器");
+        var mode = Combo(Enum.GetValues<FilterMode>(), value => value == FilterMode.Active ? "Active Filter" : "Passive Filter");
         var response = Combo(Enum.GetValues<FilterResponseType>(), DisplayName);
         mode.SelectedIndex = (int)state.Mode; response.SelectedIndex = (int)state.ResponseType;
         mode.SelectedIndexChanged += (_, _) =>
