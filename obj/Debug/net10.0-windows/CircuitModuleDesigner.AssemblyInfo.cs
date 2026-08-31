@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CircuitModuleDesigner")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8024dafae0aa8bb4354a96815b3f6819f08e9070")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+93875d7ddc2d19f7fe5c17297347e2c9b51252e7")]
 [assembly: System.Reflection.AssemblyProductAttribute("CircuitModuleDesigner")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CircuitModuleDesigner")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

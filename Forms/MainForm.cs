@@ -1,5 +1,6 @@
 using System.Drawing;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Controls;
 
 namespace CircuitModuleDesigner.Forms;
 
@@ -85,8 +86,15 @@ public sealed class MainForm : Form
 
     private void CategoryChanged(object? sender, EventArgs e)
     {
-        var isFilter = categoryCombo.SelectedItem?.ToString()?.StartsWith("Filters", StringComparison.OrdinalIgnoreCase) == true; navigationHint?.Visible = !isFilter;
-        if (designHost == null) return; designHost.Controls.Clear(); if (isFilter) designHost.Controls.Add(new FilterWizardControl(navigationTree)); else { navigationTree.Nodes.Clear(); designHost.Controls.Add(CreateDefaultDesignArea()); }
+        var selection = categoryCombo.SelectedItem?.ToString();
+        var isFilter = selection?.StartsWith("Filters", StringComparison.OrdinalIgnoreCase) == true;
+        var isPrecisionAnalog = selection?.StartsWith("Precision Analog Computing", StringComparison.OrdinalIgnoreCase) == true;
+        navigationHint?.Visible = !isFilter && !isPrecisionAnalog;
+        if (designHost == null) return;
+        designHost.Controls.Clear();
+        if (isFilter) designHost.Controls.Add(new FilterWizardControl(navigationTree));
+        else if (isPrecisionAnalog) designHost.Controls.Add(new PrecisionAnalogWizardControl(navigationTree));
+        else { navigationTree.Nodes.Clear(); designHost.Controls.Add(CreateDefaultDesignArea()); }
     }
 
     private void ConfigureSplitter()
@@ -98,12 +106,14 @@ public sealed class MainForm : Form
             return;
         mainSplit.Panel1MinSize = 0;
         mainSplit.Panel2MinSize = 0;
-        const int navigationMinimum = 280;
+        const int navigationMinimum = 420;
         const int designMinimum = 620;
         var maximum = available - designMinimum;
         if (maximum >= navigationMinimum)
         {
-            var preferred = Math.Max(340, (int)(available * 0.28));
+            // The original navigation pane was 340 px / 28%; Precision Analog needs
+            // room for its longer operation names, so use exactly 1.5 times that width.
+            var preferred = Math.Max(510, (int)(available * 0.42));
             mainSplit.SplitterDistance = Math.Clamp(preferred, navigationMinimum, maximum);
             mainSplit.Panel1MinSize = navigationMinimum;
             mainSplit.Panel2MinSize = designMinimum;

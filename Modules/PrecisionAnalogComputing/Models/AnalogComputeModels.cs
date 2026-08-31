@@ -1,0 +1,154 @@
+using CircuitModuleDesigner.Core.Circuit;
+
+namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
+
+public enum AnalogComputeOperationType
+{
+    GeneralLinearCombination,
+    VoltageRangeMapper,
+    PrecisionHalfWaveRectifier,
+    PrecisionFullWaveRectifier,
+    LogarithmicAmplifier,
+    ExponentialAmplifier,
+    PracticalIntegrator,
+    PracticalDifferentiator,
+    PrecisionLimiter
+}
+
+public enum AnalogCapabilityLevel { Supported, Conditional, Unsupported }
+
+public enum AnalogCapabilityReasonCode
+{
+    None,
+    OperationNotImplemented,
+    InvalidInput,
+    SupplyRailsInvalid,
+    OutputSwingInsufficient,
+    ComponentRangeImpossible,
+    StandardValueAccuracyInsufficient,
+    CircuitVerificationFailed
+}
+
+public enum AnalogStandardSeries { E12, E24, E48, E96 }
+
+public enum DiodeBehaviorModel { IdealSwitch, ShockleyJunction }
+
+public sealed record JunctionModelParameters
+{
+    public DiodeBehaviorModel Behavior { get; init; } = DiodeBehaviorModel.ShockleyJunction;
+    public double SaturationCurrentAmpere { get; init; } = 1e-12;
+    public double EmissionCoefficient { get; init; } = 1;
+    public double TemperatureCelsius { get; init; } = 25;
+    public double ThermalVoltage => 8.617333262e-5 * (TemperatureCelsius + 273.15);
+
+    public double Current(double junctionVoltage) =>
+        SaturationCurrentAmpere * (Math.Exp(Math.Clamp(junctionVoltage / (EmissionCoefficient * ThermalVoltage), -700, 700)) - 1);
+}
+
+public sealed record AnalogInputTerm(
+    string Name,
+    double Coefficient,
+    double MinimumVoltage = -1,
+    double MaximumVoltage = 1,
+    double NominalVoltage = 0);
+
+public sealed record ComponentSelectionConstraints
+{
+    public AnalogStandardSeries ResistorSeries { get; init; } = AnalogStandardSeries.E96;
+    public AnalogStandardSeries CapacitorSeries { get; init; } = AnalogStandardSeries.E96;
+    public double ResistorTolerancePercent { get; init; } = 1;
+    public double CapacitorTolerancePercent { get; init; } = 5;
+    public double ResistorMinimumOhm { get; init; } = 1_000;
+    public double ResistorMaximumOhm { get; init; } = 1_000_000;
+    public double CapacitorMinimumFarad { get; init; } = 10e-12;
+    public double CapacitorMaximumFarad { get; init; } = 10e-6;
+    public bool OptimizeStandardValues { get; init; } = true;
+    public bool BiasCompensation { get; init; } = true;
+}
+
+public sealed record OpAmpPracticalConstraints
+{
+    public bool UseIdealOpAmp { get; init; } = true;
+    public double GainBandwidthHz { get; init; } = double.PositiveInfinity;
+    public double SlewRateVoltPerSecond { get; init; } = double.PositiveInfinity;
+    public double InputOffsetVoltage { get; init; }
+    public double InputBiasCurrentAmpere { get; init; }
+    public double OutputSwingHeadroomVoltage { get; init; }
+}
+
+public sealed record AnalogComputeDesignRequest
+{
+    public AnalogComputeOperationType Operation { get; init; } = AnalogComputeOperationType.GeneralLinearCombination;
+    public IReadOnlyList<AnalogInputTerm> Inputs { get; init; } = [new("U1", 1)];
+    public double OutputOffsetVoltage { get; init; }
+    public double SupplyVccVoltage { get; init; } = 15;
+    public double SupplyVeeVoltage { get; init; } = -15;
+    public double MaximumFunctionErrorPercent { get; init; } = 1;
+    public bool UseInputRangesForFeasibility { get; init; } = true;
+    public ComponentSelectionConstraints Components { get; init; } = new();
+    public OpAmpPracticalConstraints OpAmp { get; init; } = new();
+
+    // Range Mapper endpoints. They are used only when Operation is VoltageRangeMapper.
+    public double InputLowVoltage { get; init; } = 0.5;
+    public double InputHighVoltage { get; init; } = 4.5;
+    public double OutputLowVoltage { get; init; }
+    public double OutputHighVoltage { get; init; } = 3.3;
+}
+
+public sealed record AnalogComputeCapabilityEvaluation(
+    AnalogCapabilityLevel Level,
+    bool IsSupported,
+    AnalogCapabilityReasonCode ReasonCode,
+    string Message,
+    string? SuggestedAlternative = null)
+{
+    public static AnalogComputeCapabilityEvaluation Supported(string message = "Design capability verified.") =>
+        new(AnalogCapabilityLevel.Supported, true, AnalogCapabilityReasonCode.None, message);
+
+    public static AnalogComputeCapabilityEvaluation Failure(AnalogCapabilityReasonCode reason, string message, string? alternative = null) =>
+        new(AnalogCapabilityLevel.Unsupported, false, reason, message, alternative);
+}
+
+public sealed record SelectedAnalogComponent(
+    string Reference,
+    string Role,
+    string Quantity,
+    double TheoreticalValue,
+    double SelectedValue,
+    string Unit,
+    AnalogStandardSeries? Series = null);
+
+public sealed record VerificationMetric(
+    string Name,
+    double Target,
+    double Actual,
+    double Error,
+    double Tolerance,
+    bool Pass,
+    string Unit = "");
+
+public sealed record CalculationRecord(string Title, string Expression, string Result, string? Note = null);
+
+public sealed record AnalogAnalysisPoint(double Input, double Target, double Actual, bool IsSupplyLimited = false);
+
+public sealed record AnalogAnalysisResult(
+    string AnalysisType,
+    IReadOnlyList<AnalogAnalysisPoint> Points,
+    IReadOnlyList<VerificationMetric> Metrics);
+
+public sealed record AnalogComputeDesignResult
+{
+    public required bool Success { get; init; }
+    public required AnalogComputeCapabilityEvaluation Capability { get; init; }
+    public required AnalogComputeDesignRequest Request { get; init; }
+    public string TopologyName { get; init; } = "";
+    public string TargetRelation { get; init; } = "";
+    public CircuitGraph? CircuitGraph { get; init; }
+    public IReadOnlyList<SelectedAnalogComponent> Components { get; init; } = [];
+    public IReadOnlyList<VerificationMetric> VerificationMetrics { get; init; } = [];
+    public IReadOnlyList<CalculationRecord> Calculations { get; init; } = [];
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+    public AnalogAnalysisResult? Analysis { get; init; }
+    public double RequiredVccVoltage { get; init; }
+    public double RequiredVeeVoltage { get; init; }
+}

@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Windows.Forms;
 using CircuitModuleDesigner.Core.Analysis;
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Core.Circuit.Spice;
@@ -21,6 +22,15 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.PassiveLc;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Validation;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Engines;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Reporting;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Schematic;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Controls;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Analysis;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Services;
+using AnalogComponentSelectionConstraints = CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models.ComponentSelectionConstraints;
+using ComponentSelectionConstraints = CircuitModuleDesigner.Modules.Filters.FilterDesign.Models.ComponentSelectionConstraints;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -110,6 +120,19 @@ var tests = new (string Name, Action Run)[]
     ,("Manual under-order capability is not Supported", TestManualUnderOrderCapability)
     ,("Bounded E24 cascade optimization", TestBoundedE24CascadeOptimization)
     ,("Bainter K1 range freedom and lightweight availability", TestBainterK1RangeFreedomAndAvailability)
+    ,("Precision analog affine CircuitGraph verification", TestPrecisionAnalogAffineCircuitGraph)
+    ,("Precision analog E24 joint ratio optimization", TestPrecisionAnalogE24Optimization)
+    ,("Precision analog E12 exhaustive bounded search", TestPrecisionAnalogE12Optimization)
+    ,("Precision analog honest E12 gain-three limit", TestPrecisionAnalogExactE12GainThree)
+    ,("Precision analog eight-input synthesis", TestPrecisionAnalogEightInputs)
+    ,("Precision analog interactive multi-input sweep", TestPrecisionAnalogInteractiveSweep)
+    ,("Precision analog rail-limited multi-stage sweep", TestPrecisionAnalogRailLimitedSweep)
+    ,("Precision analog Multisim CIR export", TestPrecisionAnalogCirExport)
+    ,("Precision analog range mapper", TestPrecisionAnalogRangeMapper)
+    ,("Precision analog supply capability", TestPrecisionAnalogSupplyCapability)
+    ,("Precision analog abstract diode model", TestPrecisionAnalogAbstractDiode)
+    ,("Precision analog schematic and in-app report", TestPrecisionAnalogPresentation)
+    ,("Precision analog wizard initializes operation list", TestPrecisionAnalogWizardInitialization)
 };
 
 var failures = new List<string>();
@@ -124,6 +147,216 @@ Console.WriteLine($"All {tests.Length} filter design tests passed.");
 
 static void TestButterworthOrder() => Equal(8, new ButterworthOrderCalculator().CalculateMinimumOrder(1, 40, 2));
 static void TestChebyshevOrder() => Equal(5, new ChebyshevOrderCalculator().CalculateMinimumOrder(1, 40, 2));
+
+static void TestPrecisionAnalogAffineCircuitGraph()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", -5, -1, 1), new("U2", 5, -1, 1), new("U3", 0.25, -2, 2)],
+        OutputOffsetVoltage = 1.2,
+        SupplyVccVoltage = 15,
+        SupplyVeeVoltage = -15,
+        MaximumFunctionErrorPercent = 0.01,
+        Components = new AnalogComponentSelectionConstraints { OptimizeStandardValues = false, BiasCompensation = true }
+    });
+    Require(result.Success, result.Capability.Message);
+    var graph = result.CircuitGraph ?? throw new InvalidOperationException("Affine design did not produce a CircuitGraph.");
+    Require(graph.Components.Count(component => component.Type == ComponentType.OpAmp) == 2, "Mixed signs must use the explainable two-stage topology.");
+    foreach (var metric in result.VerificationMetrics.Where(metric => metric.Name.StartsWith("Coefficient") || metric.Name == "Output offset"))
+        Require(metric.Pass, $"Independent affine metric failed: {metric.Name}, target={metric.Target}, actual={metric.Actual}.");
+    Require(graph.Nets.Any(net => net.Name == "VCC") && graph.Nets.Any(net => net.Name == "VEE"), "Supply rails must be explicit named nets.");
+    Require(!graph.Nets.Any(net => net.Name.Equals("VREF", StringComparison.OrdinalIgnoreCase)), "The module must not accept or create an independent VREF source.");
+}
+
+static void TestPrecisionAnalogE24Optimization()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", 2, -1, 1), new("U2", -0.5, -1, 1)],
+        OutputOffsetVoltage = 1,
+        MaximumFunctionErrorPercent = 5,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E24, OptimizeStandardValues = true }
+    });
+    Require(result.Success, result.Capability.Message);
+    Require(result.Components.Where(component => component.Quantity == "Resistance").All(component => component.Series == AnalogStandardSeries.E24), "Selected resistors did not retain E24 provenance.");
+    Require(result.VerificationMetrics.Where(metric => metric.Name.StartsWith("Coefficient") || metric.Name == "Output offset").All(metric => metric.Pass), "E24 result did not pass actual CircuitGraph verification.");
+}
+
+static void TestPrecisionAnalogE12Optimization()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", 1.7), new("U2", -0.65)], OutputOffsetVoltage = .8,
+        MaximumFunctionErrorPercent = 10,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E12, OptimizeStandardValues = true }
+    });
+    Require(result.Success, result.Capability.Message);
+    Require(result.VerificationMetrics.Where(metric => metric.Name.StartsWith("Coefficient") || metric.Name == "Output offset").All(metric => metric.Pass), "E12 exhaustive search did not pass its configured actual-function tolerance.");
+}
+
+static void TestPrecisionAnalogExactE12GainThree()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", 3)], OutputOffsetVoltage = 0, UseInputRangesForFeasibility = false,
+        MaximumFunctionErrorPercent = 1,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E12, OptimizeStandardValues = true }
+    });
+    Require(!result.Success && result.Capability.ReasonCode == AnalogCapabilityReasonCode.StandardValueAccuracyInsufficient,
+        "A single-resistor E12 ratio must not be falsely accepted as 3 within 1%.");
+    var coefficient = result.VerificationMetrics.Single(metric => metric.Name == "Coefficient U1");
+    Require(Nearly(coefficient.Actual, 3.030303, 1e-5), $"Unexpected best E12 gain-three coefficient {coefficient.Actual}.");
+    var e24 = new PrecisionAnalogDesignEngine().Design(result.Request with { Components = result.Request.Components with { ResistorSeries = AnalogStandardSeries.E24 } });
+    Require(e24.Success && Math.Abs(e24.VerificationMetrics.Single(metric => metric.Name == "Coefficient U1").Actual - 3) < .001, "E24 should realize nominal gain 3 inside 1%.");
+}
+
+static void TestPrecisionAnalogEightInputs()
+{
+    var inputs = Enumerable.Range(1, 8).Select(index => new AnalogInputTerm($"U{index}", index % 2 == 0 ? -5 : 5)).ToArray();
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = inputs, UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 1,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E24 }
+    });
+    Require(result.Success, result.Capability.Message);
+    Require(result.VerificationMetrics.Count(metric => metric.Name.StartsWith("Coefficient")) == 8, "Eight-input design did not independently extract every coefficient.");
+}
+
+static void TestPrecisionAnalogInteractiveSweep()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", 2), new("U2", -3), new("U3", .5)], OutputOffsetVoltage = 1,
+        UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 5,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E96 }
+    });
+    Require(result.Success, result.Capability.Message);
+    var analysis = new AffineSweepAnalysisService().Analyze(result, "U2", new Dictionary<string, double> { ["U1"] = 2, ["U3"] = -1 }, -2, 2, 101);
+    Equal(101, analysis.Points.Count);
+    Require(Nearly(analysis.Points[0].Target, 10.5, 1e-12) && Nearly(analysis.Points[^1].Target, -1.5, 1e-12), "Interactive sweep did not hold the other n-1 inputs at their configured values.");
+    Require(analysis.Points.Max(point => Math.Abs(point.Actual - point.Target)) < .2, "Actual CircuitGraph sweep diverged from the target curve.");
+}
+
+static void TestPrecisionAnalogRailLimitedSweep()
+{
+    var inputs = Enumerable.Range(1, 8).Select(index => new AnalogInputTerm($"U{index}", 1)).ToArray();
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = inputs, UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 5,
+        SupplyVccVoltage = 15, SupplyVeeVoltage = -15
+    });
+    Require(result.Success, result.Capability.Message);
+    var fixedValues = inputs.ToDictionary(input => input.Name, _ => 1d);
+    fixedValues["U4"] = 111;
+    var analysis = new AffineSweepAnalysisService().Analyze(result, "U1", fixedValues, -6, 6, 101);
+    Require(analysis.Points.Any(point => point.IsSupplyLimited), "Rail-limited sweep did not report internal/output op-amp saturation.");
+    Require(analysis.Points.All(point => point.Actual >= -15.000001 && point.Actual <= 15.000001), "Rail-limited CircuitGraph simulation exceeded VCC/VEE.");
+    Require(analysis.Points.Any(point => Math.Abs(point.Target) > 15 && Math.Abs(point.Actual) <= 15.000001), "Target and rail-limited actual curves were not distinguished.");
+    var document = new PrecisionAnalogSchematicLayoutService().Layout(result.CircuitGraph!);
+    Require(new ComponentCollisionDetector().Find(document, 4).Count == 0, "Eight-input schematic has overlapping component bodies after dynamic row layout.");
+}
+
+static void TestPrecisionAnalogCirExport()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", 1), new("U2", -1)], OutputOffsetVoltage = .5,
+        UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 5
+    });
+    Require(result.Success, result.Capability.Message);
+    var cir = new PrecisionAnalogSpiceExportService().Export(result);
+    foreach (var token in new[] { "V_VCC VCC 0 DC", "V_VEE VEE 0 DC", "V_U1 U1 0 DC", "V_U2 U2 0 DC", "E_U1", ".DC V_U1", ".PRINT DC V(VOUT)", ".END" })
+        Require(cir.Contains(token, StringComparison.Ordinal), $"Precision Analog CIR export omitted {token}.");
+}
+
+static void TestPrecisionAnalogRangeMapper()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Operation = AnalogComputeOperationType.VoltageRangeMapper,
+        InputLowVoltage = 0.5, InputHighVoltage = 4.5,
+        OutputLowVoltage = 0, OutputHighVoltage = 3.3,
+        MaximumFunctionErrorPercent = 2,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E96 }
+    });
+    Require(result.Success, result.Capability.Message);
+    Require(Nearly(result.Request.Inputs[0].Coefficient, 0.825, 1e-12), "Range Mapper scale was not derived from endpoints.");
+    Require(Nearly(result.Request.OutputOffsetVoltage, -0.4125, 1e-12), "Range Mapper offset was not derived from endpoints.");
+    Require(result.Analysis?.Points.Count == 51, "Range Mapper must provide a full-range target/actual DC sweep.");
+    var plotted = new AffineSweepAnalysisService().Analyze(result, "VIN", new Dictionary<string, double>(), result.Request.InputLowVoltage, result.Request.InputHighVoltage);
+    Require(Nearly(plotted.Points[0].Input, .5, 1e-12) && Nearly(plotted.Points[^1].Input, 4.5, 1e-12), "Range Mapper analysis horizontal axis does not use the configured input range.");
+    Require(Nearly(plotted.Points[0].Target, 0, 1e-12) && Nearly(plotted.Points[^1].Target, 3.3, 1e-12), "Range Mapper analysis vertical target does not use the configured output range.");
+    Require(plotted.Points.All(point => point.Actual >= result.RequiredVeeVoltage - 1e-9 && point.Actual <= result.RequiredVccVoltage + 1e-9), "Range Mapper analysis did not enforce VCC/VEE limits.");
+}
+
+static void TestPrecisionAnalogSupplyCapability()
+{
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest { SupplyVccVoltage = 0, SupplyVeeVoltage = -15 });
+    Require(!result.Success && result.Capability.ReasonCode == AnalogCapabilityReasonCode.SupplyRailsInvalid, "Invalid VCC/VEE was not rejected structurally.");
+}
+
+static void TestPrecisionAnalogAbstractDiode()
+{
+    var diode = ComponentFactory.Diode("D1");
+    Require(diode.Type == ComponentType.Diode && diode.GetPin("A").Name == "A" && diode.GetPin("K").Name == "K", "Abstract diode A/K pins are missing.");
+    Require(diode.Parameters.Values.Count == 0, "Vendor-specific junction parameters must not be stored in CircuitGraph component parameters.");
+    var junction = new JunctionModelParameters { SaturationCurrentAmpere = 1e-12, EmissionCoefficient = 1.1, TemperatureCelsius = 25 };
+    Require(junction.ThermalVoltage > .025 && junction.ThermalVoltage < .026, "Shockley thermal voltage is outside the 25 °C range.");
+    Require(junction.Current(.6) > 0, "Shockley junction current must increase for forward voltage.");
+}
+
+static void TestPrecisionAnalogPresentation()
+{
+    Require(new AnalogComponentSelectionConstraints().ResistorSeries == AnalogStandardSeries.E96, "Precision Analog must default to E96.");
+    var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Inputs = [new("U1", 1), new("U2", -1)], OutputOffsetVoltage = .5,
+        MaximumFunctionErrorPercent = 5,
+        Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E96 }
+    });
+    Require(result.Success, result.Capability.Message);
+    var graph = result.CircuitGraph ?? throw new InvalidOperationException("Presentation test has no circuit.");
+    var document = new PrecisionAnalogSchematicLayoutService().Layout(graph);
+    Equal(graph.Components.Count, document.PlacedComponents.Count);
+    Require(document.Wires.Count > 0, "Precision Analog schematic contains no routed nets.");
+    var collisions = new ComponentCollisionDetector().Find(document, 4);
+    Require(collisions.Count == 0, "Precision Analog operation-aware layout contains overlapping component bodies: " + string.Join(", ", collisions.Select(pair => $"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
+    var wireCrossings = new List<string>();
+    foreach (var item in document.PlacedComponents)
+    {
+        var interior = SchematicGeometry.GetBounds(item);
+        foreach (var wire in document.Wires)
+        for (var index = 1; index < wire.Points.Count; index++)
+            if (SegmentCrossesInterior(wire.Points[index - 1], wire.Points[index], interior))
+                wireCrossings.Add($"{wire.NetName}/{item.Component.Reference}");
+    }
+    Require(wireCrossings.Count == 0, "Precision Analog wire crosses a component body: " + string.Join(", ", wireCrossings.Distinct()));
+    var report = new PrecisionAnalogDesignReportBuilder().BuildText(result);
+    Require(report.Contains("CapabilityLevel") && report.Contains("CapabilityReasonCode") && report.Contains("VCC") && report.Contains("VEE"), "In-app report omitted capability or supply/reference information.");
+    var reportService = new PrecisionAnalogDesignReportService();
+    var html = reportService.ExportHtml(result); var json = reportService.ExportJson(result);
+    Require(html.Contains("<!DOCTYPE html>") && html.Contains("2. Component Values") && html.Contains("3. Actual Verification") && html.Contains("4. JSON Snapshot") && html.Contains("<table>"), "Precision Analog structured HTML report export is incomplete.");
+    Require(!html.Contains("Warnings and Design Notes") && !html.Contains("Calculation Trace") && !html.Contains("Circuit Summary"), "Precision Analog concise report still contains removed sections.");
+    Require(json.Contains("CircuitModuleDesigner.PrecisionAnalogDesign.v1") && json.Contains("\"Circuit\"") && json.Contains("\"Verification\""), "Precision Analog JSON snapshot is incomplete.");
+}
+
+static void TestPrecisionAnalogWizardInitialization()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            using var tree = new TreeView();
+            using var wizard = new PrecisionAnalogWizardControl(tree);
+            Require(tree.Nodes.Count == 1 && tree.Nodes[0].Nodes.Count == Enum.GetValues<AnalogComputeOperationType>().Length, "Wizard navigation did not expose all planned operations.");
+        }
+        catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start(); thread.Join();
+    if (failure is not null) throw new InvalidOperationException("Precision Analog wizard construction failed.", failure);
+}
 
 static void TestChebyshevLadderPrototype()
 {

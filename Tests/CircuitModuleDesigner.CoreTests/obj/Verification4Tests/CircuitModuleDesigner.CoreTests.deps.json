@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "CircuitModuleDesigner.CoreTests/1.0.0": {
+        "dependencies": {
+          "CircuitModuleDesigner": "1.0.0"
+        },
+        "runtime": {
+          "CircuitModuleDesigner.CoreTests.dll": {}
+        }
+      },
+      "CircuitModuleDesigner/1.0.0": {
+        "runtime": {
+          "CircuitModuleDesigner.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "CircuitModuleDesigner.CoreTests/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CircuitModuleDesigner/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

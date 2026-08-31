@@ -10,6 +10,14 @@ public static class SymbolDefinitionCatalog
             [ComponentType.Resistor] = CreateTwoTerminal(ComponentType.Resistor, SymbolShape.ResistorZigZag),
             [ComponentType.Capacitor] = CreateTwoTerminal(ComponentType.Capacitor, SymbolShape.CapacitorPlates),
             [ComponentType.Inductor] = CreateTwoTerminal(ComponentType.Inductor, SymbolShape.InductorCoil),
+            [ComponentType.Diode] = new SymbolDefinition(
+                ComponentType.Diode,
+                SymbolShape.DiodeJunction,
+                new SchematicSize(80, 30),
+                [
+                    new SymbolPinAnchor("A", new SchematicPoint(-40, 0), SymbolPinDirection.Left),
+                    new SymbolPinAnchor("K", new SchematicPoint(40, 0), SymbolPinDirection.Right)
+                ]),
             [ComponentType.OpAmp] = new SymbolDefinition(
                 ComponentType.OpAmp,
                 SymbolShape.OpAmpTriangle,

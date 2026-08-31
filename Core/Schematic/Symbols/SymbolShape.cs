@@ -5,7 +5,8 @@ public enum SymbolShape
     ResistorZigZag,
     CapacitorPlates,
     InductorCoil,
-    OpAmpTriangle
+    OpAmpTriangle,
+    DiodeJunction
 }
 
 public enum SymbolPinDirection

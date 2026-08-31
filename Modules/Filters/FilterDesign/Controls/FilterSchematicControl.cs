@@ -14,6 +14,7 @@ public sealed class FilterSchematicControl : UserControl
     private double minimumX;
     private double minimumY;
     private bool showComponentValues = true;
+    private bool avoidWireLabelCollisions = true;
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public SchematicDocument? Document
@@ -34,6 +35,13 @@ public sealed class FilterSchematicControl : UserControl
     {
         get => showComponentValues;
         set { showComponentValues = value; Invalidate(); }
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool AvoidWireLabelCollisions
+    {
+        get => avoidWireLabelCollisions;
+        set { avoidWireLabelCollisions = value; Invalidate(); }
     }
 
     public FilterSchematicControl()
@@ -149,6 +157,12 @@ public sealed class FilterSchematicControl : UserControl
                     graphics.DrawString("−", symbolFont, Brushes.Black, new RectangleF(-35, 13, 18, 18), format);
                 }
                 break;
+            case SymbolShape.DiodeJunction:
+                graphics.DrawLine(pen, -40, 0, -15, 0);
+                graphics.DrawPolygon(pen, [new PointF(-15, -14), new PointF(-15, 14), new PointF(12, 0)]);
+                graphics.DrawLine(pen, 12, -14, 12, 14);
+                graphics.DrawLine(pen, 12, 0, 40, 0);
+                break;
         }
     }
 
@@ -169,7 +183,9 @@ public sealed class FilterSchematicControl : UserControl
             new RectangleF(componentBounds.Right + 7, componentBounds.Bottom + 3, size.Width, size.Height),
             new RectangleF(componentBounds.Left - size.Width - 7, componentBounds.Bottom + 3, size.Width, size.Height)
         };
-        var selected = candidates.FirstOrDefault(candidate => occupied.All(existing => !existing.IntersectsWith(candidate)) && !IntersectsAnyWire(candidate));
+        var selected = candidates.FirstOrDefault(candidate =>
+            occupied.All(existing => !existing.IntersectsWith(candidate)) &&
+            (!avoidWireLabelCollisions || !IntersectsAnyWire(candidate)));
         if (selected.Width <= 0) selected = preferred;
         PaintTextWithBackground(graphics, text, brush, selected);
         occupied.Add(RectangleF.Inflate(selected, 2, 1));

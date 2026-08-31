@@ -5,5 +5,6 @@ public enum ComponentType
     Resistor,
     Capacitor,
     Inductor,
-    OpAmp
+    OpAmp,
+    Diode
 }

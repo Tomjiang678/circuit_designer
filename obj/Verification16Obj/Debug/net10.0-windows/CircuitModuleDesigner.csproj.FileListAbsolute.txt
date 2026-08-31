@@ -1,0 +1,5 @@
+D:\jzh_doc\circuit designer\obj\Verification16Obj\Debug\net10.0-windows\CircuitModuleDesigner.GeneratedMSBuildEditorConfig.editorconfig
+D:\jzh_doc\circuit designer\obj\Verification16Obj\Debug\net10.0-windows\CircuitModuleDesigner.AssemblyInfoInputs.cache
+D:\jzh_doc\circuit designer\obj\Verification16Obj\Debug\net10.0-windows\CircuitModuleDesigner.AssemblyInfo.cs
+D:\jzh_doc\circuit designer\obj\Verification16Obj\Debug\net10.0-windows\CircuitModuleDesigner.csproj.CoreCompileInputs.cache
+D:\jzh_doc\circuit designer\obj\Verification16Obj\Debug\net10.0-windows\CircuitModuleDesigner.sourcelink.json
