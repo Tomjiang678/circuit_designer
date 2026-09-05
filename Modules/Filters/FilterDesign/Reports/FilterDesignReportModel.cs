@@ -17,7 +17,9 @@ public sealed record ReportVerificationRow(
     string Metric, string Target, string Actual, string Error, bool Passed);
 public sealed record ReportCircuitSummary(
     int Resistors, int Capacitors, int Inductors, int OpAmps, int Nets, int Sections,
-    string TopologyChain);
+    string TopologyChain,
+    int ExternalTerminations = 0,
+    string ExternalTerminationSummary = "None");
 
 public sealed record FilterDesignSnapshot(
     string SchemaVersion,
@@ -32,6 +34,7 @@ public sealed record FilterDesignReportModel(
     string SoftwareVersion,
     IReadOnlyList<ReportField> DesignSummary,
     IReadOnlyList<ReportField> InputSpecifications,
+    IReadOnlyList<ReportField> SourceLoadReference,
     IReadOnlyList<ReportField> ApproximationDetails,
     IReadOnlyList<ReportPole> PrototypePolesAndZeros,
     IReadOnlyList<ReportSection> Sections,

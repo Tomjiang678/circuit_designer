@@ -68,22 +68,31 @@ public sealed class FilterImplementationStepControl : FilterStepBase
         }
         else
         {
-            var supported=FilterSupportMatrix.GetSupportedImplementations(FilterDesignRequest.FromState(state));
-            var implementations=supported.Count>0?supported.ToArray():new[]{FilterImplementationType.Rc,FilterImplementationType.Lc};
+            var request = FilterDesignRequest.FromState(state);
+            var implementations = new[] { FilterImplementationType.Rc, FilterImplementationType.Lc }
+                .Where(candidate => FilterSupportMatrix.Evaluate(request with
+                {
+                    Implementation = candidate,
+                    LcTerminationMode = candidate == FilterImplementationType.Lc
+                        ? LcTerminationMode.DoublyTerminated
+                        : request.LcTerminationMode
+                }).IsSupported)
+                .ToArray();
+            if (implementations.Length == 0) implementations = [FilterImplementationType.Rc, FilterImplementationType.Lc];
             if (!implementations.Contains(state.Implementation)) state.Implementation=implementations[0];
             var implementation = Combo(implementations, DisplayName);
             implementation.SelectedIndex = Array.IndexOf(implementations,state.Implementation);
-            implementation.Enabled=supported.Count>0;
+            implementation.Enabled=implementations.Length>0;
             implementation.SelectedIndexChanged += (_, _) =>
             {
-                state.Implementation = ((EnumItem<FilterImplementationType>)implementation.SelectedItem!).Value;
+                state.SelectImplementation(((EnumItem<FilterImplementationType>)implementation.SelectedItem!).Value);
                 RefreshAvailability(); RefreshPreview();
                 Changed();
             };
             AddRow(form, "Passive Implementation:", implementation);
             AddRow(form, "Current Support:", new Label
             {
-                Text = "RC: physically valid first-order LP/HP only. LC: Butterworth/Chebyshev-I LP/HP/BP/BS with normalized termination scaling.",
+                Text = $"RC topology: {state.PassiveRcTopology}. LC: verified ladder synthesis with explicit source/load termination.",
                 AutoSize = true,
                 MaximumSize = new Size(520, 0)
             });

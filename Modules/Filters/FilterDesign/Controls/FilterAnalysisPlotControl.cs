@@ -69,7 +69,7 @@ public sealed class FilterAnalysisPlotControl : UserControl
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var outer = RectangleF.Inflate(ClientRectangle, -12, -10);
         if (outer.Width < 280 || outer.Height < 220) return;
-        const float left = 68, right = 22, top = 24, bottom = 38, gap = 34;
+        const float left = 88, right = 28, top = 24, bottom = 44, gap = 40;
         var plotWidth = outer.Width - left - right;
         var plotHeight = (outer.Height - top - bottom - gap) / 2;
         magnitudeBounds = new RectangleF(outer.Left + left, outer.Top + top, plotWidth, plotHeight);
@@ -83,8 +83,8 @@ public sealed class FilterAnalysisPlotControl : UserControl
         if (phaseMaximum - phaseMinimum < 180) { phaseMinimum -= 90; phaseMaximum += 90; }
 
         var magnitudeAxisTitle = analysis.MagnitudeReferenceLinear == 1 ? "Magnitude (dB)" : "Insertion Gain (dB)";
-        DrawGrid(e.Graphics, magnitudeBounds, minimumLogFrequency, maximumLogFrequency, magnitudeMinimum, magnitudeMaximum, magnitudeAxisTitle);
-        DrawGrid(e.Graphics, phaseBounds, minimumLogFrequency, maximumLogFrequency, phaseMinimum, phaseMaximum, "Phase (deg)");
+        DrawGrid(e.Graphics, magnitudeBounds, minimumLogFrequency, maximumLogFrequency, magnitudeMinimum, magnitudeMaximum, magnitudeAxisTitle, false);
+        DrawGrid(e.Graphics, phaseBounds, minimumLogFrequency, maximumLogFrequency, phaseMinimum, phaseMaximum, "Phase (deg)", true);
         DrawSpecificationEdges(e.Graphics, magnitudeBounds, phaseBounds, minimumLogFrequency, maximumLogFrequency);
         DrawCurve(e.Graphics, magnitudeBounds, minimumLogFrequency, maximumLogFrequency, magnitudeMinimum, magnitudeMaximum, analysis.Points.Select(point => (point.FrequencyHz, point.MagnitudeDb)), Color.Navy);
         DrawCurve(e.Graphics, phaseBounds, minimumLogFrequency, maximumLogFrequency, phaseMinimum, phaseMaximum, analysis.Points.Select(point => (point.FrequencyHz, point.PhaseDegrees)), Color.DarkGreen);
@@ -145,7 +145,7 @@ public sealed class FilterAnalysisPlotControl : UserControl
         graphics.DrawString(text, Font, Brushes.Black, box.X + 5, box.Y + 4);
     }
 
-    private void DrawGrid(Graphics graphics, RectangleF rectangle, double minLog, double maxLog, double minimum, double maximum, string axisTitle)
+    private void DrawGrid(Graphics graphics, RectangleF rectangle, double minLog, double maxLog, double minimum, double maximum, string axisTitle, bool drawFrequencyLabels)
     {
         using var gridPen = new Pen(Color.Gainsboro, 1); using var axisPen = new Pen(Color.DimGray, 1.2F);
         graphics.FillRectangle(Brushes.White, rectangle);
@@ -155,7 +155,14 @@ public sealed class FilterAnalysisPlotControl : UserControl
         {
             var log = decade + Math.Log10(multiplier); if (log < minLog || log > maxLog) continue;
             var x = MapX(log, minLog, maxLog, rectangle); graphics.DrawLine(gridPen, x, rectangle.Top, x, rectangle.Bottom);
-            if (multiplier == 1) graphics.DrawString(EngineeringFrequency(Math.Pow(10, decade)), Font, Brushes.DimGray, x - 15, rectangle.Bottom + 3);
+            if (multiplier == 1 && drawFrequencyLabels)
+            {
+                var label = EngineeringFrequency(Math.Pow(10, decade));
+                var size = graphics.MeasureString(label, Font);
+                var labelX = x - size.Width / 2;
+                if (labelX >= rectangle.Left - 4 && labelX + size.Width <= rectangle.Right + 4)
+                    graphics.DrawString(label, Font, Brushes.DimGray, labelX, rectangle.Bottom + 3);
+            }
         }
         const int horizontalDivisions = 5;
         for (var division = 0; division <= horizontalDivisions; division++)
@@ -166,7 +173,12 @@ public sealed class FilterAnalysisPlotControl : UserControl
             var label = value.ToString("0.#"); var size = graphics.MeasureString(label, Font); graphics.DrawString(label, Font, Brushes.DimGray, rectangle.Left - size.Width - 6, y - size.Height / 2);
         }
         graphics.DrawRectangle(axisPen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
-        var state = graphics.Save(); graphics.TranslateTransform(rectangle.Left - 52, rectangle.Top + rectangle.Height / 2 + 35); graphics.RotateTransform(-90); graphics.DrawString(axisTitle, Font, Brushes.Black, 0, 0); graphics.Restore(state);
+        var state = graphics.Save();
+        var axisSize = graphics.MeasureString(axisTitle, Font);
+        graphics.TranslateTransform(rectangle.Left - 72, rectangle.Top + (rectangle.Height + axisSize.Width) / 2);
+        graphics.RotateTransform(-90);
+        graphics.DrawString(axisTitle, Font, Brushes.Black, 0, 0);
+        graphics.Restore(state);
     }
 
     private void DrawSpecificationEdges(Graphics graphics, RectangleF magnitude, RectangleF phase, double minLog, double maxLog)

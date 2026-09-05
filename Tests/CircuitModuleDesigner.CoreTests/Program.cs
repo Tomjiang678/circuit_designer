@@ -6,6 +6,7 @@ using CircuitModuleDesigner.Core.Circuit.Spice;
 using CircuitModuleDesigner.Core.Schematic;
 using CircuitModuleDesigner.Core.Schematic.Symbols;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Approximation;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Analysis;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Engines;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
@@ -31,6 +32,20 @@ using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Analysis;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Services;
 using AnalogComponentSelectionConstraints = CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models.ComponentSelectionConstraints;
 using ComponentSelectionConstraints = CircuitModuleDesigner.Modules.Filters.FilterDesign.Models.ComponentSelectionConstraints;
+
+if (args is ["--run-filter-rows", var inputPath, var outputPath])
+{
+    var service = new FilterManualTestRowService();
+    var engine = new FilterDesignEngine();
+    var completed = File.ReadAllLines(inputPath).Where(line => !string.IsNullOrWhiteSpace(line))
+        .Select(line =>
+        {
+            var parsed = service.Parse(line);
+            return service.Complete(parsed, engine.Design(parsed.Request));
+        });
+    File.WriteAllLines(outputPath, completed, new System.Text.UTF8Encoding(true));
+    return;
+}
 
 var tests = new (string Name, Action Run)[]
 {
@@ -106,12 +121,29 @@ var tests = new (string Name, Action Run)[]
     ,("Component ranges are enforced", TestComponentRangesAreEnforced)
     ,("Default active band-stop selects Bainter", TestDefaultActiveBandStopIsPractical)
     ,("Bainter schematic remains clean", TestBainterWiresAvoidComponentBodies)
-    ,("Passive band modes select LC", TestPassiveBandModesSelectLc)
+    ,("Passive band modes expose RC topology and LC", TestPassiveBandModesSelectLc)
     ,("RC AC analysis known point", TestRcAcAnalysisKnownPoint)
     ,("Designed filter actual analysis", TestDesignedFilterActualAnalysis)
     ,("Passive LC insertion-gain analysis", TestPassiveLcInsertionGainAnalysis)
     ,("Multisim CIR export", TestMultisimCirExport)
     ,("Zero-ohm LC termination is rejected honestly", TestZeroOhmDefaultSource)
+    ,("Passive response reference mathematics", TestPassiveResponseReferenceMathematics)
+    ,("Passive RC and LC UI defaults", TestPassiveTerminationDefaults)
+    ,("Passive loaded RC LP and HP equations", TestPassiveLoadedRcEquations)
+    ,("Passive two-corner RC Band-Pass", TestPassiveTwoCornerRcBandPass)
+    ,("Passive Twin-T compound matching", TestPassiveTwinTCompoundMatching)
+    ,("LC termination policy and even-order Chebyshev", TestLcTerminationPolicies)
+    ,("LC ladder orientation equivalence", TestLcLadderOrientations)
+    ,("LC impedance scaling 50 75 600 ohm", TestLcImpedanceScaling)
+    ,("Passive report and CIR boundary semantics", TestPassiveReportAndCirBoundary)
+    ,("Passive LC structured feasibility results", TestPassiveLcStructuredFeasibility)
+    ,("Passive manual test-row round trip", TestPassiveManualTestRowRoundTrip)
+    ,("Combined active passive test-row round trip", TestCombinedManualTestRowRoundTrip)
+    ,("Finite loaded RC 48-point regressions", TestFiniteLoadedRcRegressions)
+    ,("RC Band-Pass and Twin-T structured diagnostics", TestRcBandAndTwinTDiagnostics)
+    ,("Theoretical versus selected-value capability stages", TestCapabilityFailureStages)
+    ,("Active Band-Pass feasibility reason codes", TestActiveBandPassFeasibilityReasons)
+    ,("Filter v1 final closure classifications", TestFilterV1FinalClosureClassifications)
     ,("Filter design report model", TestFilterDesignReportModel)
     ,("Offline HTML and JSON report export", TestFilterDesignReportExport)
     ,("Engineering unit conversion and editable ranges", TestEngineeringUnitConversionAndRanges)
@@ -142,7 +174,12 @@ foreach (var test in tests)
     try { test.Run(); Console.WriteLine($"PASS {test.Name}"); }
     catch (Exception exception) { failures.Add($"FAIL {test.Name}: {exception.Message}"); Console.WriteLine(failures[^1]); }
 }
-if (failures.Count > 0) throw new InvalidOperationException($"{failures.Count} test(s) failed.");
+if (failures.Count > 0)
+{
+    Console.Error.WriteLine($"{failures.Count} test(s) failed.");
+    Environment.ExitCode = 1;
+    return;
+}
 Console.WriteLine($"All {tests.Length} filter design tests passed.");
 
 static void TestButterworthOrder() => Equal(8, new ButterworthOrderCalculator().CalculateMinimumOrder(1, 40, 2));
@@ -348,8 +385,12 @@ static void TestPrecisionAnalogWizardInitialization()
         try
         {
             using var tree = new TreeView();
-            using var wizard = new PrecisionAnalogWizardControl(tree);
+            using var wizard = new PrecisionAnalogWizardControl();
+            wizard.CreateControl();
+            Require(tree.Nodes.Count == 0, "Preloaded Precision Analog wizard changed navigation before activation.");
+            wizard.AttachNavigation(tree);
             Require(tree.Nodes.Count == 1 && tree.Nodes[0].Nodes.Count == Enum.GetValues<AnalogComputeOperationType>().Length, "Wizard navigation did not expose all planned operations.");
+            wizard.DetachNavigation();
         }
         catch (Exception exception) { failure = exception; }
     });
@@ -782,8 +823,8 @@ static void TestManualUnderOrderCapability()
     Require(result.IsImplemented, "A manually requested under-order circuit should remain inspectable.");
     Require(result.RequiredOrder == 3 && result.PrototypeOrder == 2, "Manual-order audit did not reproduce test point 2.");
     Require(!result.MeetsRequestedOrder && !result.MeetsSpecifications, "Under-order design incorrectly claims specification compliance.");
-    Require(result.Capability is { IsSupported: false, ReasonCode: FilterSupportReasonCode.FinalCircuitSpecificationNotMet },
-        "Under-order design must expose a structured final-circuit capability failure.");
+    Require(result.Capability is { IsSupported: false, ReasonCode: FilterSupportReasonCode.SpecifiedOrderInsufficient },
+        "Under-order design must expose SpecifiedOrderInsufficient rather than a selected-value failure.");
     Require(!result.IsFullySupported, "Under-order circuit must not be advertised as fully supported.");
     Require(result.SpecificationCompliance!.Edges.Single(edge => edge.Label == "fs").MeetsLimit == false,
         "Test point 2 unexpectedly meets its requested fs attenuation.");
@@ -861,7 +902,7 @@ static void TestSupportMatrix()
         foreach(var topology in new[]{FilterImplementationType.SallenKey,FilterImplementationType.MultipleFeedback,FilterImplementationType.BainterNotch})
         {var request=Request(FilterMode.Active,response,approximation,topology,1_000,2_000,manualOrder:3);var expected=topology==FilterImplementationType.SallenKey?response is FilterResponseType.LowPass or FilterResponseType.HighPass or FilterResponseType.BandPass:topology==FilterImplementationType.MultipleFeedback?response is FilterResponseType.LowPass or FilterResponseType.HighPass or FilterResponseType.BandPass:response==FilterResponseType.BandStop;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected active support decision for {approximation}/{response}/{topology}.");}
         foreach(var topology in new[]{FilterImplementationType.Rc,FilterImplementationType.Lc})
-        {var request=Request(FilterMode.Passive,response,approximation,topology,1_000,2_000,manualOrder:1);var classic=approximation is FilterApproximation.Butterworth or FilterApproximation.ChebyshevTypeI;var lc=classic||approximation==FilterApproximation.Bessel;var expected=topology==FilterImplementationType.Rc?classic&&response is (FilterResponseType.LowPass or FilterResponseType.HighPass):lc;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected passive support decision for {approximation}/{response}/{topology}.");}
+        {var request=Request(FilterMode.Passive,response,approximation,topology,1_000,2_000,manualOrder:1);var lc=approximation is FilterApproximation.Butterworth or FilterApproximation.ChebyshevTypeI or FilterApproximation.Bessel;var expected=topology==FilterImplementationType.Rc||lc;Require(FilterSupportMatrix.Evaluate(request).IsSupported==expected,$"Unexpected passive support decision for {approximation}/{response}/{topology}.");}
     }
 }
 
@@ -1206,6 +1247,9 @@ static void TestFilterV1ClosureSupportMatrix()
     Require(matrix.Any(value => value.Approximation == FilterApproximation.Bessel && value.IsSupported &&
                                 value.Conditions.Contains("1-6", StringComparison.Ordinal)),
         "Closure matrix omitted the qualified Bessel LC order range.");
+    Require(matrix.Where(value => value.Mode == FilterMode.Passive && value.Implementation == FilterImplementationType.Rc)
+        .All(value => value.IsSupported && value.Conditions.Contains("Topology-based", StringComparison.Ordinal)),
+        "Closure matrix does not expose all four verified topology-based passive RC responses.");
     Require(matrix.Any(value => value.Approximation == FilterApproximation.GaussianTo12Db &&
                                 value.Conditions.EndsWith("3", StringComparison.Ordinal) && !value.IsSupported &&
                                 value.Reason == "LcPrototypeNotPositiveReal"),
@@ -1556,10 +1600,12 @@ static void TestPassiveBandModesSelectLc()
 {
     var state=new FilterDesignState { Mode=FilterMode.Passive };
     state.SelectResponseType(FilterResponseType.BandPass);
-    Require(state.Implementation==FilterImplementationType.Lc,"Passive Band-Pass must automatically select LC.");
-    state.Implementation=FilterImplementationType.Rc;
+    Require(state.Implementation==FilterImplementationType.Rc && state.PassiveRcTopology==PassiveRcTopology.TwoCornerBandPass,
+        "Passive Band-Pass must expose the topology-based two-corner RC implementation.");
     state.SelectResponseType(FilterResponseType.BandStop);
-    Require(state.Implementation==FilterImplementationType.Lc,"Passive Band-Stop must automatically replace the invalid RC implementation with LC.");
+    Require(state.Implementation==FilterImplementationType.Rc && state.PassiveRcTopology==PassiveRcTopology.TwinTNotch,
+        "Passive Band-Stop must expose the Twin-T RC implementation.");
+    state.SelectImplementation(FilterImplementationType.Lc);
     state.SelectResponseType(FilterResponseType.LowPass);
     Require(state.Implementation==FilterImplementationType.Lc,"Returning to Low-Pass should preserve the still-valid LC selection.");
     state.Mode=FilterMode.Active;state.SelectResponseType(FilterResponseType.LowPass);
@@ -1615,12 +1661,321 @@ static void TestMultisimCirExport()
     Require(!netlist.Contains(" VCC ",StringComparison.Ordinal)&&!netlist.Contains(" VEE ",StringComparison.Ordinal),"Abstract VCVS export must not leave floating supply nets.");
     var passive=new FilterDesignEngine().Design(Request(FilterMode.Passive,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.Lc,1_000,2_000,manualOrder:3));
     Require(passive.IsImplemented,passive.Message);var lcNetlist=passive.SpiceNetlist;
-    Require(lcNetlist.Contains("R_SOURCE N_SOURCE VIN",StringComparison.Ordinal)&&lcNetlist.Contains("R_LOAD VOUT 0",StringComparison.Ordinal),"LC CIR must include its design source/load terminations.");
+    Require(lcNetlist.Contains("V_INPUT VSRC 0",StringComparison.Ordinal)&&lcNetlist.Contains("R_SOURCE VSRC VIN",StringComparison.Ordinal)&&lcNetlist.Contains("R_LOAD VOUT 0",StringComparison.Ordinal),"LC CIR must include its VSRC/Rs/VIN/VOUT/RL boundary.");
+}
+
+static void TestPassiveReportAndCirBoundary()
+{
+    var lc = new FilterDesignEngine().Design(Request(FilterMode.Passive, FilterResponseType.LowPass,
+        FilterApproximation.Butterworth, FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 3));
+    Require(lc.IsImplemented, lc.Message);
+    var report = new FilterDesignReportBuilder().Build(lc);
+    Require(report.SourceLoadReference.Any(value => value.Name == "Electrical boundary" && value.Value.Contains("VSRC", StringComparison.Ordinal)) &&
+            report.SourceLoadReference.Any(value => value.Name == "Primary response reference" && value.Value == "TransducerGain") &&
+            report.CircuitSummary.ExternalTerminations == 2,
+        "Passive report omitted the loaded boundary, response reference, or external termination count.");
+    Require((string)report.Snapshot.Request["LcTerminationPolicy"] == "PrototypeNativeTermination" &&
+            (string)report.Snapshot.Request["PassiveResponseReference"] == "TransducerGain",
+        $"Passive reproducibility snapshot omitted termination/reference semantics: policy={report.Snapshot.Request["LcTerminationPolicy"]}, reference={report.Snapshot.Request["PassiveResponseReference"]}.");
+
+    var rcRequest = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Rc, 1_000, 4_000, manualOrder: 1) with { SourceResistanceOhm = 100, LoadResistanceOhm = 10_000 };
+    var rc = new FilterDesignEngine().Design(rcRequest);
+    Require(rc.IsImplemented, rc.Message);
+    Require(rc.SpiceNetlist.Contains("R_SOURCE VSRC VIN", StringComparison.Ordinal) && rc.SpiceNetlist.Contains("R_LOAD VOUT 0", StringComparison.Ordinal),
+        "Passive RC CIR export omitted the same external Rs/RL used by loaded verification.");
+}
+
+static void TestPassiveLcStructuredFeasibility()
+{
+    var rangeRequest = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 3);
+    rangeRequest.ComponentConstraints.OptimizeStandardValues = false;
+    rangeRequest.ComponentConstraints.InductorMinimumH = 1e-12;
+    rangeRequest.ComponentConstraints.InductorMaximumH = 1e-9;
+    var rangeFailure = new FilterDesignEngine().Design(rangeRequest);
+    Require(!rangeFailure.IsImplemented && rangeFailure.Capability?.ReasonCode == FilterSupportReasonCode.LcComponentRangeViolation,
+        $"LC range failure was not structured: {rangeFailure.Capability?.ReasonCode} / {rangeFailure.Message}");
+
+    var narrow = Request(FilterMode.Passive, FilterResponseType.BandPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Lc, 1_000, 1_300, manualOrder: 3) with
+    {
+        StopbandLowerHz = 800,
+        PassbandLowerHz = 1_000,
+        PassbandUpperHz = 1_020,
+        StopbandUpperHz = 1_300
+    };
+    var narrowResult = new FilterDesignEngine().Design(narrow);
+    Require(narrowResult.IsImplemented && narrowResult.Warnings.Any(value => value.StartsWith("IdealComponentAssumptionMayBeUnrealistic", StringComparison.Ordinal)),
+        $"Narrow-band LC design omitted its ideal-component warning: {narrowResult.Message}");
+}
+
+static void TestPassiveManualTestRowRoundTrip()
+{
+    var fields = Enumerable.Repeat("无", FilterManualTestRowService.ColumnCount).ToArray();
+    fields[0] = "2"; fields[1] = "RC finite source"; fields[2] = "Rc"; fields[3] = "FirstOrderLowPass";
+    fields[4] = "LowPass"; fields[5] = "Butterworth"; fields[6] = "Automatic"; fields[8] = "3"; fields[9] = "20";
+    fields[10] = "2000"; fields[11] = "40000"; fields[16] = "600"; fields[17] = "100000";
+    fields[20] = "10000"; fields[21] = "1000"; fields[22] = "100000"; fields[23] = "1E-10"; fields[24] = "1E-6";
+    fields[27] = "1"; fields[28] = "E96"; fields[29] = "E96"; fields[31] = "200";
+    var csvRow = string.Join(',', fields);
+    var service = new FilterManualTestRowService();
+    var parsed = service.Parse(csvRow);
+    Require(parsed.Request.Mode == FilterMode.Passive && parsed.Request.Implementation == FilterImplementationType.Rc &&
+            parsed.Request.ResponseType == FilterResponseType.LowPass && Nearly(parsed.Request.SourceResistanceOhm, 600, 1e-12),
+        "Manual test-row parser did not reproduce the configured passive request.");
+    var result = new FilterDesignEngine().Design(parsed.Request);
+    var completed = service.Complete(parsed, result);
+    Require(completed.Split(',', StringSplitOptions.None).Length == FilterManualTestRowService.ColumnCount,
+        "Completed CSV test row changed its column count.");
+    var excelRow = csvRow.Replace(',', '\t');
+    Require(service.Parse(excelRow).Delimiter == '\t', "Excel tab-separated row was not accepted.");
+}
+
+static void TestCombinedManualTestRowRoundTrip()
+{
+    var service = new FilterManualTestRowService();
+
+    var active = Enumerable.Repeat("无", FilterManualTestRowService.ComprehensiveColumnCount).ToArray();
+    active[0] = "1"; active[1] = "Active LP"; active[2] = "Active"; active[3] = "LowPass";
+    active[4] = "Butterworth"; active[5] = "SallenKey"; active[6] = "SingleEnded"; active[7] = "Specified";
+    active[8] = "2"; active[9] = "1"; active[10] = "30"; active[11] = "1"; active[12] = "1000"; active[13] = "3000";
+    active[23] = "10000"; active[24] = "1000"; active[25] = "1000000"; active[26] = "1E-10"; active[27] = "1E-6";
+    active[30] = "1"; active[31] = "E24"; active[32] = "E24"; active[34] = "1000";
+    var parsedActive = service.Parse(string.Join(',', active));
+    Require(parsedActive.IsComprehensive && parsedActive.Request.Mode == FilterMode.Active && parsedActive.Request.Implementation == FilterImplementationType.SallenKey,
+        "Combined-row parser did not reproduce the configured active request.");
+    var completedActive = service.Complete(parsedActive, new FilterDesignEngine().Design(parsedActive.Request));
+    Require(completedActive.Split(',', StringSplitOptions.None).Length == FilterManualTestRowService.ComprehensiveColumnCount,
+        "Completed combined active row changed its column count.");
+    var compactActive = service.Parse(string.Join(',', active.Take(FilterManualTestRowService.ComprehensiveInputColumnCount)));
+    Require(compactActive.IsComprehensive && compactActive.Request.Mode == FilterMode.Active,
+        "Compact 35-field TXT input row was not accepted.");
+    var compactLine = string.Join(',', active.Take(FilterManualTestRowService.ComprehensiveInputColumnCount));
+    var threeRows = service.ParseMany("测试点,header\r\n" + string.Join("\r\n", Enumerable.Repeat(compactLine, 3)));
+    Require(threeRows.Count == 3 && threeRows.All(row => row.Request.Mode == FilterMode.Active),
+        "Batch parser did not skip the header or preserve all compact input rows.");
+    var maximum = service.ParseMany(string.Join("\n", Enumerable.Repeat(compactLine, FilterManualTestRowService.MaximumBatchRows)));
+    Require(maximum.Count == FilterManualTestRowService.MaximumBatchRows, "The documented 300-row batch limit was not accepted.");
+    var rejected = false;
+    try { _ = service.ParseMany(string.Join("\n", Enumerable.Repeat(compactLine, FilterManualTestRowService.MaximumBatchRows + 1))); }
+    catch (ArgumentException exception) { rejected = exception.Message.Contains("At most 300", StringComparison.Ordinal); }
+    Require(rejected, "A batch larger than 300 rows was not rejected with a clear limit message.");
+    var idealSource = active.Take(FilterManualTestRowService.ComprehensiveInputColumnCount).ToArray();
+    idealSource[2] = "Passive"; idealSource[5] = "Lc"; idealSource[18] = "0"; idealSource[19] = "1000000";
+    idealSource[21] = "IdealVoltageSource";
+    var parsedIdealSource = service.Parse(string.Join(',', idealSource));
+    Require(parsedIdealSource.Request.LcTerminationMode == LcTerminationMode.IdealVoltageSource,
+        "Combined-row parser confused LC termination mode with LC termination policy.");
+
+    var passive = Enumerable.Repeat("无", FilterManualTestRowService.ComprehensiveColumnCount).ToArray();
+    passive[0] = "25"; passive[1] = "Passive RC LP"; passive[2] = "Passive"; passive[3] = "LowPass";
+    passive[4] = "Butterworth"; passive[5] = "Rc"; passive[6] = "SingleEnded"; passive[7] = "Automatic";
+    passive[9] = "3"; passive[10] = "20"; passive[11] = "1"; passive[12] = "1000"; passive[13] = "20000";
+    passive[18] = "0"; passive[19] = "1000000"; passive[20] = "FirstOrderLowPass"; passive[23] = "10000";
+    passive[24] = "1000"; passive[25] = "100000"; passive[26] = "1E-10"; passive[27] = "1E-6";
+    passive[30] = "1"; passive[31] = "E96"; passive[32] = "E96"; passive[34] = "100";
+    var parsedPassive = service.Parse(string.Join(',', passive));
+    Require(parsedPassive.IsComprehensive && parsedPassive.Request.Mode == FilterMode.Passive && parsedPassive.Request.PassiveRcTopology == PassiveRcTopology.FirstOrderLowPass,
+        "Combined-row parser did not reproduce the configured passive request.");
+    var completedPassive = service.Complete(parsedPassive, new FilterDesignEngine().Design(parsedPassive.Request));
+    Require(completedPassive.Split(',', StringSplitOptions.None).Length == FilterManualTestRowService.ComprehensiveColumnCount,
+        "Completed combined passive row changed its column count.");
+}
+
+static void TestFiniteLoadedRcRegressions()
+{
+    var cases = new[]
+    {
+        Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth, FilterImplementationType.Rc, 2_000, 40_000) with
+        { SourceResistanceOhm = 600, LoadResistanceOhm = 100_000, PassbandRippleDb = 3, StopbandAttenuationDb = 20, PassiveRcTopology = PassiveRcTopology.FirstOrderLowPass },
+        Request(FilterMode.Passive, FilterResponseType.HighPass, FilterApproximation.Butterworth, FilterImplementationType.Rc, 5_000, 500) with
+        { SourceResistanceOhm = 1_000, LoadResistanceOhm = 47_000, PassbandRippleDb = 3, StopbandAttenuationDb = 20, PassiveRcTopology = PassiveRcTopology.FirstOrderHighPass }
+    };
+    foreach (var request in cases)
+    {
+        request.ComponentConstraints.ResistorSeries = StandardComponentSeries.E96;
+        request.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E96;
+        request.ComponentConstraints.ResistorMinimumOhm = 1_000; request.ComponentConstraints.ResistorMaximumOhm = 100_000;
+        request.ComponentConstraints.CapacitorMinimumF = 1e-10; request.ComponentConstraints.CapacitorMaximumF = 1e-5;
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsFullySupported, $"Finite loaded {request.ResponseType} failed: {result.Capability?.ReasonCode} / {result.Message}");
+        var values = result.Sections.Single().Components.ToDictionary(value => value.Role, value => value.SelectedValue);
+        foreach (var frequency in new[] { request.StopbandEdgeHz, request.PassbandEdgeHz, request.PassbandEdgeHz * 7 })
+        {
+            var expected = PassiveRcSectionCalculator.EvaluateLoadedFirstOrder(request.ResponseType, frequency,
+                request.SourceResistanceOhm, request.LoadResistanceOhm, values["R"], values["C"]);
+            var point = result.PassiveAnalysis!.AbsoluteVoltageTransfer.Points.MinBy(value => Math.Abs(Math.Log(value.FrequencyHz / frequency)))!;
+            var atPoint = PassiveRcSectionCalculator.EvaluateLoadedFirstOrder(request.ResponseType, point.FrequencyHz,
+                request.SourceResistanceOhm, request.LoadResistanceOhm, values["R"], values["C"]);
+            Require(Math.Abs(point.MagnitudeLinear - atPoint.Magnitude) < 2e-7,
+                $"Loaded {request.ResponseType} formula/MNA mismatch at {frequency:G6} Hz (reference {expected.Magnitude:G9}).");
+        }
+    }
+}
+
+static void TestRcBandAndTwinTDiagnostics()
+{
+    var bp = Request(FilterMode.Passive, FilterResponseType.BandPass, FilterApproximation.Butterworth, FilterImplementationType.Rc, 1_000, 10_000) with
+    { SourceResistanceOhm = 600, LoadResistanceOhm = 20_000, PassbandRippleDb = 3, StopbandAttenuationDb = 20,
+      StopbandLowerHz = 1_000, PassbandLowerHz = 2_000, PassbandUpperHz = 8_000, StopbandUpperHz = 16_000,
+      PassiveRcTopology = PassiveRcTopology.TwoCornerBandPass };
+    bp.ComponentConstraints.ResistorSeries = StandardComponentSeries.E96; bp.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E96;
+    bp.ComponentConstraints.ResistorMinimumOhm = 1_000; bp.ComponentConstraints.ResistorMaximumOhm = 100_000;
+    bp.ComponentConstraints.CapacitorMinimumF = 1e-10; bp.ComponentConstraints.CapacitorMaximumF = 1e-5;
+    var bpResult = new FilterDesignEngine().Design(bp);
+    Require(bpResult.IsImplemented && bpResult.CircuitGraph != null && bpResult.Capability?.ReasonCode == FilterSupportReasonCode.RcBandPassCornersNotAchievable,
+        $"Two-Corner BP did not return a valid graph and specific feasibility reason: {bpResult.Capability?.ReasonCode}.");
+    Require(bpResult.Capability?.ReasonCode != FilterSupportReasonCode.PendingIndependentVerification, "Verified Two-Corner BP returned PendingIndependentVerification.");
+
+    var twin = Request(FilterMode.Passive, FilterResponseType.BandStop, FilterApproximation.Butterworth, FilterImplementationType.Rc, 500, 2_500) with
+    { SourceResistanceOhm = 50, LoadResistanceOhm = 100_000, PassbandRippleDb = 3, StopbandAttenuationDb = 20,
+      PassbandLowerHz = 600, StopbandLowerHz = 1_200, StopbandUpperHz = 1_800, PassbandUpperHz = 2_400,
+      PassiveRcTopology = PassiveRcTopology.TwinTNotch };
+    twin.ComponentConstraints.ResistorSeries = StandardComponentSeries.E96; twin.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E96;
+    twin.ComponentConstraints.ResistorMinimumOhm = 1_000; twin.ComponentConstraints.ResistorMaximumOhm = 100_000;
+    twin.ComponentConstraints.CapacitorMinimumF = 1e-10; twin.ComponentConstraints.CapacitorMaximumF = 1e-5;
+    var twinResult = new FilterDesignEngine().Design(twin);
+    Require(twinResult.IsImplemented && twinResult.CircuitGraph!.Components.Count == 8 &&
+            twinResult.Capability?.ReasonCode == FilterSupportReasonCode.TwinTRequestedResponseNotAchievable,
+        $"Twin-T did not retain its compound graph/specific response reason: {twinResult.Capability?.ReasonCode}.");
+    var tv = twinResult.Sections.Single().Components.ToDictionary(value => value.Role, value => value.SelectedValue);
+    var sample = twinResult.PassiveAnalysis!.AbsoluteVoltageTransfer.Points.MinBy(value => Math.Abs(Math.Log(value.FrequencyHz / 1_469)))!;
+    var analytic = PassiveRcSectionCalculator.EvaluateTwinT(sample.FrequencyHz, twin.SourceResistanceOhm, twin.LoadResistanceOhm, tv["R1"], tv["C1"]);
+    Require(Math.Abs(sample.MagnitudeLinear - analytic.Magnitude) < 2e-7, "Twin-T compound analytic response does not match loaded CircuitGraph/MNA.");
+}
+
+static void TestCapabilityFailureStages()
+{
+    var insufficient = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Lc, 100_000, 300_000, manualOrder: 3) with
+    { PassbandRippleDb = 1, StopbandAttenuationDb = 30, SourceResistanceOhm = 50, LoadResistanceOhm = 50,
+      LcTerminationPolicy = LcTerminationPolicy.MatchedUserTermination, LcLadderOrientation = LcLadderOrientation.SeriesFirst };
+    insufficient.ComponentConstraints.ResistorSeries = insufficient.ComponentConstraints.CapacitorSeries = insufficient.ComponentConstraints.InductorSeries = StandardComponentSeries.E96;
+    var insufficientResult = new FilterDesignEngine().Design(insufficient);
+    Require(insufficientResult.IsImplemented && insufficientResult.Capability?.ReasonCode == FilterSupportReasonCode.SpecifiedOrderInsufficient,
+        $"Theoretical under-order LC was misclassified as {insufficientResult.Capability?.ReasonCode}.");
+
+    FilterDesignRequest ESeries(StandardComponentSeries series)
+    {
+        var request = Request(FilterMode.Active, FilterResponseType.HighPass, FilterApproximation.ChebyshevTypeI,
+            FilterImplementationType.SallenKey, 8_000, 2_000, optimize: true, manualOrder: 4) with { PassbandRippleDb = 1, StopbandAttenuationDb = 40, PassbandGain = 2 };
+        request.ComponentConstraints.ResistorSeries = request.ComponentConstraints.CapacitorSeries = series;
+        request.ComponentConstraints.ResistorMinimumOhm = 1_000; request.ComponentConstraints.ResistorMaximumOhm = 1_000_000;
+        request.ComponentConstraints.CapacitorMinimumF = 1e-10; request.ComponentConstraints.CapacitorMaximumF = 1e-6;
+        return request;
+    }
+    var e24 = new FilterDesignEngine().Design(ESeries(StandardComponentSeries.E24));
+    var e96 = new FilterDesignEngine().Design(ESeries(StandardComponentSeries.E96));
+    Require(e24.IsImplemented && e24.Capability?.ReasonCode == FilterSupportReasonCode.SelectedValuesFailSpecification &&
+            e24.StageDiagnostics is { TheoreticalMeetsSpecifications: true, SelectedMeetsSpecifications: false },
+        $"E24 selected-value failure was not isolated from theory: {e24.Capability?.ReasonCode}.");
+    Require(e96.IsFullySupported, $"Equivalent E96 design should pass: {e96.Capability?.ReasonCode}.");
+}
+
+static void TestActiveBandPassFeasibilityReasons()
+{
+    var sk = Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Butterworth,
+        FilterImplementationType.SallenKey, 1_000, 6_000, manualOrder: 4) with
+    { StopbandLowerHz = 500, PassbandLowerHz = 1_000, PassbandUpperHz = 3_000, StopbandUpperHz = 6_000, StopbandAttenuationDb = 30 };
+    var skResult = new FilterDesignEngine().Design(sk);
+    Require(skResult.Capability?.ReasonCode == FilterSupportReasonCode.SallenKeyBpGainCouplingViolation,
+        $"SK BP infeasibility remained generic: {skResult.Capability?.ReasonCode}.");
+    var mfb = Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Bessel,
+        FilterImplementationType.MultipleFeedback, 500, 4_000, manualOrder: 4) with
+    { StopbandLowerHz = 200, PassbandLowerHz = 500, PassbandUpperHz = 1_500, StopbandUpperHz = 4_000, StopbandAttenuationDb = 25 };
+    mfb.ComponentConstraints.ResistorSeries = mfb.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E96;
+    var mfbResult = new FilterDesignEngine().Design(mfb);
+    Require(mfbResult.Capability?.ReasonCode == FilterSupportReasonCode.SectionQOutOfRange,
+        $"MFB BP infeasibility remained generic: {mfbResult.Capability?.ReasonCode}.");
+    Require(new[] { skResult, mfbResult }.All(result => result.Capability?.ReasonCode != FilterSupportReasonCode.PendingIndependentVerification),
+        "A verified Active BP path still returned PendingIndependentVerification.");
+}
+
+static void TestFilterV1FinalClosureClassifications()
+{
+    Require(FilterV1Status.FilterV1Frozen, "Filter v1 must remain explicitly marked frozen after closure.");
+    FilterDesignRequest RestrictedLc(FilterResponseType response, bool restrictInductors)
+    {
+        var request = Request(FilterMode.Passive, response, FilterApproximation.Butterworth,
+            FilterImplementationType.Lc, 10_000, 40_000, optimize: true, manualOrder: 4) with
+        {
+            SourceResistanceOhm = 50, LoadResistanceOhm = 50,
+            LcTerminationPolicy = LcTerminationPolicy.MatchedUserTermination,
+            StopbandLowerHz = response == FilterResponseType.BandPass ? 5_000 : 10_000,
+            PassbandLowerHz = response == FilterResponseType.BandPass ? 10_000 : 5_000,
+            PassbandUpperHz = response == FilterResponseType.BandPass ? 20_000 : 40_000,
+            StopbandUpperHz = response == FilterResponseType.BandPass ? 40_000 : 20_000
+        };
+        request.ComponentConstraints.InductorMinimumH = restrictInductors ? 1e-6 : 1e-7;
+        request.ComponentConstraints.InductorMaximumH = restrictInductors ? 2e-6 : 10;
+        request.ComponentConstraints.CapacitorMinimumF = restrictInductors ? 1e-12 : 1e-9;
+        request.ComponentConstraints.CapacitorMaximumF = restrictInductors ? .01 : 2e-9;
+        request.ComponentConstraints.CapacitorSeries = request.ComponentConstraints.InductorSeries = StandardComponentSeries.E96;
+        return request;
+    }
+
+    foreach (var response in new[] { FilterResponseType.BandPass, FilterResponseType.BandStop })
+    foreach (var restrictInductors in new[] { true, false })
+    {
+        var result = new FilterDesignEngine().Design(RestrictedLc(response, restrictInductors));
+        Require(result.Status == FilterDesignStatus.SynthesisFailure &&
+                result.Capability is { Level: FilterCapabilityLevel.ComponentRangeFeasibility,
+                    ReasonCode: FilterSupportReasonCode.LcComponentRangeViolation } &&
+                result.Message.Contains("theoretical LC", StringComparison.OrdinalIgnoreCase),
+            $"Restricted {response} {(restrictInductors ? "L" : "C")} range was misclassified: {result.Capability?.Level}/{result.Capability?.ReasonCode}.");
+    }
+
+    var mfb = Request(FilterMode.Active, FilterResponseType.BandPass, FilterApproximation.Butterworth,
+        FilterImplementationType.MultipleFeedback, 1_500, 7_000, optimize: true, manualOrder: 6) with
+    {
+        StopbandLowerHz = 1_000, PassbandLowerHz = 1_500, PassbandUpperHz = 4_500,
+        StopbandUpperHz = 7_000, PassbandGain = .5, StopbandAttenuationDb = 45
+    };
+    var mfbResult = new FilterDesignEngine().Design(mfb);
+    Require(mfbResult.Capability?.ReasonCode == FilterSupportReasonCode.MfbBpGainOutOfRange,
+        $"MFB BP gain-range failure remained generic: {mfbResult.Capability?.ReasonCode}.");
+
+    var bainter = Request(FilterMode.Active, FilterResponseType.BandStop, FilterApproximation.Butterworth,
+        FilterImplementationType.BainterNotch, 1_000, 16_000, optimize: true, manualOrder: 4) with
+    {
+        PassbandLowerHz = 1_000, StopbandLowerHz = 2_000, StopbandUpperHz = 8_000,
+        PassbandUpperHz = 16_000, StopbandAttenuationDb = 30
+    };
+    bainter.ComponentConstraints.ResistorSeries = bainter.ComponentConstraints.CapacitorSeries = StandardComponentSeries.E24;
+    var bainterResult = new FilterDesignEngine().Design(bainter);
+    Require(bainterResult.Capability?.ReasonCode is FilterSupportReasonCode.BainterSelectedValueVerificationFailed or
+            FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries,
+        $"Bainter selected verification failure remained generic: {bainterResult.Capability?.ReasonCode}.");
+    Require(new[] { mfbResult, bainterResult }.All(result => result.Capability?.ReasonCode != FilterSupportReasonCode.PendingIndependentVerification),
+        "A known verified active path still returned PendingIndependentVerification.");
+
+    var supported = new FilterDesignEngine().Design(Request(FilterMode.Passive, FilterResponseType.LowPass,
+        FilterApproximation.Butterworth, FilterImplementationType.Rc, 1_000, 20_000, optimize: true, manualOrder: 1) with
+        { PassbandRippleDb = 3, StopbandAttenuationDb = 20, SourceResistanceOhm = 0, LoadResistanceOhm = 1_000_000 });
+    Require(supported.IsFullySupported && supported.StageDiagnostics is
+        { TheoreticalCircuitValid: null, TheoreticalMeetsSpecifications: null },
+        "A supported selected-value circuit did not mark unused theoretical verification as NotEvaluated.");
+    var fields = Enumerable.Repeat(string.Empty, FilterManualTestRowService.ComprehensiveColumnCount).ToArray();
+    var textRow = new FilterManualTestRowService().Complete(new ParsedFilterTestRow(fields, ',', supported.DesignRequest!, true), supported);
+    Require(textRow.Contains("TheoryCircuit=N/A; TheoryMeets=N/A", StringComparison.Ordinal),
+        "Test Row did not serialize tri-state theoretical diagnostics as N/A.");
+
+    var linearPhase = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.LinearPhase005Degree,
+        FilterImplementationType.Lc, 50_000, 250_000, manualOrder: 10);
+    var linearPhaseResult = new FilterDesignEngine().Design(linearPhase);
+    Require(linearPhaseResult.Capability?.ReasonCode == FilterSupportReasonCode.LcLadderExtractionProducedNegativeElement &&
+            linearPhaseResult.Message.Contains("all-positive finite LC ladder", StringComparison.Ordinal) &&
+            !linearPhaseResult.Message.Contains("Bessel ladder", StringComparison.OrdinalIgnoreCase),
+        "Approximation-neutral LC extraction failure text regressed.");
 }
 
 static void TestZeroOhmDefaultSource()
 {
-    Require(new FilterDesignState().SourceResistanceOhm == 0, "The default series source resistance must be 0 ohm.");
+    var defaultState = new FilterDesignState { Mode = FilterMode.Passive };
+    defaultState.SelectResponseType(FilterResponseType.LowPass);
+    Require(defaultState.SourceResistanceOhm == 0 && defaultState.LoadResistanceOhm == 1_000_000 && defaultState.LcTerminationMode == LcTerminationMode.IdealVoltageSource,
+        "Rs/RL defaults must remain independently editable and must not silently invent a source termination.");
     var request = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
         FilterImplementationType.Lc, 1_000, 3_000) with
         { SourceResistanceOhm = 0, LcTerminationMode = LcTerminationMode.IdealVoltageSource };
@@ -1628,6 +1983,150 @@ static void TestZeroOhmDefaultSource()
     Require(!result.IsImplemented && result.Status == FilterDesignStatus.UnsupportedDesignCombination &&
             result.Message.Contains("doubly terminated", StringComparison.OrdinalIgnoreCase),
         "Rs=0 must not be mislabeled as a classic doubly terminated LC prototype.");
+}
+
+static void TestPassiveResponseReferenceMathematics()
+{
+    const double matchedAbsolute = .5;
+    Require(Nearly(20 * Math.Log10(matchedAbsolute), -6.020599913, 1e-9), "50/50 direct-through absolute voltage must be -6.0206 dB.");
+    Require(Nearly(PassiveResponseReferenceMath.TransducerPowerGain(matchedAbsolute, 50, 50), 1, 1e-12), "Matched direct-through transducer gain must be unity.");
+    Require(Nearly(PassiveResponseReferenceMath.InsertionPowerRatioRelativeToThrough(matchedAbsolute, 50, 50), 1, 1e-12), "Matched direct-through insertion response must be 0 dB.");
+
+    const double unequalAbsolute = .75;
+    Require(Nearly(PassiveResponseReferenceMath.TransducerPowerGain(unequalAbsolute, 25, 75), .75, 1e-12), "Unequal direct-through transducer gain is incorrect.");
+    Require(Nearly(PassiveResponseReferenceMath.InsertionPowerRatioRelativeToThrough(unequalAbsolute, 25, 75), 1, 1e-12), "Unequal direct-through must remain the 0 dB insertion reference.");
+    var rejected = false;
+    try { _ = PassiveResponseReferenceMath.TransducerPowerGain(1, 0, 1_000_000); }
+    catch (InvalidOperationException) { rejected = true; }
+    Require(rejected, "Rs=0 must reject available-source-power transducer gain.");
+}
+
+static void TestPassiveTerminationDefaults()
+{
+    var state = new FilterDesignState { Mode = FilterMode.Passive };
+    state.SelectResponseType(FilterResponseType.LowPass);
+    Require(state.Implementation == FilterImplementationType.Rc && state.SourceResistanceOhm == 0 && state.LoadResistanceOhm == 1_000_000,
+        "Passive RC defaults must be Rs=0 ohm and RL=1 Mohm.");
+    state.SelectImplementation(FilterImplementationType.Lc);
+    Require(state.SourceResistanceOhm == 50 && state.LoadResistanceOhm == 50 && state.LinkLcSourceAndLoad,
+        "Passive LC defaults must be linked 50/50 ohm.");
+    state.SourceResistanceOhm = 75; state.LoadResistanceOhm = 600;
+    state.SelectImplementation(FilterImplementationType.Rc);
+    state.SelectImplementation(FilterImplementationType.Lc);
+    Require(state.SourceResistanceOhm == 75 && state.LoadResistanceOhm == 600,
+        "Switching implementations must preserve independently entered LC Rs/RL values.");
+}
+
+static void TestPassiveLoadedRcEquations()
+{
+    foreach (var response in new[] { FilterResponseType.LowPass, FilterResponseType.HighPass })
+    {
+        var request = Request(FilterMode.Passive, response, FilterApproximation.ChebyshevTypeI,
+            FilterImplementationType.Rc, response == FilterResponseType.LowPass ? 1_000 : 3_000,
+            response == FilterResponseType.LowPass ? 3_000 : 1_000, manualOrder: 1) with
+        { SourceResistanceOhm = 1_000, LoadResistanceOhm = 100_000, PassbandRippleDb = 2 };
+        var result = new FilterDesignEngine().Design(request);
+        Require(result.IsImplemented, $"{response}: {result.Message}");
+        var section = result.Sections.Single();
+        var values = section.Components.ToDictionary(value => value.Role, value => value.SelectedValue);
+        var measured = PassiveRcSectionCalculator.Measure(response, request.SourceResistanceOhm,
+            request.LoadResistanceOhm, values["R"], values["C"]);
+        Require(Nearly(section.ActualPoleFrequencyHz, measured.FrequencyHz, 1e-12) && Nearly(section.ActualGain, measured.PassbandGain, 1e-12),
+            $"{response} loaded RC solver does not use Rs/RL in its reported pole and passband gain.");
+        Require(result.PassiveAnalysis?.PrimaryReference == PassiveResponseReference.AbsoluteVoltageTransfer,
+            "Passive RC primary analysis must be VOUT/VSRC.");
+    }
+}
+
+static void TestPassiveTwoCornerRcBandPass()
+{
+    var request = Request(FilterMode.Passive, FilterResponseType.BandPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Rc, 1_000, 10_000, optimize: true) with
+    {
+        SourceResistanceOhm = 0, LoadResistanceOhm = 1_000_000,
+        StopbandLowerHz = 100, PassbandLowerHz = 1_000, PassbandUpperHz = 10_000, StopbandUpperHz = 100_000,
+        StopbandAttenuationDb = 12, PassiveRcTopology = PassiveRcTopology.TwoCornerBandPass
+    };
+    var result = new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, result.Message);
+    var roles = result.Sections.Single().Components.Select(value => value.Role).ToHashSet();
+    Require(new[] { "R_HP", "C_HP", "R_LP", "C_LP" }.All(roles.Contains), "Two-corner RC Band-Pass components are incomplete.");
+    Require(result.CircuitGraph!.Components.Count == 4 && result.PassiveAnalysis?.PrimaryReference == PassiveResponseReference.AbsoluteVoltageTransfer,
+        "Two-corner RC Band-Pass did not produce a loaded four-component CircuitGraph.");
+}
+
+static void TestPassiveTwinTCompoundMatching()
+{
+    var request = Request(FilterMode.Passive, FilterResponseType.BandStop, FilterApproximation.ChebyshevTypeI,
+        FilterImplementationType.Rc, 100, 1_000, optimize: true) with
+    {
+        SourceResistanceOhm = 0, LoadResistanceOhm = 1_000_000,
+        PassbandLowerHz = 100, StopbandLowerHz = 800, StopbandUpperHz = 1_250, PassbandUpperHz = 10_000,
+        StopbandAttenuationDb = 40, PassiveRcTopology = PassiveRcTopology.TwinTNotch
+    };
+    var result = new FilterDesignEngine().Design(request);
+    Require(result.IsImplemented, result.Message);
+    Require(result.CircuitGraph!.Components.Count == 8, "Twin-T must realize R/2 and 2C with real paired components.");
+    var section = result.Sections.Single();
+    var values = section.Components.ToDictionary(value => value.Role, value => value.SelectedValue);
+    Require(Nearly(values["R_SHUNT_A"], values["R_SHUNT_B"], 1e-12) && Nearly(values["C_SHUNT_A"], values["C_SHUNT_B"], 1e-12),
+        "Twin-T compound matching pairs are not equal standard values.");
+    var notch = Math.Sqrt(request.StopbandLowerHz * request.StopbandUpperHz);
+    var point = result.AnalysisResult!.Points.MinBy(value => Math.Abs(Math.Log(value.FrequencyHz / notch)))!;
+    Require(point.MagnitudeDb < -40, $"Twin-T actual loaded notch depth is only {point.MagnitudeDb:0.###} dB.");
+}
+
+static void TestLcTerminationPolicies()
+{
+    var ladder = new ChebyshevPrototypeDesigner().Design(2, 1).LcLadderPrototype!;
+    var nativeRatio = ladder.LoadTerminationGN1 / ladder.SourceTerminationG0;
+    Require(Math.Abs(nativeRatio - 1) > .01, "Even-order Chebyshev reference must exercise a non-unit termination ratio.");
+    var basis = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.ChebyshevTypeI,
+        FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 2) with { SourceResistanceOhm = 50, LoadResistanceOhm = 50 };
+    var matched = new FilterDesignEngine().Design(basis with { LcTerminationPolicy = LcTerminationPolicy.MatchedUserTermination });
+    Require(!matched.IsImplemented && matched.Capability?.ReasonCode == FilterSupportReasonCode.LcPrototypeRequiresNativeTermination,
+        "Matched mode must reject a non-unit native Chebyshev termination ratio.");
+    var native = new FilterDesignEngine().Design(basis with { LcTerminationPolicy = LcTerminationPolicy.PrototypeNativeTermination });
+    Require(native.IsImplemented, native.Message);
+    Require(Nearly(native.DesignRequest!.LoadResistanceOhm, 50 * nativeRatio, 1e-9),
+        "Prototype-Native mode did not derive RL from gN+1/g0.");
+    var customBad = new FilterDesignEngine().Design(basis with { LcTerminationPolicy = LcTerminationPolicy.CustomIndependentTermination, LoadResistanceOhm = 60 });
+    Require(!customBad.IsImplemented && customBad.Capability?.ReasonCode == FilterSupportReasonCode.LcTerminationRatioUnsupported,
+        "Custom unequal termination must reject an unsupported ratio.");
+}
+
+static void TestLcLadderOrientations()
+{
+    var basis = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+        FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 3) with
+    { LcTerminationPolicy = LcTerminationPolicy.MatchedUserTermination, SourceResistanceOhm = 50, LoadResistanceOhm = 50 };
+    var series = new FilterDesignEngine().Design(basis with { LcLadderOrientation = LcLadderOrientation.SeriesFirst });
+    var shunt = new FilterDesignEngine().Design(basis with { LcLadderOrientation = LcLadderOrientation.ShuntFirst });
+    var automatic = new FilterDesignEngine().Design(basis with { LcLadderOrientation = LcLadderOrientation.Auto });
+    Require(series.IsImplemented && shunt.IsImplemented && automatic.IsImplemented,
+        $"LC orientation design failed: {series.Message} / {shunt.Message} / {automatic.Message}");
+    Require(series.LcLadderPrototype!.StartElement == LcPrototypeConnection.Series && shunt.LcLadderPrototype!.StartElement == LcPrototypeConnection.Shunt,
+        "Explicit LC ladder orientation was not retained in the normalized prototype.");
+    var sfp = series.AnalysisResult!.Points.MinBy(point => Math.Abs(Math.Log(point.FrequencyHz / basis.PassbandEdgeHz)))!;
+    var hfp = shunt.AnalysisResult!.Points.MinBy(point => Math.Abs(Math.Log(point.FrequencyHz / basis.PassbandEdgeHz)))!;
+    Require(Math.Abs(sfp.MagnitudeDb - hfp.MagnitudeDb) < .05, "Series-first and Shunt-first loaded responses are not equivalent.");
+}
+
+static void TestLcImpedanceScaling()
+{
+    var results = new[] { 50d, 75d, 600d }.Select(impedance => new FilterDesignEngine().Design(
+        Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
+            FilterImplementationType.Lc, 1_000, 3_000, manualOrder: 3) with
+        {
+            SourceResistanceOhm = impedance, LoadResistanceOhm = impedance,
+            LcTerminationPolicy = LcTerminationPolicy.MatchedUserTermination,
+            LcLadderOrientation = LcLadderOrientation.SeriesFirst
+        })).ToArray();
+    Require(results.All(result => result.IsImplemented), "50/75/600 ohm LC scaling did not remain supported.");
+    var inductors = results.Select(result => result.CircuitGraph!.Components.First(component => component.Type == ComponentType.Inductor).Parameters.GetRequiredValue(ComponentParameterNames.InductanceHenry)).ToArray();
+    var capacitors = results.Select(result => result.CircuitGraph!.Components.First(component => component.Type == ComponentType.Capacitor).Parameters.GetRequiredValue(ComponentParameterNames.CapacitanceFarad)).ToArray();
+    Require(Nearly(inductors[1] / inductors[0], 75d / 50, 1e-9) && Nearly(inductors[2] / inductors[0], 600d / 50, 1e-9), "LC inductors do not scale with impedance.");
+    Require(Nearly(capacitors[1] / capacitors[0], 50d / 75, 1e-9) && Nearly(capacitors[2] / capacitors[0], 50d / 600, 1e-9), "LC capacitors do not scale inversely with impedance.");
 }
 
 static FilterDesignResult CreateReportDesign()
@@ -1777,7 +2276,10 @@ static FilterDesignRequest Request(FilterMode mode, FilterResponseType response,
 {
     Mode = mode, ResponseType = response, Approximation = approximation, Implementation = implementation, SignalArchitecture = FilterSignalArchitecture.SingleEnded, OrderMode = manualOrder.HasValue ? FilterOrderMode.SpecifyOrder : FilterOrderMode.CalculateAutomatically, SpecifiedOrder = manualOrder ?? 2, PassbandRippleDb = 1, StopbandAttenuationDb = 40, PassbandGain = 1, PassbandEdgeHz = fp, StopbandEdgeHz = fs,
     StopbandLowerHz = response == FilterResponseType.BandStop ? 900 : 500, PassbandLowerHz = response == FilterResponseType.BandStop ? 500 : 900, PassbandUpperHz = response == FilterResponseType.BandStop ? 1_500 : 1_100, StopbandUpperHz = response == FilterResponseType.BandStop ? 1_100 : 1_500,
-    SourceResistanceOhm = 50, LoadResistanceOhm = 50, PreferredResistanceOhm = 10_000,
+    SourceResistanceOhm = implementation == FilterImplementationType.Rc ? 0 : 50,
+    LoadResistanceOhm = implementation == FilterImplementationType.Rc ? 1_000_000 : 50,
+    LcTerminationPolicy = implementation == FilterImplementationType.Lc ? LcTerminationPolicy.PrototypeNativeTermination : LcTerminationPolicy.MatchedUserTermination,
+    PreferredResistanceOhm = 10_000,
     ComponentConstraints = new ComponentSelectionConstraints { ResistorSeries = StandardComponentSeries.E24, CapacitorSeries = StandardComponentSeries.E24, InductorSeries = StandardComponentSeries.E12, ResistorTolerancePercent = 1, CapacitorTolerancePercent = 5, InductorTolerancePercent = 5, ResistorMinimumOhm = 1_000, ResistorMaximumOhm = 100_000, CapacitorMinimumF = 1e-12, CapacitorMaximumF = 10e-3, InductorMinimumH=100e-9, InductorMaximumH=10, OptimizeStandardValues = optimize, OptimizationTarget = FilterOptimizationTarget.MinimizeFrequencyError }
 };
 

@@ -7,10 +7,83 @@ namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis;
 
 public sealed class PassiveLcStandardValueOptimizer
 {
-    public IReadOnlyList<LcRealizationBranch> Optimize(IReadOnlyList<LcRealizationBranch> branches,ComponentSelectionConstraints constraints,NormalizedFilterSpecification specification)
+    public IReadOnlyList<LcRealizationBranch> Optimize(
+        IReadOnlyList<LcRealizationBranch> branches,
+        ComponentSelectionConstraints constraints,
+        NormalizedFilterSpecification specification,
+        Func<IReadOnlyList<LcRealizationBranch>, double>? loadedCircuitScore = null)
     {
+        EnsureTheoreticalValuesWithinRange(branches, constraints);
         if(!constraints.OptimizeStandardValues)return branches;
-        return branches.Select(branch=>branch with { Parts=OptimizeParts(branch.Parts,constraints,specification) }).ToArray();
+        var selected = branches.Select(branch=>branch with { Parts=OptimizeParts(branch.Parts,constraints,specification) }).ToArray();
+        return loadedCircuitScore == null ? selected : OptimizeWholeLoadedCircuit(selected, constraints, loadedCircuitScore);
+    }
+
+    private static void EnsureTheoreticalValuesWithinRange(
+        IReadOnlyList<LcRealizationBranch> branches,
+        ComponentSelectionConstraints constraints)
+    {
+        foreach (var branch in branches)
+        foreach (var part in branch.Parts)
+        {
+            if (part.ComponentType is not (ComponentType.Inductor or ComponentType.Capacitor)) continue;
+            var (minimum, maximum, unit) = part.ComponentType == ComponentType.Inductor
+                ? (constraints.InductorMinimumH, constraints.InductorMaximumH, "H")
+                : (constraints.CapacitorMinimumF, constraints.CapacitorMaximumF, "F");
+            if (double.IsFinite(part.TheoreticalValue) && part.TheoreticalValue > 0 &&
+                part.TheoreticalValue >= minimum && part.TheoreticalValue <= maximum)
+                continue;
+            throw new InvalidOperationException(
+                $"ComponentRangeInfeasible: theoretical LC g{branch.PrototypeIndex} {part.ComponentType} value " +
+                $"{part.TheoreticalValue:G9} {unit} is outside the selected range [{minimum:G9}, {maximum:G9}] {unit}.");
+        }
+    }
+
+    private static IReadOnlyList<LcRealizationBranch> OptimizeWholeLoadedCircuit(
+        IReadOnlyList<LcRealizationBranch> initial,
+        ComponentSelectionConstraints constraints,
+        Func<IReadOnlyList<LcRealizationBranch>, double> scoreCircuit)
+    {
+        var best = initial.ToArray();
+        var bestScore = TotalScore(best, scoreCircuit);
+        // Two bounded coordinate-descent passes jointly retune interacting ladder elements.
+        // Each candidate is a real E-series value and is scored from a newly assembled loaded CircuitGraph.
+        for (var pass = 0; pass < 2; pass++)
+        for (var branchIndex = 0; branchIndex < best.Length; branchIndex++)
+        for (var partIndex = 0; partIndex < best[branchIndex].Parts.Count; partIndex++)
+        {
+            var part = best[branchIndex].Parts[partIndex];
+            var (series, minimum, maximum) = part.ComponentType == ComponentType.Inductor
+                ? (constraints.InductorSeries, constraints.InductorMinimumH, constraints.InductorMaximumH)
+                : (constraints.CapacitorSeries, constraints.CapacitorMinimumF, constraints.CapacitorMaximumF);
+            foreach (var value in StandardValueSeries.GetNearby(part.TheoreticalValue, series, minimum, maximum, 2))
+            {
+                var candidate = Replace(best, branchIndex, partIndex, part with { Value = value, SelectedSeries = series });
+                var candidateScore = TotalScore(candidate, scoreCircuit);
+                if (candidateScore + 1e-12 >= bestScore) continue;
+                best = candidate;
+                bestScore = candidateScore;
+            }
+        }
+        return best;
+    }
+
+    private static LcRealizationBranch[] Replace(IReadOnlyList<LcRealizationBranch> source, int branchIndex, int partIndex, LcRealizationPart replacement)
+    {
+        var result = source.ToArray();
+        var parts = result[branchIndex].Parts.ToArray();
+        parts[partIndex] = replacement;
+        result[branchIndex] = result[branchIndex] with { Parts = parts };
+        return result;
+    }
+
+    private static double TotalScore(IReadOnlyList<LcRealizationBranch> branches, Func<IReadOnlyList<LcRealizationBranch>, double> scoreCircuit)
+    {
+        var componentError = branches.SelectMany(value => value.Parts)
+            .Sum(value => Math.Abs(Math.Log(value.Value / value.TheoreticalValue)));
+        var spreadPenalty = branches.SelectMany(value => value.Parts).GroupBy(value => value.ComponentType)
+            .Sum(group => .001 * Math.Log(group.Max(value => value.Value) / group.Min(value => value.Value)));
+        return scoreCircuit(branches) + .015 * componentError + spreadPenalty;
     }
 
     private static IReadOnlyList<LcRealizationPart> OptimizeParts(IReadOnlyList<LcRealizationPart> parts,ComponentSelectionConstraints x,NormalizedFilterSpecification specification)

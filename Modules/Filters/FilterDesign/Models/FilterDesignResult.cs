@@ -20,6 +20,20 @@ public enum FilterDesignStatus
     SynthesisFailure
 }
 
+public sealed record PassiveComponentPracticalAssumptions(
+    bool UsesIdealInductorsAndCapacitors,
+    double? InductorQ = null,
+    double? InductorDcrOhm = null,
+    double? CapacitorEsrOhm = null);
+
+public sealed record FilterVerificationStageDiagnostics(
+    bool? TheoreticalCircuitValid,
+    bool? TheoreticalMeetsSpecifications,
+    bool SelectedCircuitValid,
+    bool SelectedMeetsSpecifications,
+    string FailureStage,
+    string Detail);
+
 public sealed class FilterDesignResult
 {
     public FilterDesignStatus Status { get; init; }
@@ -49,9 +63,12 @@ public sealed class FilterDesignResult
     public SchematicDocument? SchematicDocument { get; init; }
     public FilterDesignRequest? DesignRequest { get; init; }
     public AcAnalysisResult? AnalysisResult { get; init; }
+    public PassiveFilterAnalysisResult? PassiveAnalysis { get; init; }
+    public PassiveComponentPracticalAssumptions? PassiveComponentAssumptions { get; init; }
     public FilterSpecificationCompliance? SpecificationCompliance { get; init; }
     public GainDistributionSummary? GainDistribution { get; init; }
     public FilterDesignVerificationReport? Verification { get; init; }
+    public FilterVerificationStageDiagnostics? StageDiagnostics { get; init; }
     public IReadOnlyList<DesignStepRecord> CalculationTrace { get; init; } = Array.Empty<DesignStepRecord>();
     public DateTimeOffset DesignedAtUtc { get; init; } = DateTimeOffset.UtcNow;
     public string SpiceNetlist { get; set; } = string.Empty;

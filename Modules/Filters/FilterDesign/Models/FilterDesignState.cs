@@ -27,7 +27,15 @@ public sealed class FilterDesignState
     public double StopbandBandwidthHz { get; set; } = 1_000;
     public double SourceResistanceOhm { get; set; }
     public LcTerminationMode LcTerminationMode { get; set; } = LcTerminationMode.IdealVoltageSource;
-    public double LoadResistanceOhm { get; set; } = 50;
+    public double LoadResistanceOhm { get; set; } = 1_000_000;
+    public double PassiveRcSourceResistanceOhm { get; set; }
+    public double PassiveRcLoadResistanceOhm { get; set; } = 1_000_000;
+    public double PassiveLcSourceResistanceOhm { get; set; } = 50;
+    public double PassiveLcLoadResistanceOhm { get; set; } = 50;
+    public bool LinkLcSourceAndLoad { get; set; } = true;
+    public LcTerminationPolicy LcTerminationPolicy { get; set; } = LcTerminationPolicy.MatchedUserTermination;
+    public LcLadderOrientation LcLadderOrientation { get; set; } = LcLadderOrientation.Auto;
+    public PassiveRcTopology PassiveRcTopology { get; set; } = PassiveRcTopology.FirstOrderLowPass;
     public double PreferredResistanceOhm { get; set; } = 10_000;
     public double PreferredResistorMinOhm { get; set; } = 1_000;
     public double PreferredResistorMaxOhm { get; set; } = 100_000;
@@ -49,6 +57,14 @@ public sealed class FilterDesignState
     public void SelectResponseType(FilterResponseType responseType)
     {
         ResponseType = responseType;
+        PassiveRcTopology = responseType switch
+        {
+            FilterResponseType.LowPass => PassiveRcTopology.FirstOrderLowPass,
+            FilterResponseType.HighPass => PassiveRcTopology.FirstOrderHighPass,
+            FilterResponseType.BandPass => PassiveRcTopology.TwoCornerBandPass,
+            FilterResponseType.BandStop => PassiveRcTopology.TwinTNotch,
+            _ => PassiveRcTopology
+        };
         if (responseType == FilterResponseType.HighPass && StopbandEdgeHz >= PassbandEdgeHz)
         {
             StopbandEdgeHz = 1_000;
@@ -78,10 +94,43 @@ public sealed class FilterDesignState
         NormalizeImplementation();
     }
 
+    public void SelectImplementation(FilterImplementationType implementation)
+    {
+        SaveCurrentPassiveTermination();
+        Implementation = implementation;
+        if (implementation == FilterImplementationType.Rc)
+        {
+            SourceResistanceOhm = PassiveRcSourceResistanceOhm;
+            LoadResistanceOhm = PassiveRcLoadResistanceOhm;
+            LcTerminationMode = SourceResistanceOhm > 0 ? LcTerminationMode.DoublyTerminated : LcTerminationMode.IdealVoltageSource;
+        }
+        else if (implementation == FilterImplementationType.Lc)
+        {
+            SourceResistanceOhm = PassiveLcSourceResistanceOhm;
+            LoadResistanceOhm = PassiveLcLoadResistanceOhm;
+            LcTerminationMode = SourceResistanceOhm > 0 ? LcTerminationMode.DoublyTerminated : LcTerminationMode.IdealVoltageSource;
+        }
+    }
+
+    public void SaveCurrentPassiveTermination()
+    {
+        if (Implementation == FilterImplementationType.Rc)
+        {
+            PassiveRcSourceResistanceOhm = SourceResistanceOhm;
+            PassiveRcLoadResistanceOhm = LoadResistanceOhm;
+        }
+        else if (Implementation == FilterImplementationType.Lc)
+        {
+            PassiveLcSourceResistanceOhm = SourceResistanceOhm;
+            PassiveLcLoadResistanceOhm = LoadResistanceOhm;
+        }
+    }
+
     private void NormalizeImplementation()
     {
         if (Mode == FilterMode.Active)
         {
+            SaveCurrentPassiveTermination();
             Implementation = ResponseType == FilterResponseType.BandStop
                 ? FilterImplementationType.BainterNotch
                 : Implementation is FilterImplementationType.SallenKey or FilterImplementationType.MultipleFeedback
@@ -90,14 +139,10 @@ public sealed class FilterDesignState
             return;
         }
 
-        // Passive BP/BS cannot be realized by the current first-order RC path.
-        // Select LC immediately so the wizard never carries an impossible RC state
-        // through Specifications/Approximation before the user reaches step 4.
-        Implementation = ResponseType is FilterResponseType.BandPass or FilterResponseType.BandStop
-            ? FilterImplementationType.Lc
-            : Implementation is FilterImplementationType.Rc or FilterImplementationType.Lc
+        var normalized = Implementation is FilterImplementationType.Rc or FilterImplementationType.Lc
                 ? Implementation
                 : FilterImplementationType.Rc;
+        if (normalized != Implementation) SelectImplementation(normalized);
     }
 
     public void NotifyChanged() => StateChanged?.Invoke(this, EventArgs.Empty);

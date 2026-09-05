@@ -12,6 +12,7 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Validation;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.SallenKey;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.Bainter;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis.PassiveLc;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Engines;
 
@@ -89,22 +90,13 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
             {
                 Status = FilterDesignStatus.UnsupportedDesignCombination,
                 Message = availability.Message,
-                Capability = capability.IsSupported
-                    ? availability.Message.Contains("BainterNotchDepthInsufficientWithSelectedSeries", StringComparison.Ordinal)
-                        ? FilterSupportDecision.Unsupported(FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries, availability.Message)
-                        : availability.Message.Contains("LcPrototypeNotPositiveReal", StringComparison.Ordinal)
-                            ? FilterSupportDecision.Unsupported(FilterSupportReasonCode.LcPrototypeNotPositiveReal, availability.Message)
-                            : availability.Message.Contains("Bessel Passive LC v1", StringComparison.Ordinal)
-                                ? FilterSupportDecision.Unsupported(FilterSupportReasonCode.OrderLimited, availability.Message)
-                        : new FilterCapabilityEvaluation(FilterCapabilityLevel.SectionFeasibility, false,
-                            FilterSupportReasonCode.PendingIndependentVerification, availability.Message,
-                            "Adjust order, component ranges, tolerances, or standard-value series and redesign.")
-                    : capability
+                Capability = capability.IsSupported ? PreparationFailure(availability.Message) : capability
             };
         }
 
         try
         {
+            request = prepared.Request;
             var circuitBuild = circuitAssembler.Build(
                 request,
                 prepared.Specification,
@@ -113,7 +105,10 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 prepared.GainPlan);
             FilterComponentRangeValidator.EnsureWithinConstraints(circuitBuild.CircuitGraph, request.ComponentConstraints);
             var schematic = layoutService.Layout(circuitBuild);
-            var analysis = analysisService.Analyze(circuitBuild.CircuitGraph, request);
+            var passiveAnalysis = request.Mode == FilterMode.Passive
+                ? analysisService.AnalyzePassive(circuitBuild.CircuitGraph, request)
+                : null;
+            var analysis = passiveAnalysis?.Primary ?? analysisService.Analyze(circuitBuild.CircuitGraph, request);
             var compliance = complianceEvaluator.Evaluate(request, analysis);
             var gainSummary = gainDistributionEngine.Summarize(
                 prepared.GainPlan,
@@ -124,27 +119,25 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 schematic, compliance, gainSummary);
             if (!verification.IsValid)
                 throw new InvalidOperationException("Final design verification failed: " + string.Join(" ", verification.Errors));
+            var meetsSpecifications = prepared.Specification.MeetsOrderRequirement && compliance.MeetsAllEdges;
+            var theoretical = meetsSpecifications
+                ? TheoreticalCircuitEvaluation.NotEvaluated("Continuous-value verification was not required because the selected-value CircuitGraph passed every final gate.")
+                : EvaluateTheoreticalCircuit(prepared);
             var warnings = (prepared.Specification.OrderWarning == null
                     ? Array.Empty<string>()
                     : new[] { prepared.Specification.OrderWarning })
                 .Concat(compliance.Warnings)
                 .Concat(verification.Warnings)
+                .Concat(BuildPassiveEngineeringWarnings(request, circuitBuild.CircuitGraph))
                 .ToArray();
-            var meetsSpecifications = prepared.Specification.MeetsOrderRequirement && compliance.MeetsAllEdges;
             var capability = meetsSpecifications
                 ? new FilterCapabilityEvaluation(FilterCapabilityLevel.FinalCircuitVerification, true,
                     FilterSupportReasonCode.Supported, "All synthesis and final CircuitGraph verification gates passed.", string.Empty)
-                : new FilterCapabilityEvaluation(FilterCapabilityLevel.FinalCircuitVerification, false,
-                    FilterSupportReasonCode.FinalCircuitSpecificationNotMet,
-                    $"The circuit was generated and verified, but implemented order {prepared.Specification.ImplementedOrder} " +
-                    $"does not satisfy all entered edge specifications; calculated minimum order is {prepared.Specification.RequiredOrder}.",
-                    $"Use automatic order or specify order {prepared.Specification.RequiredOrder} or higher, then re-run selected-value verification.");
+                : ClassifySpecificationFailure(request, prepared.Specification, compliance, theoretical);
             var result = new FilterDesignResult
             {
                 Status = FilterDesignStatus.Success,
-                Message = meetsSpecifications
-                    ? "Filter circuit generated successfully."
-                    : "Filter circuit generated, but it does not meet all entered edge specifications.",
+                Message = meetsSpecifications ? "Filter circuit generated successfully." : capability.Message,
                 Capability = capability,
                 RequiredOrder = prepared.Specification.RequiredOrder,
                 PrototypeOrder = prepared.Specification.ImplementedOrder,
@@ -167,10 +160,16 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 SchematicDocument = schematic,
                 DesignRequest = request,
                 AnalysisResult = analysis,
+                PassiveAnalysis = passiveAnalysis,
+                PassiveComponentAssumptions = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc
+                    ? new PassiveComponentPracticalAssumptions(true)
+                    : null,
                 SpecificationCompliance = compliance,
                 GainDistribution = gainSummary,
                 Verification = verification,
-                CalculationTrace = BuildCalculationTrace(request, prepared, circuitBuild, compliance, gainSummary)
+                StageDiagnostics = new(theoretical.CircuitValid, theoretical.MeetsSpecifications, true,
+                    compliance.MeetsAllEdges, capability.Level.ToString(), theoretical.Detail),
+                CalculationTrace = BuildCalculationTrace(request, prepared, circuitBuild, compliance, gainSummary, passiveAnalysis, theoretical, capability)
             };
             result.SpiceNetlist = spiceExportService.Export(result);
             return result;
@@ -187,15 +186,182 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
+            var failure = BuildSynthesisFailureCapability(request, exception.Message);
             return new FilterDesignResult
             {
                 Status = FilterDesignStatus.SynthesisFailure,
                 Message = exception.Message,
-                Capability = new FilterCapabilityEvaluation(FilterCapabilityLevel.ComponentRangeFeasibility, false,
-                    FilterSupportReasonCode.PendingIndependentVerification, exception.Message,
-                    "Adjust component ranges or standard-value series and redesign.")
+                Capability = failure
             };
         }
+    }
+
+    private static FilterCapabilityEvaluation BuildSynthesisFailureCapability(FilterDesignRequest request, string message)
+    {
+        if (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc)
+        {
+            if (message.Contains("ComponentRangeInfeasible", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("outside the selected", StringComparison.OrdinalIgnoreCase))
+                return FilterSupportDecision.Unsupported(FilterSupportReasonCode.LcComponentRangeViolation, message);
+            if (message.Contains("standard-value", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("center-frequency error", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("Final design verification failed", StringComparison.OrdinalIgnoreCase))
+                return FilterSupportDecision.Unsupported(FilterSupportReasonCode.LcSelectedValuesFailSpecification, message);
+        }
+        return new FilterCapabilityEvaluation(FilterCapabilityLevel.ComponentRangeFeasibility, false,
+            FilterSupportReasonCode.ComponentRangeInfeasible, message,
+            "Adjust component ranges or standard-value series and redesign.");
+    }
+
+    private FilterCapabilityEvaluation ClassifySpecificationFailure(FilterDesignRequest request,
+        NormalizedFilterSpecification specification, FilterSpecificationCompliance compliance,
+        TheoreticalCircuitEvaluation theoretical)
+    {
+        if (request.Implementation != FilterImplementationType.Rc && !specification.MeetsOrderRequirement)
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.SpecifiedOrderInsufficient,
+                $"Specified prototype order {specification.ImplementedOrder} is below required order {specification.RequiredOrder}; the theoretical circuit cannot meet the entered edges.");
+        if (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc)
+        {
+            if (request.ResponseType == FilterResponseType.BandPass)
+                return FilterSupportDecision.Unsupported(FilterSupportReasonCode.RcBandPassCornersNotAchievable,
+                    "The loaded Two-Corner RC network is valid, but its actual peak-relative corners/stopband do not meet every entered edge.");
+            if (request.ResponseType == FilterResponseType.BandStop)
+            {
+                var notchFails = compliance.Edges.Any(edge => edge.Label == "notch" && !edge.MeetsLimit);
+                var reason = notchFails && request.ComponentConstraints.OptimizeStandardValues && theoretical.MeetsSpecifications == true
+                    ? FilterSupportReasonCode.TwinTNotchDepthInsufficientWithSelectedSeries
+                    : notchFails && request.SourceResistanceOhm > 0
+                        ? FilterSupportReasonCode.TwinTSourceLoadInteractionTooStrong
+                        : FilterSupportReasonCode.TwinTRequestedResponseNotAchievable;
+                return FilterSupportDecision.Unsupported(reason,
+                    "The loaded Twin-T circuit is valid, but its notch depth and/or passband insertion do not meet the requested piecewise response.");
+            }
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.RcLoadedPoleNotAchievable,
+                "The loaded first-order RC circuit is valid, but its peak-relative edge response does not meet every entered limit.");
+        }
+        if (theoretical.CircuitValid == false)
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.ComponentRangeInfeasible,
+                "A continuous-value circuit could not be constructed inside the selected component ranges: " + theoretical.Detail);
+        if (theoretical.MeetsSpecifications == false)
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.TheoreticalDesignDoesNotMeetSpecification,
+                "The continuous-value whole CircuitGraph does not meet every entered edge; this is not an E-series rounding failure.");
+        if (theoretical.MeetsSpecifications is null)
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.SelectedSectionVerificationFailed,
+                "The selected-value circuit did not meet the requested specification; continuous-value verification was not applicable or could not be completed: " + theoretical.Detail);
+        return FilterSupportDecision.Unsupported(request.Implementation == FilterImplementationType.Lc
+                ? FilterSupportReasonCode.LcSelectedValuesFailSpecification
+                : FilterSupportReasonCode.SelectedValuesFailSpecification,
+            "The continuous-value circuit meets the specification, but the selected E-series CircuitGraph does not.");
+    }
+
+    private TheoreticalCircuitEvaluation EvaluateTheoreticalCircuit(PreparedDesign prepared)
+    {
+        try
+        {
+            var request = prepared.Request with { ComponentConstraints = CloneConstraints(prepared.Request.ComponentConstraints, false) };
+            IReadOnlyList<SynthesizedSection> sections;
+            if (request.Implementation == FilterImplementationType.Lc)
+                sections = prepared.SynthesizedSections;
+            else if (request.Implementation == FilterImplementationType.BainterNotch)
+                sections = bainterNotchCascadeOptimizer.Optimize(prepared.GainPlan.Sections, request, prepared.Prototype, prepared.GainPlan).ToArray();
+            else
+                sections = prepared.GainPlan.Sections.Select(section => ApplyTopologyPolarity(CalculateComponents(section, request), request)).ToArray();
+            var circuit = circuitAssembler.Build(request, prepared.Specification, prepared.Prototype, sections, prepared.GainPlan);
+            FilterComponentRangeValidator.EnsureWithinConstraints(circuit.CircuitGraph, request.ComponentConstraints);
+            var analysis = request.Mode == FilterMode.Passive
+                ? analysisService.AnalyzePassive(circuit.CircuitGraph, request).Primary
+                : analysisService.Analyze(circuit.CircuitGraph, request);
+            var compliance = complianceEvaluator.Evaluate(request, analysis);
+            return new(true, compliance.MeetsAllEdges, compliance.MeetsAllEdges
+                ? "Continuous theoretical CircuitGraph meets all edges."
+                : string.Join(" ", compliance.Warnings));
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            var isRangeFailure = exception.Message.Contains("ComponentRangeInfeasible", StringComparison.OrdinalIgnoreCase) ||
+                                 exception.Message.Contains("outside the selected", StringComparison.OrdinalIgnoreCase) ||
+                                 exception.Message.Contains("component range", StringComparison.OrdinalIgnoreCase);
+            return isRangeFailure
+                ? new(false, null, exception.Message)
+                : TheoreticalCircuitEvaluation.NotEvaluated(exception.Message);
+        }
+    }
+
+    private static ComponentSelectionConstraints CloneConstraints(ComponentSelectionConstraints source, bool optimize) => new()
+    {
+        ResistorSeries = source.ResistorSeries, CapacitorSeries = source.CapacitorSeries, InductorSeries = source.InductorSeries,
+        ResistorTolerancePercent = source.ResistorTolerancePercent, CapacitorTolerancePercent = source.CapacitorTolerancePercent,
+        InductorTolerancePercent = source.InductorTolerancePercent, ResistorMinimumOhm = source.ResistorMinimumOhm,
+        ResistorMaximumOhm = source.ResistorMaximumOhm, CapacitorMinimumF = source.CapacitorMinimumF,
+        CapacitorMaximumF = source.CapacitorMaximumF, InductorMinimumH = source.InductorMinimumH,
+        InductorMaximumH = source.InductorMaximumH, OptimizeStandardValues = optimize, OptimizationTarget = source.OptimizationTarget
+    };
+
+    private sealed record TheoreticalCircuitEvaluation(bool? CircuitValid, bool? MeetsSpecifications, string Detail)
+    {
+        public static TheoreticalCircuitEvaluation NotEvaluated(string detail) => new(null, null, detail);
+    }
+
+    private static IEnumerable<string> BuildPassiveEngineeringWarnings(FilterDesignRequest request, Core.Circuit.CircuitGraph graph)
+    {
+        if (request.Mode != FilterMode.Passive || request.Implementation != FilterImplementationType.Lc)
+            return [];
+        var warnings = new List<string>();
+        if (request.ResponseType is FilterResponseType.BandPass or FilterResponseType.BandStop)
+        {
+            var center = Math.Sqrt(request.PassbandLowerHz * request.PassbandUpperHz);
+            var fractionalBandwidth = (request.PassbandUpperHz - request.PassbandLowerHz) / center;
+            if (fractionalBandwidth < .05)
+                warnings.Add($"IdealComponentAssumptionMayBeUnrealistic: fractional bandwidth is {fractionalBandwidth:P2}; real inductor Q/DCR and capacitor ESR require engineering verification.");
+        }
+        var spreads = graph.Components
+            .Where(value => value.Type is Core.Circuit.ComponentType.Inductor or Core.Circuit.ComponentType.Capacitor)
+            .GroupBy(value => value.Type)
+            .Select(group =>
+            {
+                var values = group.Select(value => value.Type == Core.Circuit.ComponentType.Inductor
+                    ? value.Parameters.GetRequiredValue(Core.Circuit.ComponentParameterNames.InductanceHenry)
+                    : value.Parameters.GetRequiredValue(Core.Circuit.ComponentParameterNames.CapacitanceFarad)).ToArray();
+                return values.Max() / values.Min();
+            }).DefaultIfEmpty(1).Max();
+        if (spreads > 10_000)
+            warnings.Add($"NarrowBandComponentSpreadTooLarge: same-type LC component spread is {spreads:G5}:1; consider another impedance or ladder orientation.");
+        return warnings;
+    }
+
+    private static FilterCapabilityEvaluation PreparationFailure(string message)
+    {
+        var reason = new[]
+        {
+            FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries,
+            FilterSupportReasonCode.LcPrototypeNotPositiveReal,
+            FilterSupportReasonCode.LcTerminationModeMismatch,
+            FilterSupportReasonCode.LcTerminationRatioUnsupported,
+            FilterSupportReasonCode.LcPrototypeRequiresNativeTermination,
+            FilterSupportReasonCode.RcLoadedPoleNotAchievable,
+            FilterSupportReasonCode.RcPassbandLossTooHigh,
+            FilterSupportReasonCode.RcBandPassCornersNotAchievable,
+            FilterSupportReasonCode.TwinTNotchDepthInsufficient
+        }.FirstOrDefault(value => message.Contains(value.ToString(), StringComparison.Ordinal));
+        if (reason != default) return FilterSupportDecision.Unsupported(reason, message);
+        if (message.Contains("Sallen-Key band-pass section requires gain greater", StringComparison.Ordinal))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.SallenKeyBpGainCouplingViolation, message);
+        if (message.Contains("MFB band-pass section requires Q", StringComparison.Ordinal))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.SectionQOutOfRange, message);
+        if (message.Contains("MFB band-pass section gain", StringComparison.OrdinalIgnoreCase) &&
+            message.Contains("positive-component realization range", StringComparison.OrdinalIgnoreCase))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.MfbBpGainOutOfRange, message);
+        if (message.Contains("Bainter selected values exceed", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Bainter selected-value verification", StringComparison.OrdinalIgnoreCase))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.BainterSelectedValueVerificationFailed, message);
+        if (message.Contains("selected values exceed", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("selected-value verification", StringComparison.OrdinalIgnoreCase))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.SelectedSectionVerificationFailed, message);
+        if (message.Contains("cannot fit", StringComparison.OrdinalIgnoreCase) || message.Contains("component range", StringComparison.OrdinalIgnoreCase))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.ComponentRangeInfeasible, message);
+        if (message.Contains("Bessel Passive LC v1", StringComparison.Ordinal))
+            return FilterSupportDecision.Unsupported(FilterSupportReasonCode.OrderLimited, message);
+        return FilterSupportDecision.Unsupported(FilterSupportReasonCode.SelectedSectionVerificationFailed, message);
     }
 
     private bool TryPrepare(
@@ -215,8 +381,26 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
 
             ValidateRequest(request);
             var specification = normalizer.Normalize(request);
-            var prototype = prototypeDesigners[request.Approximation]
-                .Design(specification.ImplementedOrder, request.PassbandRippleDb);
+            if (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc)
+                specification = specification with
+                {
+                    RequiredOrder = 1,
+                    ImplementedOrder = 1,
+                    MeetsOrderRequirement = true,
+                    OrderWarning = "Passive RC is topology-based; approximation-family order is not applied."
+                };
+            var prototype = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc
+                ? new ButterworthPrototypeDesigner().Design(1, request.PassbandRippleDb)
+                : prototypeDesigners[request.Approximation].Design(specification.ImplementedOrder, request.PassbandRippleDb);
+            LcTerminationResolution? terminationResolution = null;
+            if (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc && prototype.LcLadderPrototype is { } rawLadder)
+            {
+                var resolved = new LcTerminationPolicyService().Resolve(request, rawLadder);
+                request = resolved.Request;
+                terminationResolution = resolved.Resolution;
+                var oriented = new LcLadderOrientationService().Select(rawLadder, request.LcLadderOrientation, request, specification);
+                prototype = prototype with { LcLadderPrototype = oriented, LadderGValues = oriented.AsLegacyGValues() };
+            }
             ValidateImplementation(request, specification, prototype);
             var transformed = Transform(request, specification, prototype);
             var gainPlan = gainDistributionEngine.Plan(sectionBuilder.Build(transformed), request);
@@ -236,7 +420,7 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                     : targetSections.Select(section => ApplyTopologyPolarity(CalculateComponents(section, request), request)).ToArray();
             synthesizedSections = sallenKeyBandPassCascadeOptimizer.Optimize(request, prototype, gainPlan, synthesizedSections).ToArray();
 
-            prepared = new PreparedDesign(specification, prototype, transformed, gainPlan, synthesizedSections);
+            prepared = new PreparedDesign(request, specification, prototype, transformed, gainPlan, synthesizedSections, terminationResolution);
             availability = FilterDesignAvailability.Available(support.Message);
             return true;
         }
@@ -285,6 +469,13 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
         if (request.Mode == FilterMode.Active &&
             (request.PassbandGain <= 0 || !double.IsFinite(request.PassbandGain)))
             throw new ArgumentException("Passband gain A0 must be positive and finite.");
+        if (request.Mode == FilterMode.Passive)
+        {
+            if (request.SourceResistanceOhm < 0 || !double.IsFinite(request.SourceResistanceOhm))
+                throw new ArgumentException("Passive source resistance Rs must be finite and greater than or equal to zero.");
+            if (request.LoadResistanceOhm <= 0 || !double.IsFinite(request.LoadResistanceOhm))
+                throw new ArgumentException("Passive load resistance RL must be finite and greater than zero.");
+        }
     }
 
     private static void ValidateImplementation(
@@ -309,8 +500,9 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
             throw new NotSupportedException($"LcPrototypeNotPositiveReal: no verified positive-real LC ladder is registered for {request.Approximation} order {prototype.Order}.");
         }
 
-        var impedanceScale = request.SourceResistanceOhm;
-        var requiredLoad = impedanceScale * prototype.LadderGValues[^1];
+        var ladder = prototype.LcLadderPrototype;
+        var impedanceScale = request.SourceResistanceOhm / ladder.SourceTerminationG0;
+        var requiredLoad = impedanceScale * ladder.LoadTerminationGN1;
         if (Math.Abs(request.LoadResistanceOhm - requiredLoad) / requiredLoad > 1e-4)
             throw new NotSupportedException(
                 $"This normalized {request.Approximation} order-{specification.ImplementedOrder} ladder requires " +
@@ -372,22 +564,43 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
         PreparedDesign prepared,
         FilterCircuitBuildResult circuit,
         FilterSpecificationCompliance compliance,
-        GainDistributionSummary gain)
+        GainDistributionSummary gain,
+        PassiveFilterAnalysisResult? passiveAnalysis,
+        TheoreticalCircuitEvaluation theoretical,
+        FilterCapabilityEvaluation capability)
     {
         var records = new List<DesignStepRecord>();
         void Add(string category, string title, string explanation, params (string Key, object Value)[] values) =>
             records.Add(new DesignStepRecord(records.Count + 1, category, title, explanation,
                 values.ToDictionary(item => item.Key, item => Convert.ToString(item.Value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty)));
-        Add("Order", "Normalize specifications",
-            $"{request.Approximation} order determination evaluated Rp, As and normalized stopband ratio.",
-            ("NormalizedStopbandRatio", prepared.Specification.StopbandRatio),
-            ("RequiredPrototypeOrder", prepared.Specification.RequiredOrder),
-            ("ImplementedPrototypeOrder", prepared.Specification.ImplementedOrder),
-            ("OrderMode", request.OrderMode));
-        Add("Prototype", "Generate normalized analog prototype",
-            prepared.Prototype.Normalization?.Definition ?? "Normalized all-pole prototype generated.",
-            ("Poles", prepared.Prototype.Poles.Count), ("FiniteZeros", prepared.Prototype.Zeros.Count),
-            ("NumeratorGain", prepared.Prototype.NumeratorGain));
+        if (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc)
+            Add("RC Topology", "Select physical passive RC network",
+                "Passive RC synthesis is topology-based; approximation-family order and arbitrary complex-pole prototypes are not claimed.",
+                ("Topology", request.PassiveRcTopology), ("Response", request.ResponseType));
+        else
+        {
+            Add("Order", "Normalize specifications",
+                $"{request.Approximation} order determination evaluated Rp, As and normalized stopband ratio.",
+                ("NormalizedStopbandRatio", prepared.Specification.StopbandRatio),
+                ("RequiredPrototypeOrder", prepared.Specification.RequiredOrder),
+                ("ImplementedPrototypeOrder", prepared.Specification.ImplementedOrder),
+                ("OrderMode", request.OrderMode));
+            Add("Prototype", "Generate normalized analog prototype",
+                prepared.Prototype.Normalization?.Definition ?? "Normalized all-pole prototype generated.",
+                ("Poles", prepared.Prototype.Poles.Count), ("FiniteZeros", prepared.Prototype.Zeros.Count),
+                ("NumeratorGain", prepared.Prototype.NumeratorGain));
+        }
+        if (passiveAnalysis is { } passive)
+        {
+            Add("Source / Load / Reference", "Define passive electrical boundary",
+                "VSRC is the ideal Thevenin open-circuit source voltage; Rs connects VSRC to the filter input VIN; VOUT is loaded by RL to GND.",
+                ("Boundary", "VSRC -> Rs -> VIN -> Filter Network -> VOUT -> RL -> GND"),
+                ("RsOhm", passive.Boundary.SourceResistanceOhm),
+                ("RLOhm", passive.Boundary.LoadResistanceOhm),
+                ("DirectThroughVoutOverVsrc", passive.Boundary.DirectThroughVoltageRatio),
+                ("PrimaryResponseReference", passive.PrimaryReference),
+                ("TransducerGainAvailable", passive.TransducerGain is not null));
+        }
         if (prepared.Prototype.LcLadderPrototype is { } ladder)
             Add("LC Synthesis", "Synthesize and validate normalized loaded ladder",
                 ladder.SynthesisMethod,
@@ -397,6 +610,20 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 ("Elements", ladder.Elements.Count),
                 ("CauerExtractionSteps", ladder.ExtractionRecords?.Count ?? 0),
                 ("ReconstructionMaximumError", ladder.ValidationMetrics.MaximumMagnitudeError));
+        if (prepared.TerminationResolution is { } termination)
+            Add("LC Termination", "Resolve normalized prototype terminations",
+                termination.Summary,
+                ("Policy", termination.Policy), ("PrototypeRLOverRs", termination.PrototypeTerminationRatio),
+                ("RequiredRsOhm", termination.RequiredSourceResistanceOhm), ("RequiredRLOhm", termination.RequiredLoadResistanceOhm),
+                ("ImpedanceScaleOhm", termination.ImpedanceScaleOhm), ("Orientation", request.LcLadderOrientation));
+        Add("Verification", "Separate theoretical and selected-value gates",
+            "Continuous-value and selected-value whole CircuitGraphs are checked separately so order, range and E-series failures are not conflated.",
+            ("TheoreticalCircuitValid", TriState(theoretical.CircuitValid)),
+            ("TheoreticalMeetsSpecifications", TriState(theoretical.MeetsSpecifications)),
+            ("SelectedCircuitValid", true),
+            ("SelectedMeetsSpecifications", compliance.MeetsAllEdges),
+            ("FailureStage", capability.Level),
+            ("ReasonCode", capability.ReasonCode));
         Add("Transform", $"Low-pass prototype to {request.ResponseType}",
             "The common analog frequency-transformation service generated the target poles; band transformations double realized order.",
             ("PrototypeOrder", prepared.Transformed.PrototypeOrder), ("RealizedOrder", prepared.Transformed.RealizedOrder));
@@ -407,11 +634,41 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
                 ("TargetGain", section.Target.SectionGain), ("ActualF0Hz", section.ActualPoleFrequencyHz),
                 ("ActualQ", section.ActualQ), ("ActualGain", section.ActualGain),
                 ("StandardValueOptimization", request.ComponentConstraints.OptimizeStandardValues));
-        Add("Gain", "Distribute and verify overall gain",
-            "Overall A0 was separated from intrinsic topology gains and checked against the final CircuitGraph response.",
-            ("RequestedA0", gain.RequestedOverallGain), ("RawCascadeGain", gain.RawCascadeGainMagnitude),
-            ("InterstageScale", gain.InterstageScaleProduct), ("ActualPassbandPeak", gain.ActualPassbandPeakGain),
-            ("ExpectedPolarity", gain.ExpectedOverallPolarity));
+        if (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc &&
+            prepared.SynthesizedSections.FirstOrDefault() is { } rcSection)
+        {
+            if (request.ResponseType == FilterResponseType.BandPass)
+            {
+                var bandwidth = rcSection.ActualQ > 0 ? rcSection.ActualPoleFrequencyHz / rcSection.ActualQ : 0;
+                var discriminant = Math.Sqrt(bandwidth * bandwidth + 4 * rcSection.ActualPoleFrequencyHz * rcSection.ActualPoleFrequencyHz);
+                Add("RC Verification", "Loaded Two-Corner response",
+                    "Actual corners are the two -3 dB crossings relative to the loaded band-pass peak; the complete four-component CircuitGraph, Rs and RL are solved together.",
+                    ("ActualLowerCornerHz", (discriminant - bandwidth) / 2),
+                    ("ActualUpperCornerHz", (discriminant + bandwidth) / 2),
+                    ("ActualPeakGain", rcSection.ActualGain),
+                    ("WholeLoadedMnaVerified", true));
+            }
+            else if (request.ResponseType == FilterResponseType.BandStop)
+            {
+                var values = rcSection.Components.ToDictionary(value => value.Role, value => value.SelectedValue);
+                var rMismatch = Math.Abs(values["R1"] / values["R2"] - 1);
+                var cMismatch = Math.Abs(values["C1"] / values["C2"] - 1);
+                var notch = compliance.Edges.FirstOrDefault(edge => edge.Label == "notch");
+                Add("RC Verification", "Loaded Twin-T notch and ratio matching",
+                    "The two equal-R/equal-C arms plus real parallel pairs implement R/2 and 2C; the final notch is measured by whole loaded CircuitGraph MNA.",
+                    ("ActualNotchFrequencyHz", rcSection.ActualPoleFrequencyHz),
+                    ("ActualNotchMagnitudeDb", notch?.ActualMagnitudeDb ?? double.NaN),
+                    ("RPairMismatch", rMismatch), ("CPairMismatch", cMismatch),
+                    ("CompoundComponentsPresent", rcSection.Components.Count == 8),
+                    ("WholeLoadedMnaVerified", true));
+            }
+        }
+        if (request.Mode == FilterMode.Active)
+            Add("Gain", "Distribute and verify overall gain",
+                "Overall A0 was separated from intrinsic topology gains and checked against the final CircuitGraph response.",
+                ("RequestedA0", gain.RequestedOverallGain), ("RawCascadeGain", gain.RawCascadeGainMagnitude),
+                ("InterstageScale", gain.InterstageScaleProduct), ("ActualPassbandPeak", gain.ActualPassbandPeakGain),
+                ("ExpectedPolarity", gain.ExpectedOverallPolarity));
         Add("Circuit", "Assemble and validate CircuitGraph",
             "Response-specific topology assembly created components and nets, then graph and schematic verification were applied.",
             ("Components", circuit.CircuitGraph.Components.Count), ("Nets", circuit.CircuitGraph.Nets.Count));
@@ -421,10 +678,14 @@ public sealed class FilterDesignEngine : IFilterDesignEngine
         return records;
     }
 
+    private static string TriState(bool? value) => value switch { true => "True", false => "False", null => "NotEvaluated" };
+
     private sealed record PreparedDesign(
+        FilterDesignRequest Request,
         NormalizedFilterSpecification Specification,
         FilterPrototype Prototype,
         TransformedFilterPoles Transformed,
         GainDistributionPlan GainPlan,
-        IReadOnlyList<SynthesizedSection> SynthesizedSections);
+        IReadOnlyList<SynthesizedSection> SynthesizedSections,
+        LcTerminationResolution? TerminationResolution);
 }

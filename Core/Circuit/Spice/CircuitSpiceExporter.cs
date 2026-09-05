@@ -20,8 +20,8 @@ public sealed class CircuitSpiceExporter : ICircuitSpiceExporter
         if (options.SourceResistanceOhm is > 0)
         {
             text.AppendLine("* Thevenin input source: ideal voltage source followed by series source resistance Rs");
-            text.AppendLine("V_INPUT N_SOURCE 0 DC 0 AC 1");
-            text.AppendLine($"R_SOURCE N_SOURCE VIN {Number(options.SourceResistanceOhm.Value)}");
+            text.AppendLine("V_INPUT VSRC 0 DC 0 AC 1");
+            text.AppendLine($"R_SOURCE VSRC VIN {Number(options.SourceResistanceOhm.Value)}");
         }
         else text.AppendLine("V_INPUT VIN 0 DC 0 AC 1");
 

@@ -180,3 +180,485 @@ D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verificati
 D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification19Tests\CircuitModuleDesigner.CoreTests.pdb
 D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification19Tests\CircuitModuleDesigner.dll
 D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification19Tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Verification20Tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Target2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase1Full2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target3\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target4\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target5\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target6\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target7\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target8\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Target9\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase2Full2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target1\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Target3\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassivePhase3Full\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target1\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4LcOpt\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full1\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Target3\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\Phase4Full2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\PassiveFinalRegression\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\DiagResponse2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\ManualRowTest2\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.CoreTests.exe
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.CoreTests.deps.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.CoreTests.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.CoreTests.pdb
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\Tests\CircuitModuleDesigner.CoreTests\obj\RcUiManualRowFull\CircuitModuleDesigner.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-combined-manual-tests\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-compact-row-tests\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-rc-phase-tests2\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase1\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-audit-phase2\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-row-e96\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests3\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-regression-tests4\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-48-run\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-final-tests5\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-batch300-tests\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-lc-mode-tests\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-250-baseline\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-250\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests2\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-filter-close-tests-final\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-hide-filter-test-row-tests\CircuitModuleDesigner.CoreTests.pdb
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.CoreTests.exe
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.CoreTests.deps.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.CoreTests.runtimeconfig.json
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.CoreTests.dll
+C:\Users\Lenovo\AppData\Local\Temp\cmd-precision-first-open-tests\CircuitModuleDesigner.CoreTests.pdb

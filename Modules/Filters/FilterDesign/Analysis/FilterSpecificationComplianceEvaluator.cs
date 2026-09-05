@@ -26,8 +26,12 @@ public sealed class FilterSpecificationComplianceEvaluator
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(analysis);
-        var referenceDb = request.Mode == FilterMode.Active ? 20 * Math.Log10(request.PassbandGain) : 0;
-        var passbandLimit = referenceDb - request.PassbandRippleDb;
+        var topologyBasedRc = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc;
+        var topologyBasedBandRc = topologyBasedRc && request.ResponseType is FilterResponseType.BandPass or FilterResponseType.BandStop;
+        var referenceDb = request.Mode == FilterMode.Active
+            ? 20 * Math.Log10(request.PassbandGain)
+            : topologyBasedRc ? PassbandReferenceDb(request, analysis) : 0;
+        var passbandLimit = referenceDb - (request.ResponseType == FilterResponseType.BandPass && topologyBasedBandRc ? 3.2 : request.PassbandRippleDb);
         var stopbandLimit = referenceDb - request.StopbandAttenuationDb;
         var definitions = GetEdges(request);
         var measurements = definitions.Select(edge =>
@@ -46,7 +50,28 @@ public sealed class FilterSpecificationComplianceEvaluator
         return new FilterSpecificationCompliance(measurements, warnings.Length == 0, warnings);
     }
 
+    private static double PassbandReferenceDb(FilterDesignRequest request, AcAnalysisResult analysis)
+    {
+        var passband = analysis.Points.Where(point => request.ResponseType switch
+        {
+            FilterResponseType.LowPass => point.FrequencyHz <= request.PassbandEdgeHz,
+            FilterResponseType.HighPass => point.FrequencyHz >= request.PassbandEdgeHz,
+            FilterResponseType.BandPass => point.FrequencyHz >= request.PassbandLowerHz && point.FrequencyHz <= request.PassbandUpperHz,
+            FilterResponseType.BandStop => point.FrequencyHz <= request.PassbandLowerHz || point.FrequencyHz >= request.PassbandUpperHz,
+            _ => false
+        }).ToArray();
+        return (passband.Length == 0 ? analysis.Points : passband).Max(point => point.MagnitudeDb);
+    }
+
     private static IReadOnlyList<(string Label, double FrequencyHz, bool IsPassband)> GetEdges(FilterDesignRequest request) =>
+        request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc && request.ResponseType == FilterResponseType.BandStop
+            ?
+            [
+                ("fp1", request.PassbandLowerHz, true),
+                ("notch", Math.Sqrt(request.StopbandLowerHz * request.StopbandUpperHz), false),
+                ("fp2", request.PassbandUpperHz, true)
+            ]
+            :
         request.ResponseType switch
         {
             FilterResponseType.LowPass or FilterResponseType.HighPass =>

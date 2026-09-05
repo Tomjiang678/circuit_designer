@@ -1,5 +1,42 @@
 # Filter Design v1 五期人工测试说明
 
+## 有源 + 无源综合详测（本轮推荐）
+
+完整的 48 点综合测试表见：
+
+`Filter_Active_Passive_48点详尽人工测试.csv`
+
+其中 1～24 为 Active，25～48 为 Passive。测试范围包括：
+
+- Sallen-Key、MFB、Bainter，以及明确不支持组合的 capability 状态。
+- Butterworth、Chebyshev-I、Bessel、Gaussian、Linear Phase。
+- LP、HP、BP、BS，自动/指定阶数，A0=0.5/1/2，E24/E96。
+- Passive RC 的一阶 LP/HP、Two-Corner BP、Twin-T，以及理想源/有限 Rs、RL。
+- Passive LC 的 50/75/600/1kΩ、Matched/Prototype-Native/Custom、Series/Shunt/Auto。
+- Chebyshev 偶数阶终接、Bessel LP/HP/BP/BS、Gaussian/Linear Phase 正实可实现性和窄带元件范围。
+
+表格左侧是已完整填写的输入；不适用项统一为“无”，右侧结果列不预填答案。每次从 Excel 复制一整行，在 Filter Wizard 中点击 `Test Row...`，运行后软件会返回相同的 57 列，可整行粘贴回去。返回内容包括实际设计状态、`CapabilityLevel`、`CapabilityReasonCode`、实际阶数、边缘幅度、四种 Passive response、Analysis/Report/CIR 检查及警告数量。
+
+该 CSV 使用 UTF-8 BOM 和 Windows CRLF，可直接由 Excel 打开；不要另存为 ANSI，以免中文乱码。
+
+## Passive Filter 集中复测
+
+Passive Filter 阻抗与综合重构后的 20 点集中测试见：
+
+`Passive_Filter_20点集中人工测试.csv`
+
+该表独立于下面原有五期测试，不要求重新完成原来的 80 点。只填写表格右侧留空的实测字段；输入中不适用的项目已经填写“无”。幅度一律填写软件 Analysis 光标显示的 dB 数值，状态字段填写界面显示的原始枚举值，不需要自行判断正确答案。
+
+快捷测试方法：
+
+1. 在 Excel 中选中一个测试点的整行并复制。
+2. 在 Filter Wizard 底部点击 `Test Row...`。
+3. 点击 `Paste Excel Row`，再点击 `Run Row`。
+4. 软件会运行正式综合和 CircuitGraph/MNA 验证，并输出同样 51 列的结果行。
+5. 点击 `Copy Result Row`，整行粘贴回 Excel 即可。
+
+该入口接受 Excel 的制表符行，也接受 CSV 的逗号行；一次处理一个测试点，因此无需重复操作各个下拉框。
+
 ## 总体安排
 
 | 期次 | 数量 | 重点 |

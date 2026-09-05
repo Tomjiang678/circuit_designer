@@ -1,10 +1,13 @@
+using System.Numerics;
+
 namespace CircuitModuleDesigner.Core.Analysis;
 
 public sealed record AcAnalysisOptions(double StartFrequencyHz, double StopFrequencyHz, int PointsPerDecade = 40, double OpAmpOpenLoopGain = 1e6,
     IReadOnlyList<double>? AdditionalFrequenciesHz = null, double MagnitudeReferenceLinear = 1,
     string MagnitudeReferenceDescription = "1 V/V source reference");
 
-public sealed record FrequencyResponsePoint(double FrequencyHz, double MagnitudeLinear, double MagnitudeDb, double PhaseDegrees);
+public sealed record FrequencyResponsePoint(double FrequencyHz, double MagnitudeLinear, double MagnitudeDb, double PhaseDegrees,
+    Complex? InputNodeVoltage = null, Complex? OutputNodeVoltage = null);
 
 public sealed class AcAnalysisResult
 {

@@ -121,13 +121,14 @@ public sealed class FilterSummaryControl : FilterStepBase
         $"Filter Design Summary\r\n\r\n" +
         $"Mode: {DisplayName(State.Mode)}\r\n" +
         $"Response: {DisplayName(State.ResponseType)}\r\n" +
-        $"Approximation: {DisplayName(State.Approximation)}\r\n" +
+        $"Approximation: {(State.Mode == FilterMode.Passive && State.Implementation == FilterImplementationType.Rc ? "Not applied (topology-based RC)" : DisplayName(State.Approximation))}\r\n" +
         $"Implementation: {DisplayName(State.Implementation)}\r\n" +
+        (State.Mode == FilterMode.Passive && State.Implementation == FilterImplementationType.Rc ? $"RC topology: {State.PassiveRcTopology}\r\n" : string.Empty) +
         $"Order: {State.OrderMode}" +
         $"{(State.OrderMode == FilterOrderMode.SpecifyOrder ? $" ({State.SpecifiedOrder})" : string.Empty)}\r\n\r\n" +
         $"Rp: {State.PassbandRippleDb:0.##} dB\r\n" +
         $"As/Asb: {State.StopbandAttenuationDb:0.##} dB\r\n" +
-        $"A0: {State.PassbandGain:0.###} V/V\r\n" +
+        (State.Mode == FilterMode.Active ? $"A0: {State.PassbandGain:0.###} V/V\r\n" : string.Empty) +
         FrequencySummary() + "\r\n" + ScalingSummary() +
         $"Resistor series: {State.ResistorSeries} +/-{State.ResistorTolerancePercent:0.##}%\r\n" +
         $"Capacitor series: {State.CapacitorSeries} +/-{State.CapacitorTolerancePercent:0.##}%\r\n" +
@@ -137,8 +138,8 @@ public sealed class FilterSummaryControl : FilterStepBase
     private string ScalingSummary()=>State.Mode switch
     {
         FilterMode.Active=>$"R range: {State.PreferredResistorMinOhm:G6} to {State.PreferredResistorMaxOhm:G6} ohm\r\nC range: {State.PreferredCapacitorMinF:G6} to {State.PreferredCapacitorMaxF:G6} F\r\n",
-        _ when State.Implementation==FilterImplementationType.Lc=>$"Rs: {State.SourceResistanceOhm:G6} ohm\r\nRL: {State.LoadResistanceOhm:G6} ohm\r\nL range: {State.InductorMinimumH:G6} to {State.InductorMaximumH:G6} H\r\nLC C range: {State.PassiveLcCapacitorMinimumF:G6} to {State.PassiveLcCapacitorMaximumF:G6} F\r\n",
-        _=>$"Preferred resistance: {State.PreferredResistanceOhm:G6} ohm\r\n"
+        _ when State.Implementation==FilterImplementationType.Lc=>$"Rs: {State.SourceResistanceOhm:G6} Ω\r\nRL: {State.LoadResistanceOhm:G6} Ω\r\nTermination: {State.LcTerminationMode} / {State.LcTerminationPolicy}\r\nResponse reference: {PassiveResponseReference.InsertionLossRelativeToThrough}\r\nL range: {State.InductorMinimumH:G6} to {State.InductorMaximumH:G6} H\r\nLC C range: {State.PassiveLcCapacitorMinimumF:G6} to {State.PassiveLcCapacitorMaximumF:G6} F\r\n",
+        _=>$"Rs: {State.SourceResistanceOhm:G6} Ω\r\nRL: {State.LoadResistanceOhm:G6} Ω\r\nResponse reference: {PassiveResponseReference.AbsoluteVoltageTransfer}\r\nPreferred resistance: {State.PreferredResistanceOhm:G6} Ω\r\n"
     };
 
     private string FrequencySummary() => State.ResponseType switch

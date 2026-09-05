@@ -11,6 +11,7 @@ public sealed class MainForm : Form
     private Label? navigationHint;
     private Panel? designHost;
     private SplitContainer? mainSplit;
+    private PrecisionAnalogWizardControl? precisionAnalogWizard;
 
     public MainForm()
     {
@@ -23,7 +24,11 @@ public sealed class MainForm : Form
         BackColor = SystemColors.Control;
         Icon = SystemIcons.Application;
         BuildInterface();
-        Shown += (_, _) => BeginInvoke(ConfigureSplitter);
+        Shown += (_, _) =>
+        {
+            BeginInvoke(ConfigureSplitter);
+            Application.Idle += PreloadPrecisionAnalogOnIdle;
+        };
     }
 
     private void BuildInterface()
@@ -91,10 +96,47 @@ public sealed class MainForm : Form
         var isPrecisionAnalog = selection?.StartsWith("Precision Analog Computing", StringComparison.OrdinalIgnoreCase) == true;
         navigationHint?.Visible = !isFilter && !isPrecisionAnalog;
         if (designHost == null) return;
-        designHost.Controls.Clear();
+        RemoveCurrentDesignControl();
         if (isFilter) designHost.Controls.Add(new FilterWizardControl(navigationTree));
-        else if (isPrecisionAnalog) designHost.Controls.Add(new PrecisionAnalogWizardControl(navigationTree));
+        else if (isPrecisionAnalog)
+        {
+            precisionAnalogWizard ??= new PrecisionAnalogWizardControl();
+            precisionAnalogWizard.AttachNavigation(navigationTree);
+            designHost.Controls.Add(precisionAnalogWizard);
+        }
         else { navigationTree.Nodes.Clear(); designHost.Controls.Add(CreateDefaultDesignArea()); }
+    }
+
+    private void PreloadPrecisionAnalogOnIdle(object? sender, EventArgs e)
+    {
+        Application.Idle -= PreloadPrecisionAnalogOnIdle;
+        if (IsDisposed || precisionAnalogWizard is not null) return;
+        precisionAnalogWizard = new PrecisionAnalogWizardControl();
+        precisionAnalogWizard.CreateControl();
+    }
+
+    private void RemoveCurrentDesignControl()
+    {
+        if (designHost == null) return;
+        foreach (Control control in designHost.Controls.Cast<Control>().ToArray())
+        {
+            designHost.Controls.Remove(control);
+            if (ReferenceEquals(control, precisionAnalogWizard))
+                precisionAnalogWizard.DetachNavigation();
+            else
+                control.Dispose();
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Application.Idle -= PreloadPrecisionAnalogOnIdle;
+            precisionAnalogWizard?.Dispose();
+            precisionAnalogWizard = null;
+        }
+        base.Dispose(disposing);
     }
 
     private void ConfigureSplitter()

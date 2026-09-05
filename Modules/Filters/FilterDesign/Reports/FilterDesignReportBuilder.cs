@@ -27,6 +27,7 @@ public sealed class FilterDesignReportBuilder
             section.FrequencyError, section.QError, section.GainError)).ToArray();
         var summary = BuildSummary(result, request);
         var inputs = BuildInputs(request, result);
+        var sourceLoadReference = BuildSourceLoadReference(result, request);
         var approximation = BuildApproximation(result, request);
         var gain = BuildGain(result);
         var verification = BuildVerification(result, request);
@@ -44,13 +45,15 @@ public sealed class FilterDesignReportBuilder
                 ["ActualPassbandPeakGain"] = result.GainDistribution?.ActualPassbandPeakGain ?? 0,
                 ["Warnings"] = result.Warnings.ToArray()
             });
-        return new(generatedAtUtc ?? DateTimeOffset.UtcNow, version, summary, inputs, approximation,
+        return new(generatedAtUtc ?? DateTimeOffset.UtcNow, version, summary, inputs, sourceLoadReference, approximation,
             poles, sections, components, gain, verification, result.Warnings, circuitSummary,
             result.CalculationTrace, snapshot);
     }
 
-    private static IReadOnlyList<ReportField> BuildSummary(FilterDesignResult result, FilterDesignRequest request) =>
-    [
+    private static IReadOnlyList<ReportField> BuildSummary(FilterDesignResult result, FilterDesignRequest request)
+    {
+        var fields = new List<ReportField>
+        {
         new("Design time (UTC)", result.DesignedAtUtc.ToString("u", CultureInfo.InvariantCulture)),
         new("Design status", result.Status.ToString()),
         new("Capability supported", (result.Capability?.IsSupported == true).ToString()),
@@ -61,15 +64,50 @@ public sealed class FilterDesignReportBuilder
             ? "None required"
             : result.Capability.SuggestedAlternative),
         new("Filter type", request.Mode.ToString()), new("Response", request.ResponseType.ToString()),
-        new("Approximation", request.Approximation.ToString()), new("Implementation", request.Implementation.ToString()),
-        new("Signal architecture", request.SignalArchitecture.ToString()), new("Requested A0", F(request.PassbandGain), "V/V"),
+        new("Approximation", request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc ? "Not applied (topology-based RC)" : request.Approximation.ToString()),
+        new("Implementation", request.Implementation.ToString()),
         new("Required prototype order", result.RequiredOrder.ToString(CultureInfo.InvariantCulture)),
         new("Implemented prototype order", result.PrototypeOrder.ToString(CultureInfo.InvariantCulture)),
         new("Realized transfer-function order", result.RealizedOrder.ToString(CultureInfo.InvariantCulture)),
         new("Order mode", request.OrderMode.ToString()),
         new("LC termination mode", request.Implementation == FilterImplementationType.Lc ? request.LcTerminationMode.ToString() : "N/A"),
         new("Resistor / capacitor series", $"{request.ComponentConstraints.ResistorSeries} / {request.ComponentConstraints.CapacitorSeries}")
-    ];
+        };
+        if (request.Mode == FilterMode.Active)
+        {
+            fields.Insert(14, new("Signal architecture", request.SignalArchitecture.ToString()));
+            fields.Insert(15, new("Requested A0", F(request.PassbandGain), "V/V"));
+        }
+        return fields;
+    }
+
+    private static IReadOnlyList<ReportField> BuildSourceLoadReference(FilterDesignResult result, FilterDesignRequest request)
+    {
+        if (request.Mode != FilterMode.Passive || result.PassiveAnalysis is not { } passive)
+            return [new("Applicability", "Active filter: passive source/load boundary not used")];
+        var fields = new List<ReportField>
+        {
+            new("Electrical boundary", "VSRC → Rs → VIN → filter network → VOUT → RL → GND"),
+            new("VSRC", "Ideal Thevenin open-circuit source voltage"),
+            new("VIN", request.SourceResistanceOhm == 0 ? "Filter input node; identical to VSRC because Rs = 0" : "Loaded filter input node after Rs"),
+            new("VOUT", "Loaded output node across RL"),
+            new("Source resistance Rs", F(request.SourceResistanceOhm), "Ω"),
+            new("Load resistance RL", F(request.LoadResistanceOhm), "Ω"),
+            new("Termination mode", request.Implementation == FilterImplementationType.Lc ? request.LcTerminationMode.ToString() : "Loaded voltage-transfer RC"),
+            new("LC termination policy", request.Implementation == FilterImplementationType.Lc ? request.LcTerminationPolicy.ToString() : "N/A"),
+            new("Ladder orientation", request.Implementation == FilterImplementationType.Lc ? request.LcLadderOrientation.ToString() : "N/A"),
+            new("Primary response reference", passive.PrimaryReference.ToString()),
+            new("Direct-through VOUT/VSRC", F(passive.Boundary.DirectThroughVoltageRatio), "V/V"),
+            new("Direct-through absolute level", F(20 * Math.Log10(passive.Boundary.DirectThroughVoltageRatio)), "dB"),
+            new("Absolute voltage transfer", "VOUT / VSRC"),
+            new("Filter-node voltage transfer", "VOUT / VIN"),
+            new("Insertion response", "|H / Hthrough|²; direct through is 0 dB")
+        };
+        fields.Add(request.SourceResistanceOhm > 0
+            ? new("Transducer gain", "PL / Pavs = 4·Rs/RL·|VOUT/VSRC|²")
+            : new("Transducer gain", "Not defined for Rs = 0 because available source power is unbounded"));
+        return fields;
+    }
 
     private static IReadOnlyList<ReportField> BuildInputs(FilterDesignRequest request, FilterDesignResult result)
     {
@@ -94,9 +132,9 @@ public sealed class FilterDesignReportBuilder
                 new("Passband bandwidth", F(request.PassbandUpperHz - request.PassbandLowerHz), "Hz")]);
         }
         fields.AddRange([
-            new("Series source resistance Rs", F(request.SourceResistanceOhm), "ohm"),
-            new("Load resistance RL", F(request.LoadResistanceOhm), "ohm"),
-            new("Preferred resistance scale", F(request.PreferredResistanceOhm), "ohm"),
+            new("Series source resistance Rs", F(request.SourceResistanceOhm), "Ω"),
+            new("Load resistance RL", F(request.LoadResistanceOhm), "Ω"),
+            new("Preferred resistance scale", F(request.PreferredResistanceOhm), "Ω"),
             new("Resistor tolerance", F(request.ComponentConstraints.ResistorTolerancePercent), "%"),
             new("Capacitor tolerance", F(request.ComponentConstraints.CapacitorTolerancePercent), "%"),
             new("Standard-value optimization", request.ComponentConstraints.OptimizeStandardValues ? "Enabled" : "Disabled")]);
@@ -126,6 +164,12 @@ public sealed class FilterDesignReportBuilder
             fields.Add(new("LC ladder validation", ladder.ValidationMetrics.Summary));
             if (ladder.ExtractionRecords is { Count: > 0 })
                 fields.Add(new("Cauer extraction steps", ladder.ExtractionRecords.Count.ToString(CultureInfo.InvariantCulture)));
+            if (result.PassiveComponentAssumptions is { } assumptions)
+            {
+                fields.Add(new("L/C electrical model", assumptions.UsesIdealInductorsAndCapacitors ? "Ideal L/C" : "Practical parasitic model"));
+                fields.Add(new("Inductor Q / DCR", assumptions.InductorQ is null ? "Not specified (v1 extension point)" : $"Q={F(assumptions.InductorQ.Value)}, DCR={F(assumptions.InductorDcrOhm ?? 0)} Ω"));
+                fields.Add(new("Capacitor ESR", assumptions.CapacitorEsrOhm is null ? "Not specified (v1 extension point)" : $"{F(assumptions.CapacitorEsrOhm.Value)} Ω"));
+            }
         }
         if (request.Approximation == FilterApproximation.Bessel)
         {
@@ -157,6 +201,8 @@ public sealed class FilterDesignReportBuilder
 
     private static IReadOnlyList<ReportField> BuildGain(FilterDesignResult result)
     {
+        if (result.DesignRequest?.Mode == FilterMode.Passive)
+            return [new("Passive gain semantics", "No arbitrary A0; passband level is measured from the selected loaded response reference")];
         var gain = result.GainDistribution!;
         var auxiliaryBuffer = result.AdditionalNetworkComponents.Any(value => value.Role.StartsWith("InterstageAttenuator", StringComparison.Ordinal));
         return
@@ -214,8 +260,10 @@ public sealed class FilterDesignReportBuilder
         var graph = result.CircuitGraph!;
         int Count(ComponentType type) => graph.Components.Count(value => value.Type == type);
         var chain = string.Join(" -> ", result.Sections.Select(section => $"Section {section.Target.Index} {request.Implementation} {section.Target.ResponseType}")) + " -> Output";
+        var external = result.PassiveAnalysis?.Boundary.ExternalTerminations ?? [];
+        var externalSummary = external.Count == 0 ? "None" : string.Join(", ", external.Select(value => $"{value.Reference}={F(value.ResistanceOhm)} Ω ({value.Role})"));
         return new(Count(ComponentType.Resistor), Count(ComponentType.Capacitor), Count(ComponentType.Inductor),
-            Count(ComponentType.OpAmp), graph.Nets.Count, result.Sections.Count, chain);
+            Count(ComponentType.OpAmp), graph.Nets.Count, result.Sections.Count, chain, external.Count, externalSummary);
     }
 
     private static IReadOnlyDictionary<string, object> BuildSnapshotRequest(FilterDesignRequest request) =>
@@ -224,6 +272,10 @@ public sealed class FilterDesignReportBuilder
             ["Mode"] = request.Mode.ToString(), ["ResponseType"] = request.ResponseType.ToString(),
             ["Approximation"] = request.Approximation.ToString(), ["Implementation"] = request.Implementation.ToString(),
             ["LcTerminationMode"] = request.LcTerminationMode.ToString(),
+            ["LcTerminationPolicy"] = request.LcTerminationPolicy.ToString(),
+            ["LcLadderOrientation"] = request.LcLadderOrientation.ToString(),
+            ["PassiveResponseReference"] = request.PassiveResponseReference.ToString(),
+            ["PassiveRcTopology"] = request.PassiveRcTopology.ToString(),
             ["OrderMode"] = request.OrderMode.ToString(), ["SpecifiedOrder"] = request.SpecifiedOrder,
             ["RpDb"] = request.PassbandRippleDb, ["AsDb"] = request.StopbandAttenuationDb,
             ["A0Linear"] = request.PassbandGain, ["PassbandEdgeHz"] = request.PassbandEdgeHz,

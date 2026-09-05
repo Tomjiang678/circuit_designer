@@ -25,24 +25,12 @@ public sealed class FilterAnalysisService
 
     public AcAnalysisResult Analyze(CircuitGraph graph, FilterDesignRequest request)
     {
-        var terminatedLc = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc;
         var options = CreateOptions(request);
-        if (terminatedLc && request.SourceResistanceOhm > 0)
-        {
-            // Express voltage as transducer power gain relative to the Thevenin
-            // source's available power. The equivalent voltage reference is
-            // 0.5*sqrt(RL/RS). For RS=RL this is 0.5 V/V, while unequal even-order
-            // Chebyshev terminations are no longer incorrectly normalized against
-            // their mismatched direct-through voltage.
-            var availablePowerVoltageReference = .5 * Math.Sqrt(request.LoadResistanceOhm / request.SourceResistanceOhm);
-            options = options with
-            {
-                MagnitudeReferenceLinear = availablePowerVoltageReference,
-                MagnitudeReferenceDescription = $"Transducer gain relative to available source power, Rs={request.SourceResistanceOhm:G6} ohm / RL={request.LoadResistanceOhm:G6} ohm"
-            };
-        }
-        return analyzer.Analyze(graph, options,
-            terminatedLc && request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : null,
-            terminatedLc ? request.LoadResistanceOhm : null);
+        return request.Mode == FilterMode.Passive
+            ? new PassiveFilterAnalysisService(analyzer).Analyze(graph, request, options).Primary
+            : analyzer.Analyze(graph, options);
     }
+
+    public PassiveFilterAnalysisResult AnalyzePassive(CircuitGraph graph, FilterDesignRequest request) =>
+        new PassiveFilterAnalysisService(analyzer).Analyze(graph, request, CreateOptions(request));
 }

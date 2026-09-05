@@ -23,11 +23,11 @@ public sealed class FilterSpiceExportService : IFilterSpiceExportService
         var graph = result.CircuitGraph ?? throw new InvalidOperationException("The design result does not contain a CircuitGraph.");
         var request = result.DesignRequest ?? throw new InvalidOperationException("The design result does not contain its design request.");
         var analysis = new FilterAnalysisService().CreateOptions(request);
-        var terminatedLc = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc;
+        var passive = request.Mode == FilterMode.Passive;
         var title = $"Circuit Module Designer - {request.Mode} {request.ResponseType} {request.Approximation} {request.Implementation}";
         return exporter.Export(graph, new CircuitSpiceExportOptions(title, analysis.StartFrequencyHz, analysis.StopFrequencyHz, analysis.PointsPerDecade,
-            SourceResistanceOhm: terminatedLc && request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : null,
-            LoadResistanceOhm: terminatedLc ? request.LoadResistanceOhm : null));
+            SourceResistanceOhm: passive && request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : null,
+            LoadResistanceOhm: passive ? request.LoadResistanceOhm : null));
     }
 
     public void Save(FilterDesignResult result, string filePath)

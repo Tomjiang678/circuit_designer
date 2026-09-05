@@ -77,7 +77,7 @@ public sealed class PositiveRealLadderExtractor
                 }
             }
         }
-        throw new InvalidOperationException("LcLadderExtractionProducedNegativeElement: no Cauer orientation produced an all-positive finite Bessel ladder.");
+        throw new InvalidOperationException("LcLadderExtractionProducedNegativeElement: no Cauer orientation produced an all-positive finite LC ladder.");
     }
 
     private static bool TryExtract(double[] numerator, double[] denominator, int order,

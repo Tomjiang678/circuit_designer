@@ -114,6 +114,13 @@ public sealed class FilterWizardControl : UserControl
             ShowStep(e.Node.Index);
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            navigation.AfterSelect -= NavigationAfterSelect;
+        base.Dispose(disposing);
+    }
+
     private void ShowStep(int requestedIndex)
     {
         var maximumIndex = lastResult == null ? titles.Length - 2 : titles.Length - 1;

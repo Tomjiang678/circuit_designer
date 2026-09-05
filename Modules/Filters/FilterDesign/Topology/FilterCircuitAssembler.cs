@@ -5,6 +5,7 @@ using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Sections;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Synthesis;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Gain;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Analysis;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Topology;
 
@@ -363,10 +364,44 @@ public sealed class FilterCircuitAssembler
 
     private static FilterCircuitBuildResult BuildPassiveRc(FilterDesignRequest request, IReadOnlyList<SynthesizedSection> sections)
     {
-        if (sections.Count != 1 || sections[0].Target.Order != SectionOrder.First)
-            throw new NotSupportedException("Passive RC synthesis is limited to one first-order section.");
+        if (sections.Count != 1)
+            throw new NotSupportedException("A topology-based passive RC design must contain one synthesized network record.");
         var builder = new CircuitBuilder(); var allocator = new ReferenceDesignatorAllocator(); var hints = new List<FilterPlacementHint>(); builder.CreateNet("GND");
-        var section = sections[0]; var r = Add(builder, allocator, section.Components.Single(value => value.Role == "R")); var c = Add(builder, allocator, section.Components.Single(value => value.Role == "C"));
+        var section = sections[0];
+        if (request.ResponseType == FilterResponseType.BandPass)
+        {
+            var values = section.Components.ToDictionary(value => value.Role);
+            var cHp = Add(builder, allocator, values["C_HP"]); var rHp = Add(builder, allocator, values["R_HP"]);
+            var rLp = Add(builder, allocator, values["R_LP"]); var cLp = Add(builder, allocator, values["C_LP"]);
+            builder.Connect("VIN", cHp.GetPin("1"));
+            builder.Connect("N_RC_BP_HP", cHp.GetPin("2"), rHp.GetPin("1"), rLp.GetPin("1"));
+            builder.Connect("GND", rHp.GetPin("2"), cLp.GetPin("2"));
+            builder.Connect("VOUT", rLp.GetPin("2"), cLp.GetPin("1"));
+            hints.Add(new(cHp.Reference, 1, "RcBpSeries", 0, 0)); hints.Add(new(rHp.Reference, 1, "RcBpShunt", 2, 2));
+            hints.Add(new(rLp.Reference, 1, "RcBpSeries", 4, 0)); hints.Add(new(cLp.Reference, 1, "RcBpShunt", 6, 2));
+            var bandGraph = builder.Build(); FilterCircuitGraphValidator.EnsureFilterRequirements(bandGraph, request.Mode); return new(bandGraph, hints);
+        }
+        if (request.ResponseType == FilterResponseType.BandStop)
+        {
+            var values = section.Components.ToDictionary(value => value.Role);
+            var r1 = Add(builder, allocator, values["R1"]); var r2 = Add(builder, allocator, values["R2"]);
+            var rsa = Add(builder, allocator, values["R_SHUNT_A"]); var rsb = Add(builder, allocator, values["R_SHUNT_B"]);
+            var c1 = Add(builder, allocator, values["C1"]); var c2 = Add(builder, allocator, values["C2"]);
+            var csa = Add(builder, allocator, values["C_SHUNT_A"]); var csb = Add(builder, allocator, values["C_SHUNT_B"]);
+            builder.Connect("VIN", r1.GetPin("1"), c1.GetPin("1"));
+            builder.Connect("N_TWIN_R", r1.GetPin("2"), r2.GetPin("1"), csa.GetPin("1"), csb.GetPin("1"));
+            builder.Connect("N_TWIN_C", c1.GetPin("2"), c2.GetPin("1"), rsa.GetPin("1"), rsb.GetPin("1"));
+            builder.Connect("VOUT", r2.GetPin("2"), c2.GetPin("2"));
+            builder.Connect("GND", csa.GetPin("2"), csb.GetPin("2"), rsa.GetPin("2"), rsb.GetPin("2"));
+            hints.Add(new(r1.Reference, 1, "TwinTSeries", 0, -1)); hints.Add(new(r2.Reference, 1, "TwinTSeries", 3, -1));
+            hints.Add(new(c1.Reference, 1, "TwinTSeries", 0, 1)); hints.Add(new(c2.Reference, 1, "TwinTSeries", 3, 1));
+            hints.Add(new(csa.Reference, 1, "TwinTShunt", 1, 0)); hints.Add(new(csb.Reference, 1, "TwinTShunt", 2, 1));
+            hints.Add(new(rsa.Reference, 1, "TwinTShunt", 1, 3)); hints.Add(new(rsb.Reference, 1, "TwinTShunt", 3, 3));
+            var notchGraph = builder.Build(); FilterCircuitGraphValidator.EnsureFilterRequirements(notchGraph, request.Mode); return new(notchGraph, hints);
+        }
+        if (section.Target.Order != SectionOrder.First)
+            throw new NotSupportedException("First-order passive RC LP/HP requires one first-order section.");
+        var r = Add(builder, allocator, section.Components.Single(value => value.Role == "R")); var c = Add(builder, allocator, section.Components.Single(value => value.Role == "C"));
         if (request.ResponseType == FilterResponseType.LowPass)
         { builder.Connect("VIN", r.GetPin("1")); builder.Connect("VOUT", r.GetPin("2"), c.GetPin("1")); builder.Connect("GND", c.GetPin("2")); hints.Add(new(r.Reference, 1, "Series", 0, 0)); hints.Add(new(c.Reference, 1, "Shunt", 1, 1)); }
         else
@@ -376,10 +411,34 @@ public sealed class FilterCircuitAssembler
 
     private static FilterCircuitBuildResult BuildPassiveLc(FilterDesignRequest request, NormalizedFilterSpecification specification, FilterPrototype prototype)
     {
-        var impedanceScale = request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : request.LoadResistanceOhm;
         var ladderPrototype = prototype.LcLadderPrototype ?? throw new NotSupportedException($"{prototype.Approximation} does not provide a verified normalized LC ladder prototype.");
+        var impedanceScale = request.SourceResistanceOhm / ladderPrototype.SourceTerminationG0;
         var theoreticalBranches = new PassiveLcTransformationService().Transform(ladderPrototype, request.ResponseType, impedanceScale, specification);
-        var branches = new PassiveLcStandardValueOptimizer().Optimize(theoreticalBranches, request.ComponentConstraints, specification);
+        var branches = new PassiveLcStandardValueOptimizer().Optimize(theoreticalBranches, request.ComponentConstraints, specification,
+            candidate => ScoreLoadedLcCandidate(candidate, request));
+        return AssemblePassiveLcBranches(branches, request);
+    }
+
+    private static double ScoreLoadedLcCandidate(IReadOnlyList<LcRealizationBranch> branches, FilterDesignRequest request)
+    {
+        var graph = AssemblePassiveLcBranches(branches, request).CircuitGraph;
+        var service = new FilterAnalysisService();
+        var options = service.CreateOptions(request) with { PointsPerDecade = 4 };
+        var analysis = new PassiveFilterAnalysisService().Analyze(graph, request, options).Primary;
+        var compliance = new FilterSpecificationComplianceEvaluator().Evaluate(request, analysis);
+        double score = 0;
+        foreach (var edge in compliance.Edges)
+        {
+            var violation = edge.IsPassband
+                ? Math.Max(0, edge.LimitMagnitudeDb - edge.ActualMagnitudeDb)
+                : Math.Max(0, edge.ActualMagnitudeDb - edge.LimitMagnitudeDb);
+            score += 100 * violation * violation + .02 * Math.Abs(edge.ActualMagnitudeDb - edge.LimitMagnitudeDb);
+        }
+        return score;
+    }
+
+    private static FilterCircuitBuildResult AssemblePassiveLcBranches(IReadOnlyList<LcRealizationBranch> branches, FilterDesignRequest request)
+    {
         var builder = new CircuitBuilder(); var allocator = new ReferenceDesignatorAllocator(); var hints = new List<FilterPlacementHint>(); builder.CreateNet("GND");
         var currentNet = "VIN"; var seriesBranches = branches.Count(item => item.Connection == LcBranchConnection.Series); var seriesPosition = 0; var layoutColumn = 0;
         foreach (var branch in branches)

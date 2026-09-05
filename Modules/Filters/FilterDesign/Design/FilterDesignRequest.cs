@@ -26,6 +26,10 @@ public sealed record FilterDesignRequest
     public required double PreferredResistanceOhm { get; init; }
     public required ComponentSelectionConstraints ComponentConstraints { get; init; }
     public LcTerminationMode LcTerminationMode { get; init; } = LcTerminationMode.DoublyTerminated;
+    public LcTerminationPolicy LcTerminationPolicy { get; init; } = LcTerminationPolicy.MatchedUserTermination;
+    public LcLadderOrientation LcLadderOrientation { get; init; } = LcLadderOrientation.Auto;
+    public PassiveResponseReference PassiveResponseReference { get; init; } = PassiveResponseReference.TransducerGain;
+    public PassiveRcTopology PassiveRcTopology { get; init; } = PassiveRcTopology.FirstOrderLowPass;
 
     public static FilterDesignRequest FromState(FilterDesignState state)
     {
@@ -68,7 +72,13 @@ public sealed record FilterDesignRequest
                 OptimizeStandardValues = state.OptimizeStandardValues,
                 OptimizationTarget = state.OptimizationTarget
             },
-            LcTerminationMode = state.LcTerminationMode
+            LcTerminationMode = state.LcTerminationMode,
+            LcTerminationPolicy = state.LcTerminationPolicy,
+            LcLadderOrientation = state.LcLadderOrientation,
+            PassiveResponseReference = state.Implementation == FilterImplementationType.Lc
+                ? PassiveResponseReference.InsertionLossRelativeToThrough
+                : PassiveResponseReference.AbsoluteVoltageTransfer,
+            PassiveRcTopology = state.PassiveRcTopology
         };
     }
 }

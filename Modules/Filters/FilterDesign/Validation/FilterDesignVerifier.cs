@@ -34,7 +34,9 @@ public sealed class FilterDesignVerifier
         {
             if (section.Components.Any(value => value.SelectedValue <= 0 || !double.IsFinite(value.SelectedValue)))
                 errors.Add($"Section {section.Target.Index} contains a non-positive or non-finite selected component value.");
-            if (Math.Abs(section.FrequencyError) > .08 || Math.Abs(section.QError) > .12 || Math.Abs(section.GainError) > .08)
+            var topologyBasedPassiveRc = request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc;
+            if (!topologyBasedPassiveRc &&
+                (Math.Abs(section.FrequencyError) > .08 || Math.Abs(section.QError) > .12 || Math.Abs(section.GainError) > .08))
                 errors.Add($"Section {section.Target.Index} failed reverse verification: f0 {section.FrequencyError:P2}, Q {section.QError:P2}, gain {section.GainError:P2}.");
         }
 
@@ -80,7 +82,8 @@ public sealed class FilterDesignVerifier
 
         if (!compliance.MeetsAllEdges)
         {
-            if (request.OrderMode == FilterOrderMode.CalculateAutomatically &&
+            if (! (request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Rc) &&
+                request.OrderMode == FilterOrderMode.CalculateAutomatically &&
                 !(request.Mode == FilterMode.Passive && request.Implementation == FilterImplementationType.Lc && request.SourceResistanceOhm == 0))
                 errors.AddRange(compliance.Warnings);
             else warnings.AddRange(compliance.Warnings);

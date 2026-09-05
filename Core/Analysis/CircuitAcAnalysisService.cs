@@ -21,7 +21,7 @@ public sealed class CircuitAcAnalysisService : ICircuitAcAnalysisService
         var excluded = new HashSet<string>(["GND", "VCC", "VEE"], StringComparer.OrdinalIgnoreCase);
         var nodeNames = graph.Nets.Where(net => !excluded.Contains(net.Name)).Select(net => net.Name).ToList();
         var useSourceResistance = sourceResistanceOhm is > 0;
-        if (useSourceResistance) nodeNames.Add("__AC_SOURCE");
+        if (useSourceResistance) nodeNames.Add("VSRC");
         var nodes = nodeNames.Distinct(StringComparer.OrdinalIgnoreCase)
             .Select((name, index) => (name, index)).ToDictionary(item => item.name, item => item.index, StringComparer.OrdinalIgnoreCase);
         if (!nodes.ContainsKey("VIN") || !nodes.ContainsKey("VOUT"))
@@ -72,10 +72,10 @@ public sealed class CircuitAcAnalysisService : ICircuitAcAnalysisService
                 StampControlledVoltageSource(matrix, branch, output, positive, negative, options.OpAmpOpenLoopGain);
             }
 
-            var sourceNode = useSourceResistance ? nodes["__AC_SOURCE"] : nodes["VIN"];
+            var sourceNode = useSourceResistance ? nodes["VSRC"] : nodes["VIN"];
             StampVoltageSource(matrix, right, sourceIndex, sourceNode, Complex.One);
             if (useSourceResistance)
-                StampAdmittance(matrix, nodes["__AC_SOURCE"], nodes["VIN"], 1 / sourceResistanceOhm!.Value);
+                StampAdmittance(matrix, nodes["VSRC"], nodes["VIN"], 1 / sourceResistanceOhm!.Value);
             if (loadResistanceOhm is > 0)
                 StampAdmittance(matrix, nodes["VOUT"], -1, 1 / loadResistanceOhm.Value);
 
@@ -90,7 +90,8 @@ public sealed class CircuitAcAnalysisService : ICircuitAcAnalysisService
                 while (phase - previousPhase.Value < -180) phase += 360;
             }
             previousPhase = phase;
-            points.Add(new FrequencyResponsePoint(frequency, magnitude, magnitudeDb, phase));
+            points.Add(new FrequencyResponsePoint(frequency, magnitude, magnitudeDb, phase,
+                solution[nodes["VIN"]], outputVoltage));
         }
 
         return new AcAnalysisResult

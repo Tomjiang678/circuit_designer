@@ -15,9 +15,10 @@ public sealed record FilterV1CapabilityEntry(
 
 public static class FilterV1Status
 {
+    public const bool FilterV1Frozen = true;
     public const bool SingleEndedActiveComplete = true;
     public const string SingleEndedActiveCapability =
-        "Sallen-Key LP/HP/BP; MFB LP/HP/BP; Bainter Notch BS; passive RC order-1 LP/HP.";
+        "Sallen-Key LP/HP/BP; MFB LP/HP/BP; Bainter Notch BS.";
 
     public static IReadOnlyList<FilterV1CapabilityEntry> BuildSupportMatrix()
     {
@@ -38,12 +39,21 @@ public static class FilterV1Status
         }
         foreach (var response in Enum.GetValues<FilterResponseType>())
         {
-            entries.Add(new(FilterMode.Passive, null, response, FilterImplementationType.Rc, "Order 1 only",
-                response is FilterResponseType.LowPass or FilterResponseType.HighPass,
-                response is FilterResponseType.LowPass or FilterResponseType.HighPass ? "Verified first-order RC." : "Passive RC cannot realize a true band response."));
+            var rcTopology = response switch
+            {
+                FilterResponseType.LowPass => "First-order loaded RC Low-Pass",
+                FilterResponseType.HighPass => "First-order loaded RC High-Pass",
+                FilterResponseType.BandPass => "Two-corner loaded RC Band-Pass (not a Butterworth/Chebyshev prototype)",
+                FilterResponseType.BandStop => "Loaded passive Twin-T notch (not an approximation-family Band-Stop)",
+                _ => throw new ArgumentOutOfRangeException()
+            };
+            entries.Add(new(FilterMode.Passive, null, response, FilterImplementationType.Rc,
+                $"Topology-based; {rcTopology}; final loaded CircuitGraph verification required", true,
+                "Verified with explicit Rs/RL and AbsoluteVoltageTransfer VOUT/VSRC."));
             foreach (var approximation in new[] { FilterApproximation.Butterworth, FilterApproximation.ChebyshevTypeI })
                 entries.Add(new(FilterMode.Passive, approximation, response, FilterImplementationType.Lc,
-                    "DoublyTerminated insertion-loss mode", true, "Closed-form classic ladder and loaded MNA verified."));
+                    "DoublyTerminated; Matched only when gN+1/g0=1, otherwise Prototype-Native; loaded selected-value verification required",
+                    true, "Closed-form classic ladder with explicit termination ratio and loaded MNA verification."));
             entries.Add(new(FilterMode.Passive, FilterApproximation.Bessel, response, FilterImplementationType.Lc,
                 "DoublyTerminated; prototype order 1-6", true, "Insertion-loss/spectral-factor/positive-real/Cauer synthesis verified."));
             foreach (var approximation in new[] { FilterApproximation.GaussianTo6Db, FilterApproximation.GaussianTo12Db,

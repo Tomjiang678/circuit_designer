@@ -27,6 +27,13 @@ public sealed class FilterApproximationStepControl : FilterStepBase
 
         void RefreshInformation()
         {
+            if (state.Mode == FilterMode.Passive && state.Implementation == FilterImplementationType.Rc)
+            {
+                description.Text = "Passive RC is selected by physical topology; no Butterworth/Chebyshev/Bessel pole prototype is applied.";
+                status.Text = $"RC topology: {state.PassiveRcTopology}. Approximation and order settings are retained only if you later select LC.";
+                status.ForeColor = Color.DarkGreen;
+                return;
+            }
             var information = Information[state.Approximation];
             description.Text = information.Description;
             status.Text = information.Status;

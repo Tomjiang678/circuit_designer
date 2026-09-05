@@ -3,6 +3,7 @@ using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Reports;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Services;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
 
@@ -87,12 +88,42 @@ public sealed class FilterDesignOutputControl : UserControl
     private static TabPage CreateAnalysisPage(FilterDesignResult result)
     {
         var page = new TabPage("Analysis") { BackColor = SystemColors.Window };
-        page.Controls.Add(new FilterAnalysisPlotControl
+        var plot = new FilterAnalysisPlotControl
         {
             Dock = DockStyle.Fill,
             Analysis = result.AnalysisResult,
             Request = result.DesignRequest
-        });
+        };
+        if (result.PassiveAnalysis == null)
+        {
+            page.Controls.Add(plot);
+            return page;
+        }
+
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(7, 5, 7, 4) };
+        toolbar.Controls.Add(new Label { Text = "Response:", AutoSize = true, Margin = new Padding(0, 6, 5, 0) });
+        var selector = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 360, DropDownWidth = 390 };
+        var responses = new List<(string Label, PassiveResponseReference Reference, Core.Analysis.AcAnalysisResult Analysis)>
+        {
+            ("Absolute V (VOUT/VSRC)", PassiveResponseReference.AbsoluteVoltageTransfer, result.PassiveAnalysis.AbsoluteVoltageTransfer),
+            ("Filter Node (VOUT/VIN)", PassiveResponseReference.FilterNodeVoltageTransfer, result.PassiveAnalysis.FilterNodeVoltageTransfer),
+            ("Insertion (Through = 0 dB)", PassiveResponseReference.InsertionLossRelativeToThrough, result.PassiveAnalysis.InsertionLossRelativeToThrough)
+        };
+        if (result.PassiveAnalysis.TransducerGain is { } transducer)
+            responses.Insert(2, ("Transducer Gain", PassiveResponseReference.TransducerGain, transducer));
+        selector.Items.AddRange(responses.Select(value => value.Label).Cast<object>().ToArray());
+        selector.SelectedIndex = Math.Max(0, responses.FindIndex(value => value.Reference == result.PassiveAnalysis.PrimaryReference));
+        selector.SelectedIndexChanged += (_, _) =>
+        {
+            if (selector.SelectedIndex >= 0) plot.Analysis = responses[selector.SelectedIndex].Analysis;
+        };
+        toolbar.Controls.Add(selector);
+        layout.Controls.Add(toolbar, 0, 0);
+        layout.Controls.Add(plot, 0, 1);
+        page.Controls.Add(layout);
         return page;
     }
 
@@ -135,6 +166,20 @@ public sealed class FilterDesignOutputControl : UserControl
     {
         var text = new StringBuilder();
         text.AppendLine(result.Message); text.AppendLine($"Required order: {result.RequiredOrder}"); text.AppendLine($"Prototype order: {result.PrototypeOrder}"); text.AppendLine($"Realized order: {result.RealizedOrder}"); text.AppendLine($"Meets requested order: {result.MeetsRequestedOrder}"); text.AppendLine($"Final circuit meets edge specifications: {result.MeetsSpecifications}");
+        if (result.StageDiagnostics is { } stages)
+            text.AppendLine($"Verification stages: theoretical circuit valid={TriState(stages.TheoreticalCircuitValid)}, theoretical meets specification={TriState(stages.TheoreticalMeetsSpecifications)}, selected circuit valid={stages.SelectedCircuitValid}, selected meets specification={stages.SelectedMeetsSpecifications}, failure stage={stages.FailureStage}");
+        if (result.PassiveAnalysis is { } passive)
+        {
+            text.AppendLine(); text.AppendLine("Source / Load / Response Reference:");
+            text.AppendLine("  Boundary: VSRC -> Rs -> VIN -> filter network -> VOUT -> RL -> GND");
+            text.AppendLine("  VSRC: ideal Thevenin open-circuit voltage");
+            text.AppendLine($"  Rs = {passive.Boundary.SourceResistanceOhm:G9} Ω; RL = {passive.Boundary.LoadResistanceOhm:G9} Ω");
+            text.AppendLine($"  Direct-through VOUT/VSRC = {passive.Boundary.DirectThroughVoltageRatio:G9} ({20 * Math.Log10(passive.Boundary.DirectThroughVoltageRatio):0.###} dB absolute; 0 dB normalized insertion response)");
+            text.AppendLine($"  Primary response: {passive.PrimaryReference}");
+            text.AppendLine(passive.TransducerGain == null
+                ? "  Transducer gain: undefined for Rs = 0"
+                : "  Transducer gain: PL/Pavs = 4·Rs/RL·|VOUT/VSRC|²");
+        }
         if (result.NormalizedSpecification != null)
         {
             if (result.NormalizedSpecification.CenterAngularFrequency > 0)
@@ -155,7 +200,7 @@ public sealed class FilterDesignOutputControl : UserControl
             foreach (var edge in result.SpecificationCompliance.Edges)
                 text.AppendLine($"  {edge.Label} = {edge.FrequencyHz:0.###} Hz: actual {edge.ActualMagnitudeDb:0.###} dB, {(edge.IsPassband ? "minimum" : "maximum")} {edge.LimitMagnitudeDb:0.###} dB, {(edge.MeetsLimit ? "PASS" : "FAIL")}");
         }
-        if (result.GainDistribution != null)
+        if (result.DesignRequest?.Mode == Enums.FilterMode.Active && result.GainDistribution != null)
         {
             var gain = result.GainDistribution;
             text.AppendLine(); text.AppendLine("Gain distribution / whole-circuit verification:");
@@ -172,6 +217,8 @@ public sealed class FilterDesignOutputControl : UserControl
         if (result.CircuitGraph != null) { text.AppendLine(); text.AppendLine($"CircuitGraph: {result.CircuitGraph.Components.Count} components, {result.CircuitGraph.Nets.Count} nets"); foreach (var component in result.CircuitGraph.Components) { text.AppendLine($"  {component.Reference} {component.Type}"); foreach (var parameter in component.Parameters.Values) text.AppendLine($"    {parameter.Key} = {parameter.Value:G9}"); } }
         foreach (var warning in result.Warnings) text.AppendLine($"WARNING: {warning}"); return text.ToString();
     }
+
+    private static string TriState(bool? value) => value switch { true => "True", false => "False", null => "NotEvaluated" };
 
     private static string Format(double value, ComponentType type) => type switch { ComponentType.Resistor => $"{value:0.######} Ω", ComponentType.Capacitor => $"{value:E6} F", ComponentType.Inductor => $"{value:E6} H", _ => value.ToString("G6") };
 }

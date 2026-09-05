@@ -23,6 +23,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
             .Append(E(report.SoftwareVersion)).Append("</p>");
         Fields(html, "1. Design Summary", report.DesignSummary);
         Fields(html, "2. Input Specifications", report.InputSpecifications);
+        Fields(html, "Source / Load / Response Reference", report.SourceLoadReference);
         Fields(html, "3. Approximation Details", report.ApproximationDetails);
         PoleTable(html, report.PrototypePolesAndZeros);
         SectionTable(html, report.Sections);
@@ -83,6 +84,8 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
         .Append(Row("Resistors", c.Resistors.ToString(CultureInfo.InvariantCulture))).Append(Row("Capacitors", c.Capacitors.ToString(CultureInfo.InvariantCulture)))
         .Append(Row("Inductors", c.Inductors.ToString(CultureInfo.InvariantCulture))).Append(Row("OpAmps", c.OpAmps.ToString(CultureInfo.InvariantCulture)))
         .Append(Row("Nets", c.Nets.ToString(CultureInfo.InvariantCulture))).Append(Row("Sections", c.Sections.ToString(CultureInfo.InvariantCulture)))
+        .Append(Row("External terminations", c.ExternalTerminations.ToString(CultureInfo.InvariantCulture)))
+        .Append(Row("External termination details", c.ExternalTerminationSummary))
         .Append(Row("Topology chain", c.TopologyChain)).Append("</tbody></table>");
 
     private static void Trace(StringBuilder b, IReadOnlyList<DesignStepRecord> records)

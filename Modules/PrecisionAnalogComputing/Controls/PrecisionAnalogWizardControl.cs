@@ -12,6 +12,8 @@ namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Controls;
 public sealed class PrecisionAnalogWizardControl : UserControl
 {
     private readonly PrecisionAnalogDesignEngine engine = new();
+    private TreeView? navigationTree;
+    private TreeNode? navigationRoot;
     private AnalogComputeOperationType selectedOperation = AnalogComputeOperationType.GeneralLinearCombination;
     private readonly NumericUpDown inputCount = Number(1, 8, 1, 0);
     private readonly DataGridView inputs = new();
@@ -37,10 +39,9 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private readonly Label status = new() { AutoSize = true, Margin = new Padding(12, 8, 0, 0) };
     private readonly TabControl results = new() { Dock = DockStyle.Fill };
 
-    public PrecisionAnalogWizardControl(TreeView navigationTree)
+    public PrecisionAnalogWizardControl()
     {
         Dock = DockStyle.Fill;
-        BuildNavigation(navigationTree);
         BuildInterface();
         inputCount.ValueChanged += (_, _) => RebuildInputRows();
         inputs.CellValueChanged += (_, _) => UpdateFormula();
@@ -49,6 +50,30 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         design.Click += DesignClicked;
         RebuildInputRows();
         OperationChanged();
+    }
+
+    public PrecisionAnalogWizardControl(TreeView navigationTree) : this() => AttachNavigation(navigationTree);
+
+    public void AttachNavigation(TreeView tree)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+        if (ReferenceEquals(navigationTree, tree))
+        {
+            BuildNavigation(tree);
+            return;
+        }
+        DetachNavigation();
+        navigationTree = tree;
+        navigationTree.AfterSelect += NavigationAfterSelect;
+        BuildNavigation(tree);
+    }
+
+    public void DetachNavigation()
+    {
+        if (navigationTree is not null)
+            navigationTree.AfterSelect -= NavigationAfterSelect;
+        navigationTree = null;
+        navigationRoot = null;
     }
 
     private void BuildInterface()
@@ -354,17 +379,27 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private void BuildNavigation(TreeView tree)
     {
         tree.BeginUpdate(); tree.Nodes.Clear();
-        var root = tree.Nodes.Add("Precision Analog Computing");
-        foreach (var item in Enum.GetValues<AnalogComputeOperationType>()) root.Nodes.Add(PrecisionAnalogDesignEngine.DisplayName(item));
-        root.Expand(); tree.EndUpdate();
-        tree.AfterSelect += (_, args) =>
+        navigationRoot = tree.Nodes.Add("Precision Analog Computing");
+        foreach (var item in Enum.GetValues<AnalogComputeOperationType>()) navigationRoot.Nodes.Add(PrecisionAnalogDesignEngine.DisplayName(item));
+        navigationRoot.Expand(); tree.EndUpdate();
+    }
+
+    private void NavigationAfterSelect(object? sender, TreeViewEventArgs args)
+    {
+        var operations = Enum.GetValues<AnalogComputeOperationType>();
+        var node = args.Node;
+        if (node is not null && navigationRoot is not null && ReferenceEquals(node.Parent, navigationRoot) &&
+            node.Index >= 0 && node.Index < operations.Length)
         {
-            if (args.Node?.Parent == root && args.Node.Index >= 0 && args.Node.Index < Enum.GetValues<AnalogComputeOperationType>().Length)
-            {
-                selectedOperation = Enum.GetValues<AnalogComputeOperationType>()[args.Node.Index];
-                OperationChanged();
-            }
-        };
+            selectedOperation = operations[node.Index];
+            OperationChanged();
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) DetachNavigation();
+        base.Dispose(disposing);
     }
 
     private static double Parse(DataGridViewRow row, int column) => double.TryParse(Convert.ToString(row.Cells[column].Value), out var value) ? value : throw new FormatException($"Row {row.Index + 1}, column {row.Cells[column].OwningColumn?.HeaderText ?? column.ToString()} is not a valid number.");

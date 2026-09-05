@@ -22,6 +22,27 @@ public enum FilterSupportReasonCode
     ,BainterNotchDepthInsufficientWithSelectedSeries
     ,ComponentRangeInfeasible
     ,FinalCircuitSpecificationNotMet
+    ,RcLoadedPoleNotAchievable
+    ,RcPassbandLossTooHigh
+    ,RcBandPassCornersNotAchievable
+    ,TwinTNotchDepthInsufficient
+    ,LcTerminationRatioUnsupported
+    ,LcPrototypeRequiresNativeTermination
+    ,LcComponentRangeViolation
+    ,NarrowBandComponentSpreadTooLarge
+    ,LcSelectedValuesFailSpecification
+    ,SpecifiedOrderInsufficient
+    ,TheoreticalDesignDoesNotMeetSpecification
+    ,SelectedValuesFailSpecification
+    ,RcBandPassComponentRangeViolation
+    ,TwinTNotchDepthInsufficientWithSelectedSeries
+    ,TwinTSourceLoadInteractionTooStrong
+    ,TwinTRequestedResponseNotAchievable
+    ,SallenKeyBpGainCouplingViolation
+    ,SectionQOutOfRange
+    ,MfbBpGainOutOfRange
+    ,BainterSelectedValueVerificationFailed
+    ,SelectedSectionVerificationFailed
 }
 
 public enum FilterCapabilityLevel
@@ -56,8 +77,19 @@ public static class FilterSupportDecision
             FilterSupportReasonCode.ArchitectureUnavailable or FilterSupportReasonCode.TopologyUnavailable or FilterSupportReasonCode.ResponseUnavailable => FilterCapabilityLevel.TopologyCapability,
             FilterSupportReasonCode.PrototypeUnavailable or FilterSupportReasonCode.ApproximationUnavailable or FilterSupportReasonCode.OrderLimited => FilterCapabilityLevel.PrototypeCapability,
             FilterSupportReasonCode.LcTerminationModeMismatch => FilterCapabilityLevel.TerminationCapability,
+            FilterSupportReasonCode.LcTerminationRatioUnsupported or FilterSupportReasonCode.LcPrototypeRequiresNativeTermination => FilterCapabilityLevel.TerminationCapability,
             FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries => FilterCapabilityLevel.StandardValueFeasibility,
             FilterSupportReasonCode.ComponentRangeInfeasible => FilterCapabilityLevel.ComponentRangeFeasibility,
+            FilterSupportReasonCode.LcComponentRangeViolation or FilterSupportReasonCode.NarrowBandComponentSpreadTooLarge => FilterCapabilityLevel.ComponentRangeFeasibility,
+            FilterSupportReasonCode.LcSelectedValuesFailSpecification => FilterCapabilityLevel.StandardValueFeasibility,
+            FilterSupportReasonCode.SelectedValuesFailSpecification or FilterSupportReasonCode.TwinTNotchDepthInsufficientWithSelectedSeries => FilterCapabilityLevel.StandardValueFeasibility,
+            FilterSupportReasonCode.SpecifiedOrderInsufficient or FilterSupportReasonCode.TheoreticalDesignDoesNotMeetSpecification => FilterCapabilityLevel.FrequencyTransformationCapability,
+            FilterSupportReasonCode.RcBandPassComponentRangeViolation => FilterCapabilityLevel.ComponentRangeFeasibility,
+            FilterSupportReasonCode.TwinTSourceLoadInteractionTooStrong or FilterSupportReasonCode.TwinTRequestedResponseNotAchievable or
+                FilterSupportReasonCode.SallenKeyBpGainCouplingViolation or FilterSupportReasonCode.SectionQOutOfRange or
+                FilterSupportReasonCode.MfbBpGainOutOfRange or FilterSupportReasonCode.BainterSelectedValueVerificationFailed or
+                FilterSupportReasonCode.SelectedSectionVerificationFailed => FilterCapabilityLevel.SectionFeasibility,
+            FilterSupportReasonCode.RcLoadedPoleNotAchievable or FilterSupportReasonCode.RcPassbandLossTooHigh or FilterSupportReasonCode.RcBandPassCornersNotAchievable or FilterSupportReasonCode.TwinTNotchDepthInsufficient => FilterCapabilityLevel.SectionFeasibility,
             FilterSupportReasonCode.LcPrototypeNotPositiveReal or FilterSupportReasonCode.LcLadderExtractionProducedNegativeElement or FilterSupportReasonCode.LcFinalReconstructionFailed => FilterCapabilityLevel.LcPositiveRealFeasibility,
             FilterSupportReasonCode.PendingIndependentVerification => FilterCapabilityLevel.FinalCircuitVerification,
             FilterSupportReasonCode.FinalCircuitSpecificationNotMet => FilterCapabilityLevel.FinalCircuitVerification,
@@ -66,6 +98,27 @@ public static class FilterSupportDecision
         var alternative = reasonCode switch
         {
             FilterSupportReasonCode.LcTerminationModeMismatch => "Use Doubly Terminated mode with explicit Rs/RL, or use an active filter for an ideal-voltage-source interface.",
+            FilterSupportReasonCode.LcPrototypeRequiresNativeTermination => "Select Prototype-Native termination so RL is derived from g0/gN+1, or choose a ladder/order compatible with matched terminations.",
+            FilterSupportReasonCode.LcTerminationRatioUnsupported => "Use Prototype-Native termination, or enter the exact source/load ratio required by the normalized ladder.",
+            FilterSupportReasonCode.LcComponentRangeViolation => "Widen the L/C ranges, change system impedance, or try the alternate ladder orientation.",
+            FilterSupportReasonCode.NarrowBandComponentSpreadTooLarge => "Widen the band, change impedance, or use an active filter with practical resonator Q.",
+            FilterSupportReasonCode.LcSelectedValuesFailSpecification => "Use E96, theoretical values, wider component ranges, or another ladder orientation.",
+            FilterSupportReasonCode.SpecifiedOrderInsufficient => "Increase the specified order or use automatic order.",
+            FilterSupportReasonCode.TheoreticalDesignDoesNotMeetSpecification => "Relax the edge specification, increase order, or choose a topology whose theoretical response can meet it.",
+            FilterSupportReasonCode.SelectedValuesFailSpecification => "Use a denser E-series, disable standard-value optimization, or relax the requested tolerance.",
+            FilterSupportReasonCode.RcBandPassComponentRangeViolation => "Widen the R/C ranges or change the preferred impedance scale.",
+            FilterSupportReasonCode.TwinTNotchDepthInsufficientWithSelectedSeries => "Use E96, tighter matched components, or reduce the required notch depth.",
+            FilterSupportReasonCode.TwinTSourceLoadInteractionTooStrong => "Reduce Rs, increase RL, or buffer the Twin-T network.",
+            FilterSupportReasonCode.TwinTRequestedResponseNotAchievable => "Move the passband edges farther from the notch, relax Rp/As, or use Active Bainter/Passive LC.",
+            FilterSupportReasonCode.SallenKeyBpGainCouplingViolation => "Change overall gain/order/bandwidth or use MFB Band-Pass for this section set.",
+            FilterSupportReasonCode.SectionQOutOfRange => "Change order/bandwidth or select a topology that supports the required section Q.",
+            FilterSupportReasonCode.MfbBpGainOutOfRange => "Reduce the requested section gain, change order/bandwidth, or use another verified Band-Pass topology.",
+            FilterSupportReasonCode.BainterSelectedValueVerificationFailed => "Use a denser E-series/tighter matching, relax the notch requirement, or change the order/band edges.",
+            FilterSupportReasonCode.SelectedSectionVerificationFailed => "Adjust the section target, order, topology, or component constraints and redesign.",
+            FilterSupportReasonCode.RcLoadedPoleNotAchievable => "Passive RC is limited to a real first-order roll-off. Reduce As/transition steepness, increase fs/fp separation, or select Passive LC or Active Filter.",
+            FilterSupportReasonCode.RcPassbandLossTooHigh => "Increase RL, reduce Rs, or select Passive LC/Active Filter when low insertion loss is required.",
+            FilterSupportReasonCode.RcBandPassCornersNotAchievable => "Widen the passband/corner separation, relax attenuation, or select Passive LC/Active Filter for a steeper band-pass.",
+            FilterSupportReasonCode.TwinTNotchDepthInsufficient => "Use E96/tighter matching, reduce source loading, increase RL, or select Passive LC/Active Bainter for a deeper controlled stopband.",
             FilterSupportReasonCode.LcPrototypeNotPositiveReal or FilterSupportReasonCode.LcLadderExtractionProducedNegativeElement => "Choose a supported family/order, or use the verified active-filter realization.",
             FilterSupportReasonCode.ResponseUnavailable => "Choose the response-specific v1 topology shown by the implementation selector.",
             FilterSupportReasonCode.BainterNotchDepthInsufficientWithSelectedSeries => "Use E96, tighter component tolerance, theoretical values, or a lower notch-depth requirement.",
@@ -114,11 +167,14 @@ public static class FilterSupportMatrix
         }
         if (request.Implementation == FilterImplementationType.Rc)
         {
-            if (request.Approximation is not (FilterApproximation.Butterworth or FilterApproximation.ChebyshevTypeI))
-                return FilterSupportDecision.Unsupported(FilterSupportReasonCode.ApproximationUnavailable, $"{request.Approximation} is retained for future prototype work but is not in the verified passive RC support set.");
-            if (request.ResponseType is not (FilterResponseType.LowPass or FilterResponseType.HighPass))
-                return FilterSupportDecision.Unsupported(FilterSupportReasonCode.ResponseUnavailable, "Passive RC is limited to first-order Low-Pass or High-Pass.");
-            return FilterSupportDecision.Supported("First-order passive RC synthesis is supported when the required/selected order is 1.");
+            return request.ResponseType switch
+            {
+                FilterResponseType.LowPass => FilterSupportDecision.Supported("Topology-based loaded first-order RC Low-Pass synthesis is available."),
+                FilterResponseType.HighPass => FilterSupportDecision.Supported("Topology-based loaded first-order RC High-Pass synthesis is available."),
+                FilterResponseType.BandPass => FilterSupportDecision.Supported("Topology-based loaded two-corner RC Band-Pass synthesis is available."),
+                FilterResponseType.BandStop => FilterSupportDecision.Supported("Topology-based loaded passive Twin-T notch synthesis is available."),
+                _ => FilterSupportDecision.Unsupported(FilterSupportReasonCode.ResponseUnavailable, "No passive RC topology is available for this response.")
+            };
         }
         if (request.Implementation == FilterImplementationType.Lc)
         {
