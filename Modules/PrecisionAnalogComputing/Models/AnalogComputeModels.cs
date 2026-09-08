@@ -26,12 +26,18 @@ public enum AnalogCapabilityReasonCode
     OutputSwingInsufficient,
     ComponentRangeImpossible,
     StandardValueAccuracyInsufficient,
-    CircuitVerificationFailed
+    CircuitVerificationFailed,
+    GbBandwidthInsufficient,
+    SlewRateInsufficient,
+    JunctionCurrentOutOfRange,
+    TopologyCapabilityUnsupported
 }
 
 public enum AnalogStandardSeries { E12, E24, E48, E96 }
 
 public enum DiodeBehaviorModel { IdealSwitch, ShockleyJunction }
+public enum HalfWavePolarity { Positive, Negative }
+public enum RectifierOutputPolarity { Positive, Negative }
 
 public sealed record JunctionModelParameters
 {
@@ -93,6 +99,24 @@ public sealed record AnalogComputeDesignRequest
     public double InputHighVoltage { get; init; } = 4.5;
     public double OutputLowVoltage { get; init; }
     public double OutputHighVoltage { get; init; } = 3.3;
+
+    // Operation-specific engineering parameters.
+    public double GainK { get; init; } = 1;
+    public HalfWavePolarity HalfWavePolarity { get; init; } = HalfWavePolarity.Positive;
+    public RectifierOutputPolarity OutputPolarity { get; init; } = RectifierOutputPolarity.Positive;
+    public double MinimumInputVoltage { get; init; } = -5;
+    public double MaximumInputVoltage { get; init; } = 5;
+    public double MaximumExpectedFrequencyHz { get; init; } = 1_000;
+    public double ReferenceVoltage { get; init; } = 1;
+    public double LogScaleVoltage { get; init; } = .1;
+    public double IntegrationConstantPerSecond { get; init; } = 1_000;
+    public double DifferentiationConstantSecond { get; init; } = .001;
+    public double LowerCornerHz { get; init; } = 10;
+    public double UpperCornerHz { get; init; } = 10_000;
+    public double LowerOutputLimitVoltage { get; init; } = -5;
+    public double UpperOutputLimitVoltage { get; init; } = 5;
+    public double MaximumJunctionCurrentAmpere { get; init; } = .01;
+    public JunctionModelParameters Junction { get; init; } = new();
 }
 
 public sealed record AnalogComputeCapabilityEvaluation(
@@ -129,7 +153,14 @@ public sealed record VerificationMetric(
 
 public sealed record CalculationRecord(string Title, string Expression, string Result, string? Note = null);
 
-public sealed record AnalogAnalysisPoint(double Input, double Target, double Actual, bool IsSupplyLimited = false);
+public sealed record AnalogAnalysisPoint(
+    double Input,
+    double Target,
+    double Actual,
+    bool IsSupplyLimited = false,
+    double? Theoretical = null,
+    double? TargetPhaseDegrees = null,
+    double? ActualPhaseDegrees = null);
 
 public sealed record AnalogAnalysisResult(
     string AnalysisType,
@@ -151,4 +182,10 @@ public sealed record AnalogComputeDesignResult
     public AnalogAnalysisResult? Analysis { get; init; }
     public double RequiredVccVoltage { get; init; }
     public double RequiredVeeVoltage { get; init; }
+}
+
+public static class PrecisionAnalogV1Status
+{
+    public const bool IsFrozen = true;
+    public const string SupportedOperations = "Linear Combination; Range Mapper; Half-Wave; Full-Wave; Log; Antilog; Integrator; Differentiator; Limiter.";
 }

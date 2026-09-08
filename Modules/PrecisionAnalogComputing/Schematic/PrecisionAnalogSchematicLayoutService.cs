@@ -8,6 +8,12 @@ public sealed class PrecisionAnalogSchematicLayoutService
 {
     public SchematicDocument Layout(CircuitGraph graph)
     {
+        if(graph.Components.Any(component=>component.Type==ComponentType.Diode) &&
+           graph.Nets.Any(net=>net.Name is "SUM_RECT" or "SUM"))
+            return LayoutRectifierGraph(graph);
+        if (graph.Components.Any(component => component.Type is ComponentType.Diode or ComponentType.Capacitor) ||
+            graph.Components.Count(component => component.Type == ComponentType.OpAmp) > 2)
+            return LayoutOperationGraph(graph);
         var document = new SchematicDocument(graph);
         var placed = new Dictionary<string, PlacedComponent>(StringComparer.OrdinalIgnoreCase);
         var opAmps = graph.Components.Where(component => component.Type == ComponentType.OpAmp).OrderBy(component => component.Reference).ToArray();
@@ -116,6 +122,154 @@ public sealed class PrecisionAnalogSchematicLayoutService
             var item = new PlacedComponent(component, position, orientation); placed.Add(component.Reference, item); document.AddPlacedComponent(item);
         }
     }
+
+    private static SchematicDocument LayoutRectifierGraph(CircuitGraph graph)
+    {
+        var document=new SchematicDocument(graph);
+        var placed=new Dictionary<string,PlacedComponent>(StringComparer.OrdinalIgnoreCase);
+        var fullWave=graph.Nets.Any(net=>net.Name=="SUM_ABS");
+
+        if(fullWave)
+        {
+            Put("R1",new(260,190)); Put("U1",new(570,190)); Put("D1",new(780,190));
+            Put("R2",new(900,25),ComponentOrientation.Left); Put("D2",new(570,350));
+            Put("R3",new(690,530)); Put("R4",new(900,405)); Put("U2",new(1080,505)); Put("R5",new(1080,335));
+            if(Has("U3")){Put("R6",new(1300,505));Put("U3",new(1540,505));Put("R7",new(1540,335));}
+        }
+        else
+        {
+            var hasInputInverter=Has("U2");
+            if(hasInputInverter)
+            {
+                Put("R3",new(210,240));Put("U2",new(470,240));Put("R4",new(470,75));
+                Put("R1",new(700,240));
+            }
+            else Put("R1",new(300,240));
+            var coreX=hasInputInverter?980d:610d;
+            Put("U1",new(coreX,240));Put("R2",new(coreX,75));Put("D1",new(coreX+210,240));Put("D2",new(coreX,410));
+        }
+
+        foreach(var net in graph.Nets)
+        {
+            var pins=net.Pins.Where(pin=>placed.ContainsKey(pin.ComponentReference)).ToArray();
+            var anchors=pins.Select(pin=>SchematicGeometry.GetWorldPin(placed[pin.ComponentReference],pin.Name)).ToArray();
+            if(anchors.Length==0)continue;
+            if(fullWave&&net.Name=="SUM_RECT")
+            {
+                var input=SchematicGeometry.GetWorldPin(placed["U1"],"IN-");var busX=input.X-58;
+                var ordinary=pins.Where(pin=>pin.ComponentReference!="R2").Select(pin=>SchematicGeometry.GetWorldPin(placed[pin.ComponentReference],pin.Name)).ToArray();
+                document.AddWire(new(net.Name,[new SchematicPoint(busX,-35),new SchematicPoint(busX,ordinary.Max(point=>point.Y))]));
+                foreach(var anchor in ordinary)document.AddWire(new(net.Name,[anchor,new SchematicPoint(busX,anchor.Y)]));
+                var feedback=SchematicGeometry.GetWorldPin(placed["R2"],"1");
+                document.AddWire(new(net.Name,[feedback,new SchematicPoint(feedback.X+50,feedback.Y),new SchematicPoint(feedback.X+50,-35),new SchematicPoint(busX,-35)]));
+                continue;
+            }
+            if(fullWave&&net.Name=="HALF_RECT")
+            {
+                const double halfBusX=850;
+                document.AddWire(new(net.Name,[new SchematicPoint(halfBusX,anchors.Min(point=>point.Y)),new SchematicPoint(halfBusX,anchors.Max(point=>point.Y))]));
+                foreach(var anchor in anchors)document.AddWire(new(net.Name,[anchor,new SchematicPoint(halfBusX,anchor.Y)]));
+                continue;
+            }
+            if(net.Name is "VCC" or "VEE" or "GND")
+            {
+                foreach(var anchor in anchors)
+                {
+                    var vertical=net.Name=="VCC"?-38:net.Name=="VEE"?38:0;
+                    var end=vertical==0?new SchematicPoint(anchor.X-48,anchor.Y):new SchematicPoint(anchor.X,anchor.Y+vertical);
+                    document.AddWire(new(net.Name,[anchor,end]));document.AddNetLabel(new(net.Name,net.Name,end));
+                }
+                continue;
+            }
+            if(net.Name=="VIN")
+            {
+                var vinTrunkX=110d;var entry=new SchematicPoint(55,anchors.Min(point=>point.Y));
+                document.AddWire(new(net.Name,[entry,new SchematicPoint(vinTrunkX,entry.Y),new SchematicPoint(vinTrunkX,anchors.Max(point=>point.Y))]));
+                foreach(var anchor in anchors)document.AddWire(new(net.Name,[new SchematicPoint(vinTrunkX,anchor.Y),anchor]));
+                document.AddNetLabel(new(net.Name,"VIN",entry));continue;
+            }
+            if(net.Name=="VOUT")
+            {
+                var busX=anchors.Max(point=>point.X)+70;
+                document.AddWire(new(net.Name,[new SchematicPoint(busX,anchors.Min(point=>point.Y)),new SchematicPoint(busX,anchors.Max(point=>point.Y))]));
+                foreach(var anchor in anchors)document.AddWire(new(net.Name,[anchor,new SchematicPoint(busX,anchor.Y)]));
+                var end=new SchematicPoint(busX+85,anchors.Last().Y);document.AddWire(new(net.Name,[new SchematicPoint(busX,end.Y),end]));document.AddNetLabel(new(net.Name,"VOUT",end));continue;
+            }
+
+            var inputPin=pins.FirstOrDefault(pin=>graph.GetComponent(pin.ComponentReference).Type==ComponentType.OpAmp&&pin.Name=="IN-");
+            var outputPin=pins.FirstOrDefault(pin=>graph.GetComponent(pin.ComponentReference).Type==ComponentType.OpAmp&&pin.Name=="OUT");
+            var trunkX=inputPin is not null?SchematicGeometry.GetWorldPin(placed[inputPin.ComponentReference],inputPin.Name).X-58:
+                outputPin is not null?SchematicGeometry.GetWorldPin(placed[outputPin.ComponentReference],outputPin.Name).X+58:
+                (anchors.Min(point=>point.X)+anchors.Max(point=>point.X))/2;
+            document.AddWire(new(net.Name,[new SchematicPoint(trunkX,anchors.Min(point=>point.Y)),new SchematicPoint(trunkX,anchors.Max(point=>point.Y))]));
+            foreach(var anchor in anchors)
+            {
+                document.AddWire(new(net.Name,[anchor,new SchematicPoint(trunkX,anchor.Y)]));
+                if(anchors.Length>2)document.AddJunction(new(net.Name,new SchematicPoint(trunkX,anchor.Y)));
+            }
+        }
+        return document;
+
+        bool Has(string reference)=>graph.Components.Any(component=>component.Reference.Equals(reference,StringComparison.OrdinalIgnoreCase));
+        void Put(string reference,SchematicPoint position,ComponentOrientation orientation=ComponentOrientation.Right)
+        {
+            if(!Has(reference))return;
+            var component=graph.GetComponent(reference);var item=new PlacedComponent(component,position,orientation);
+            placed.Add(reference,item);document.AddPlacedComponent(item);
+        }
+    }
+
+    private static SchematicDocument LayoutOperationGraph(CircuitGraph graph)
+    {
+        var document=new SchematicDocument(graph);
+        var placed=new Dictionary<string,PlacedComponent>(StringComparer.OrdinalIgnoreCase);
+        var passives=graph.Components.Where(component=>component.Type!=ComponentType.OpAmp)
+            .OrderBy(component=>component.Type).ThenBy(component=>NumericSuffix(component.Reference)).ToArray();
+        for(var index=0;index<passives.Length;index++)
+        {
+            var position=new SchematicPoint(170+(index%3)*185,125+(index/3)*92);
+            var item=new PlacedComponent(passives[index],position,ComponentOrientation.Right);
+            placed.Add(passives[index].Reference,item);document.AddPlacedComponent(item);
+        }
+        var opAmps=graph.Components.Where(component=>component.Type==ComponentType.OpAmp)
+            .OrderBy(component=>NumericSuffix(component.Reference)).ToArray();
+        for(var index=0;index<opAmps.Length;index++)
+        {
+            var item=new PlacedComponent(opAmps[index],new SchematicPoint(730+index*330,520),ComponentOrientation.Right);
+            placed.Add(opAmps[index].Reference,item);document.AddPlacedComponent(item);
+        }
+        foreach(var net in graph.Nets)
+        {
+            var anchors=net.Pins.Where(pin=>placed.ContainsKey(pin.ComponentReference))
+                .Select(pin=>SchematicGeometry.GetWorldPin(placed[pin.ComponentReference],pin.Name)).ToArray();
+            if(anchors.Length==0)continue;
+            if(IsNamedExternal(net.Name)||anchors.Length==1)
+            {
+                foreach(var anchor in anchors)
+                {
+                    var end=new SchematicPoint(anchor.X+(anchor.X<650?-55:55),anchor.Y);
+                    document.AddWire(new(net.Name,[anchor,end]));document.AddNetLabel(new(net.Name,net.Name,end));
+                }
+                continue;
+            }
+            if(anchors.Length==2)
+            {
+                var middleX=(anchors[0].X+anchors[1].X)/2;
+                document.AddWire(new(net.Name,[anchors[0],new SchematicPoint(middleX,anchors[0].Y),new SchematicPoint(middleX,anchors[1].Y),anchors[1]]));
+                continue;
+            }
+            var busX=anchors.Max(point=>point.X)+45;
+            document.AddWire(new(net.Name,[new SchematicPoint(busX,anchors.Min(point=>point.Y)),new SchematicPoint(busX,anchors.Max(point=>point.Y))]));
+            foreach(var anchor in anchors)
+            {
+                document.AddWire(new(net.Name,[anchor,new SchematicPoint(busX,anchor.Y)]));
+                document.AddJunction(new(net.Name,new SchematicPoint(busX,anchor.Y)));
+            }
+        }
+        return document;
+    }
+
+    private static bool IsNamedExternal(string name)=>name is "VIN" or "VOUT" or "VCC" or "VEE" or "GND" or "VREF" or "VREF_HIGH" or "VREF_LOW";
 
     private static bool IsOutputNet(string name) => name is "VOUT" or "STAGE_1_OUT";
     private static int NumericSuffix(string reference) => int.TryParse(new string(reference.SkipWhile(character => !char.IsDigit(character)).ToArray()), out var value) ? value : int.MaxValue;

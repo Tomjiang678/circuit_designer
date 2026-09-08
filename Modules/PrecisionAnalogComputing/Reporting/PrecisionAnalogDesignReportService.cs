@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Reporting;
@@ -32,7 +33,9 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
         html.Append("</tbody></table><h2>3. Actual Verification</h2><table><thead><tr><th>Metric</th><th>Target</th><th>Actual</th><th>Error</th><th>Tolerance</th><th>Result</th></tr></thead><tbody>");
         foreach (var metric in result.VerificationMetrics) html.Append("<tr><td>").Append(E(metric.Name)).Append("</td><td class=\"num\">").Append(N(metric.Target)).Append("</td><td class=\"num\">").Append(N(metric.Actual))
             .Append("</td><td class=\"num\">").Append(N(metric.Error)).Append("</td><td class=\"num\">").Append(N(metric.Tolerance)).Append("</td><td class=\"").Append(metric.Pass ? "pass\">PASS" : "fail\">FAIL").Append("</td></tr>");
-        html.Append("</tbody></table><h2>4. JSON Snapshot</h2><details><summary>Show JSON</summary><pre>").Append(E(ExportJson(result))).Append("</pre></details></body></html>");
+        html.Append("</tbody></table>");
+        foreach(var warning in result.Warnings)html.Append("<p class=\"warning\">").Append(E(warning)).Append("</p>");
+        html.Append("<h2>4. JSON Snapshot</h2><details><summary>Show JSON</summary><pre>").Append(E(ExportJson(result))).Append("</pre></details></body></html>");
         return html.ToString();
     }
 
@@ -46,6 +49,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
             Design = new { result.Request.Operation, result.TargetRelation, result.TopologyName },
             Supply = new { VccVoltage = result.RequiredVccVoltage, GroundVoltage = 0d, VeeVoltage = result.RequiredVeeVoltage, ReferencePolicy = "Derived from VCC/GND/VEE; no independent VREF input." },
             Capability = new { result.Capability.Level, result.Capability.IsSupported, result.Capability.ReasonCode, result.Capability.Message, result.Capability.SuggestedAlternative },
+            OperationSpecification = result.Request,
             Inputs = result.Request.Inputs,
             ComponentConstraints = result.Request.Components,
             Components = result.Components,
@@ -58,7 +62,11 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
                 Nets = result.CircuitGraph.Nets.Select(net => new { net.Name, Pins = net.Pins.Select(pin => pin.Id) })
             }
         };
-        return JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+        });
     }
 
     public void SaveHtml(AnalogComputeDesignResult result, string fileName) => Save(fileName, ExportHtml(result));

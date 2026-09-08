@@ -115,6 +115,8 @@ public sealed class AffineTransferPlotControl : Control
         DrawRail(e.Graphics, lowerLimit, "VEE limit", bounds, minY, maxY);
         DrawRail(e.Graphics, upperLimit, "VCC limit", bounds, minY, maxY);
         DrawCurve(e.Graphics, points.Select(point => (point.Input, point.Target)), bounds, minX, maxX, minY, maxY, Color.Gray, DashStyle.Dash);
+        if(points.Any(point=>point.Theoretical.HasValue))
+            DrawCurve(e.Graphics, points.Select(point => (point.Input, point.Theoretical ?? point.Target)), bounds, minX, maxX, minY, maxY, Color.DarkOrange, DashStyle.Dot);
         DrawCurve(e.Graphics, points.Select(point => (point.Input, point.Actual)), bounds, minX, maxX, minY, maxY, Color.Navy, DashStyle.Solid);
         using (var limitedBrush = new SolidBrush(Color.Firebrick))
             foreach (var point in points.Where(point => point.IsSupplyLimited))
@@ -128,7 +130,8 @@ public sealed class AffineTransferPlotControl : Control
         e.Graphics.DrawString($"{sweepInput} (V)", Font, Brushes.Black, bounds.Left + bounds.Width / 2 - 20, bounds.Bottom + 32);
         var state = e.Graphics.Save(); e.Graphics.TranslateTransform(18, bounds.Top + bounds.Height / 2 + 22); e.Graphics.RotateTransform(-90); e.Graphics.DrawString("Uo (V)", Font, Brushes.Black, 0, 0); e.Graphics.Restore(state);
         using var targetPen = new Pen(Color.Gray, 2) { DashStyle = DashStyle.Dash }; using var actualPen = new Pen(Color.Navy, 2);
-        e.Graphics.DrawLine(targetPen, bounds.Right - 180, 22, bounds.Right - 150, 22); e.Graphics.DrawString("Target", Font, Brushes.Gray, bounds.Right - 145, 14);
+        e.Graphics.DrawLine(targetPen, bounds.Right - 280, 22, bounds.Right - 250, 22); e.Graphics.DrawString("Target", Font, Brushes.Gray, bounds.Right - 245, 14);
+        if(points.Any(point=>point.Theoretical.HasValue)){using var theoryPen=new Pen(Color.DarkOrange,2){DashStyle=DashStyle.Dot};e.Graphics.DrawLine(theoryPen,bounds.Right-185,22,bounds.Right-155,22);e.Graphics.DrawString("Theoretical",Font,Brushes.DarkOrange,bounds.Right-150,14);}
         e.Graphics.DrawLine(actualPen, bounds.Right - 90, 22, bounds.Right - 60, 22); e.Graphics.DrawString("Actual", Font, Brushes.Navy, bounds.Right - 55, 14);
         DrawCursor(e.Graphics, points);
     }
@@ -145,7 +148,8 @@ public sealed class AffineTransferPlotControl : Control
         graphics.DrawLine(cursorPen, x, plotBounds.Top, x, plotBounds.Bottom);
         using var targetBrush = new SolidBrush(Color.Gray); using var actualBrush = new SolidBrush(point.IsSupplyLimited ? Color.Firebrick : Color.Navy);
         graphics.FillEllipse(targetBrush, x - 4, targetY - 4, 8, 8); graphics.FillEllipse(actualBrush, x - 4, actualY - 4, 8, 8);
-        var text = $"{sweepInput} = {point.Input:G8} V\nTarget Uo = {point.Target:G8} V\nActual Uo = {point.Actual:G8} V\nError = {point.Actual - point.Target:G6} V{(pinnedIndex is null ? "" : "  [pinned]")}";
+        var theoryText=point.Theoretical.HasValue?$"\nTheoretical Uo = {point.Theoretical.Value:G8} V":"";
+        var text = $"{sweepInput} = {point.Input:G8} V\nTarget Uo = {point.Target:G8} V{theoryText}\nActual Uo = {point.Actual:G8} V\nError = {point.Actual - point.Target:G6} V{(pinnedIndex is null ? "" : "  [pinned]")}";
         var size = graphics.MeasureString(text, Font); var boxX = x + 12;
         if (boxX + size.Width + 14 > ClientSize.Width) boxX = x - size.Width - 20;
         var boxY = Math.Max(plotBounds.Top + 4, Math.Min(actualY - size.Height - 12, plotBounds.Bottom - size.Height - 12));

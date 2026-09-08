@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using CircuitModuleDesigner.Controls;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Engines;
@@ -29,12 +31,16 @@ public sealed class FilterWizardControl : UserControl
     private bool updatingNavigation;
     private bool designInProgress;
     private int stateRevision;
+    private readonly Dictionary<int, FilterStepBase> stepCache = [];
+    private FilterDesignOutputControl? outputControl;
 
     public FilterDesignState State => state;
 
     public FilterWizardControl(TreeView navigation)
     {
         this.navigation = navigation;
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
         Dock = DockStyle.Fill;
         BackColor = SystemColors.Control;
         BuildLayout();
@@ -128,25 +134,20 @@ public sealed class FilterWizardControl : UserControl
         stepTitle.Text = $"Filter Design Wizard - {titles[currentIndex]}";
 
         pageHost.SuspendLayout();
-        pageHost.Controls.Clear();
+        foreach (Control control in pageHost.Controls) control.Visible = false;
         if (currentIndex == titles.Length - 1)
         {
-            pageHost.Controls.Add(new FilterDesignOutputControl(lastResult!));
+            outputControl ??= new FilterDesignOutputControl(lastResult!);
+            if (outputControl.Parent is null) pageHost.Controls.Add(outputControl);
+            outputControl.Visible = true;
         }
         else
         {
-            var step = CreateStep(currentIndex);
-            step.StateChanged += (_, _) =>
-            {
-                stateRevision++;
-                if (lastResult != null) resultIsStale = true;
-                if (currentIndex == 0) ShowStep(0); else UpdateNavigationState();
-            };
-            if (step is FilterSummaryControl summary)
-                summary.DesignRequested += (_, _) => ExecuteDesign();
-            pageHost.Controls.Add(step);
+            var step = GetOrCreateStep(currentIndex);
+            step.Visible = true;
         }
-        pageHost.ResumeLayout(true);
+        pageHost.ResumeLayout(false);
+        pageHost.PerformLayout();
 
         backButton.Enabled = currentIndex > 0;
         nextButton.Enabled = currentIndex < titles.Length - 2 || currentIndex == titles.Length - 2 && lastResult != null;
@@ -165,17 +166,46 @@ public sealed class FilterWizardControl : UserControl
         _ => new FilterSummaryControl(state)
     };
 
+    private FilterStepBase GetOrCreateStep(int stepIndex)
+    {
+        if (stepCache.TryGetValue(stepIndex, out var existing)) return existing;
+        var step = CreateStep(stepIndex);
+        step.StateChanged += (_, _) =>
+        {
+            stateRevision++;
+            if (lastResult is not null) resultIsStale = true;
+            InvalidateStepsAfter(currentIndex);
+            if (currentIndex == 0) ShowStep(0); else UpdateNavigationState();
+        };
+        if (step is FilterSummaryControl summary) summary.DesignRequested += (_, _) => ExecuteDesign();
+        stepCache.Add(stepIndex, step); pageHost.Controls.Add(step); return step;
+    }
+
+    private void InvalidateStepsAfter(int stepIndex)
+    {
+        foreach (var key in stepCache.Keys.Where(key => key > stepIndex).ToArray())
+        {
+            var obsolete = stepCache[key];
+            stepCache.Remove(key); pageHost.Controls.Remove(obsolete); obsolete.Dispose();
+        }
+    }
+
     private async void ExecuteDesign()
     {
         if (designInProgress) return;
+        var totalWatch = Stopwatch.StartNew();
         designInProgress = true;
         var revision = stateRevision;
+        var buildWatch = Stopwatch.StartNew();
         var request = FilterDesignRequest.FromState(state);
+        buildWatch.Stop();
         UseWaitCursor = true;
         nextButton.Enabled = false;
         try
         {
+            var coreWatch = Stopwatch.StartNew();
             var result = await Task.Run(() => new FilterDesignEngine().Design(request));
+            coreWatch.Stop();
             if (IsDisposed) return;
             if (revision != stateRevision)
             {
@@ -197,7 +227,11 @@ public sealed class FilterWizardControl : UserControl
             }
             lastResult = result;
             resultIsStale = false;
+            var renderWatch = Stopwatch.StartNew();
+            outputControl?.UpdateResult(result);
             ShowStep(titles.Length - 1);
+            renderWatch.Stop(); totalWatch.Stop();
+            UiPerformanceTrace.Design("Filter Design", buildWatch.Elapsed, coreWatch.Elapsed, renderWatch.Elapsed, totalWatch.Elapsed);
         }
         catch (Exception exception)
         {

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text;
+using CircuitModuleDesigner.Controls;
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Reports;
@@ -9,50 +11,92 @@ namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
 
 public sealed class FilterDesignOutputControl : UserControl
 {
+    private readonly TabControl tabs = new() { Dock = DockStyle.Fill, Padding = new Point(12, 4) };
+    private readonly TabPage schematicPage = new("Schematic") { BackColor = SystemColors.Window };
+    private readonly TabPage analysisPage = new("Analysis") { BackColor = SystemColors.Window };
+    private readonly TabPage calculationsPage = new("Calculations") { BackColor = SystemColors.Window };
+    private readonly TabPage spicePage = new("SPICE Netlist") { BackColor = SystemColors.Window };
+    private readonly TabPage reportPage = new("Design Report") { BackColor = SystemColors.Window };
+    private readonly FilterSchematicControl schematic = new() { Dock = DockStyle.Fill };
+    private readonly Panel analysisHost = new() { Dock = DockStyle.Fill, BackColor = SystemColors.Window };
+    private readonly RichTextBox calculations = new() { Dock = DockStyle.Fill, ReadOnly = true, Font = new Font("Consolas", 9F), BackColor = SystemColors.Window };
+    private readonly RichTextBox netlist = new() { Dock = DockStyle.Fill, ReadOnly = true, WordWrap = false, Font = new Font("Consolas", 9F), BackColor = SystemColors.Window };
+    private readonly Panel reportHost = new() { Dock = DockStyle.Fill, BackColor = SystemColors.Window };
+    private FilterDesignResult currentResult;
+    private WebBrowser? reportBrowser;
+    private bool reportDirty = true;
+
     public FilterDesignOutputControl(FilterDesignResult result)
     {
+        currentResult = result;
         Dock = DockStyle.Fill;
-        var tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(12, 4) };
-        var schematicPage = new TabPage("Schematic") { BackColor = SystemColors.Window };
-        schematicPage.Controls.Add(new FilterSchematicControl { Dock = DockStyle.Fill, Document = result.SchematicDocument });
-        tabs.TabPages.Add(schematicPage);
-        tabs.TabPages.Add(CreateAnalysisPage(result));
-        var calculations = new TabPage("Calculations") { BackColor = SystemColors.Window };
-        calculations.Controls.Add(new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, Font = new Font("Consolas", 9F), BackColor = SystemColors.Window, Text = BuildCalculations(result) });
-        tabs.TabPages.Add(calculations);
-        tabs.TabPages.Add(CreateSpicePage(result));
-        tabs.TabPages.Add(CreateReportPage(result));
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        schematicPage.Controls.Add(schematic); analysisPage.Controls.Add(analysisHost); calculationsPage.Controls.Add(calculations);
+        BuildSpicePage(); BuildReportPage();
+        tabs.TabPages.AddRange([schematicPage, analysisPage, calculationsPage, spicePage, reportPage]);
+        tabs.SelectedIndexChanged += (_, _) => EnsureReportPreview();
         Controls.Add(tabs);
+        UpdateResult(result);
     }
 
-    private static TabPage CreateReportPage(FilterDesignResult result)
+    public void UpdateResult(FilterDesignResult result)
     {
-        var page = new TabPage("Design Report") { BackColor = SystemColors.Window };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(10) };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
-        var html = new Button { Text = "Export HTML Report...", AutoSize = true, MinimumSize = new Size(145, 28) };
-        var json = new Button { Text = "Export JSON Snapshot...", AutoSize = true, MinimumSize = new Size(155, 28) };
-        var service = new FilterDesignReportService();
-        var report = service.Build(result);
-        html.Click += (_, _) => ExportReport(page, result, service, false);
-        json.Click += (_, _) => ExportReport(page, result, service, true);
-        buttons.Controls.Add(html);
-        buttons.Controls.Add(json);
-        var preview = new WebBrowser
+        currentResult = result;
+        SuspendLayout(); tabs.SuspendLayout(); analysisHost.SuspendLayout();
+        try
         {
-            Dock = DockStyle.Fill,
-            AllowWebBrowserDrop = false,
-            IsWebBrowserContextMenuEnabled = true,
-            ScriptErrorsSuppressed = true,
-            WebBrowserShortcutsEnabled = true,
-            DocumentText = new HtmlFilterReportExporter().Export(report)
-        };
-        layout.Controls.Add(buttons, 0, 0);
-        layout.Controls.Add(preview, 0, 1);
-        page.Controls.Add(layout);
-        return page;
+            var stageWatch = Stopwatch.StartNew();
+            schematic.Document = result.SchematicDocument;
+            stageWatch.Stop(); UiPerformanceTrace.Stage("Filter", "RenderSchematic", stageWatch.Elapsed); stageWatch.Restart();
+            UiControlHost.ReplaceSingleChild(analysisHost, CreateAnalysisControl(result));
+            stageWatch.Stop(); UiPerformanceTrace.Stage("Filter", "RenderAnalysis", stageWatch.Elapsed); stageWatch.Restart();
+            calculations.Text = BuildCalculations(result);
+            stageWatch.Stop(); UiPerformanceTrace.Stage("Filter", "RenderCalculations", stageWatch.Elapsed); stageWatch.Restart();
+            netlist.Text = result.SpiceNetlist;
+            stageWatch.Stop(); UiPerformanceTrace.Stage("Filter", "RenderNetlist", stageWatch.Elapsed);
+            reportDirty = true;
+        }
+        finally { analysisHost.ResumeLayout(false); tabs.ResumeLayout(false); ResumeLayout(false); PerformLayout(); }
+        EnsureReportPreview();
+    }
+
+    private void BuildSpicePage()
+    {
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty }; layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(5, 4, 5, 4) };
+        var save = new Button { Text = "Save CIR...", AutoSize = true, MinimumSize = new Size(95, 26) }; var copy = new Button { Text = "Copy Netlist", AutoSize = true, MinimumSize = new Size(100, 26) };
+        save.Click += (_, _) => SaveCurrentCir(); copy.Click += (_, _) => { if (netlist.TextLength > 0) Clipboard.SetText(netlist.Text); }; toolbar.Controls.Add(save); toolbar.Controls.Add(copy);
+        toolbar.Controls.Add(new Label { AutoSize = true, Margin = new Padding(12, 6, 0, 0), ForeColor = Color.DimGray, Text = "Multisim: File > Open > select the exported .cir file." });
+        layout.Controls.Add(toolbar, 0, 0); layout.Controls.Add(netlist, 0, 1); spicePage.Controls.Add(layout);
+    }
+
+    private void BuildReportPage()
+    {
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(10) }; layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false }; var html = new Button { Text = "Export HTML Report...", AutoSize = true, MinimumSize = new Size(145, 28) }; var json = new Button { Text = "Export JSON Snapshot...", AutoSize = true, MinimumSize = new Size(155, 28) };
+        html.Click += (_, _) => ExportReport(this, currentResult, new FilterDesignReportService(), false); json.Click += (_, _) => ExportReport(this, currentResult, new FilterDesignReportService(), true); buttons.Controls.Add(html); buttons.Controls.Add(json);
+        layout.Controls.Add(buttons, 0, 0); layout.Controls.Add(reportHost, 0, 1); reportPage.Controls.Add(layout);
+    }
+
+    private void SaveCurrentCir()
+    {
+        using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(currentResult) };
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+        try { new FilterSpiceExportService().Save(currentResult, dialog.FileName); } catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private void EnsureReportPreview()
+    {
+        if (tabs.SelectedTab != reportPage || !reportDirty) return;
+        reportHost.SuspendLayout();
+        try
+        {
+            reportBrowser ??= new WebBrowser { Dock = DockStyle.Fill, AllowWebBrowserDrop = false, IsWebBrowserContextMenuEnabled = true, ScriptErrorsSuppressed = true, WebBrowserShortcutsEnabled = true };
+            if (reportBrowser.Parent is null) reportHost.Controls.Add(reportBrowser);
+            var watch = Stopwatch.StartNew(); var report = new FilterDesignReportService().Build(currentResult); reportBrowser.DocumentText = new HtmlFilterReportExporter().Export(report); watch.Stop();
+            UiPerformanceTrace.Stage("Filter", "RenderReport", watch.Elapsed); reportDirty = false;
+        }
+        finally { reportHost.ResumeLayout(false); }
     }
 
     private static void ExportReport(Control owner, FilterDesignResult result, FilterDesignReportService service, bool json)
@@ -85,9 +129,8 @@ public sealed class FilterDesignOutputControl : UserControl
         return request == null ? $"filter-design.{extension}" : $"{request.Mode}-{request.ResponseType}-{request.Approximation}-{request.Implementation}.{extension}";
     }
 
-    private static TabPage CreateAnalysisPage(FilterDesignResult result)
+    private static Control CreateAnalysisControl(FilterDesignResult result)
     {
-        var page = new TabPage("Analysis") { BackColor = SystemColors.Window };
         var plot = new FilterAnalysisPlotControl
         {
             Dock = DockStyle.Fill,
@@ -95,10 +138,7 @@ public sealed class FilterDesignOutputControl : UserControl
             Request = result.DesignRequest
         };
         if (result.PassiveAnalysis == null)
-        {
-            page.Controls.Add(plot);
-            return page;
-        }
+            return plot;
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -123,43 +163,13 @@ public sealed class FilterDesignOutputControl : UserControl
         toolbar.Controls.Add(selector);
         layout.Controls.Add(toolbar, 0, 0);
         layout.Controls.Add(plot, 0, 1);
-        page.Controls.Add(layout);
-        return page;
-    }
-
-    private static TabPage CreateSpicePage(FilterDesignResult result)
-    {
-        var page = new TabPage("SPICE Netlist") { BackColor = SystemColors.Window };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(5, 4, 5, 4) };
-        var save = new Button { Text = "Save CIR...", AutoSize = true, MinimumSize = new Size(95, 26) };
-        var copy = new Button { Text = "Copy Netlist", AutoSize = true, MinimumSize = new Size(100, 26) };
-        var note = new Label { AutoSize = true, Margin = new Padding(12, 6, 0, 0), ForeColor = Color.DimGray, Text = "Multisim: File > Open > select the exported .cir file. AC directives may be ignored during schematic import." };
-        var netlist = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, WordWrap = false, Font = new Font("Consolas", 9F), BackColor = SystemColors.Window, Text = result.SpiceNetlist };
-        save.Click += (_, _) =>
-        {
-            using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(result) };
-            if (dialog.ShowDialog(page.FindForm()) != DialogResult.OK) return;
-            try { new FilterSpiceExportService().Save(result, dialog.FileName); }
-            catch (Exception exception) { MessageBox.Show(page, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        };
-        copy.Click += (_, _) => { if (netlist.TextLength > 0) Clipboard.SetText(netlist.Text); };
-        toolbar.Controls.Add(save); toolbar.Controls.Add(copy); toolbar.Controls.Add(note);
-        layout.Controls.Add(toolbar, 0, 0); layout.Controls.Add(netlist, 0, 1); page.Controls.Add(layout); return page;
+        return layout;
     }
 
     private static string BuildCirFileName(FilterDesignResult result)
     {
         var request = result.DesignRequest;
         return request == null ? "filter-design.cir" : $"{request.Mode}-{request.ResponseType}-{request.Implementation}.cir";
-    }
-
-    private static TabPage CreateMessagePage(string title, string text)
-    {
-        var page = new TabPage(title) { BackColor = SystemColors.Window };
-        page.Controls.Add(new Label { Dock = DockStyle.Fill, Text = text, TextAlign = ContentAlignment.MiddleCenter });
-        return page;
     }
 
     private static string BuildCalculations(FilterDesignResult result)
@@ -211,9 +221,9 @@ public sealed class FilterDesignOutputControl : UserControl
             text.AppendLine($"  Expected polarity: {gain.ExpectedOverallPolarity}; reference phase: {gain.ReferencePhaseDegrees:0.###} deg");
         }
         text.AppendLine(); text.AppendLine("Prototype poles:"); foreach (var pole in result.PrototypePoles) text.AppendLine($"  {pole.Real,12:0.######} {pole.Imaginary,12:+0.######;-0.######}j");
-        if (result.PrototypeElementValues.Count > 0) { text.AppendLine(); text.AppendLine("Normalized ladder g-values:"); for (var i=0;i<result.PrototypeElementValues.Count;i++) text.AppendLine($"  g{i} = {result.PrototypeElementValues[i]:0.######}"); }
+        if (result.PrototypeElementValues.Count > 0) { text.AppendLine(); text.AppendLine("Normalized ladder g-values:"); for (var i = 0; i < result.PrototypeElementValues.Count; i++) text.AppendLine($"  g{i} = {result.PrototypeElementValues[i]:0.######}"); }
         text.AppendLine(); text.AppendLine("Sections:"); foreach (var section in result.Sections) { text.AppendLine($"  Section {section.Target.Index}: {section.Target.Order} {section.Target.ResponseType}, target f0={section.Target.PoleFrequencyHz:0.###} Hz, Q={section.Target.Q:0.######}, target topology gain={section.Target.SectionGain:0.######}"); text.AppendLine($"    actual f0={section.ActualPoleFrequencyHz:0.###} Hz, Q={section.ActualQ:0.######}, intrinsic gain={section.IntrinsicTopologyGain:0.######}, interstage scale={section.InterstageScale:0.######}, polarity={(section.PolaritySign < 0 ? "inverting" : "non-inverting")}, errors f={section.FrequencyError:P3}, Q={section.QError:P3}, gain={section.GainError:P3}"); foreach (var value in section.Components) text.AppendLine($"    {value.Role}: theoretical={Format(value.TheoreticalValue, value.ComponentType)}, selected={Format(value.SelectedValue, value.ComponentType)}, error={value.RelativeError:P3}"); }
-        if(result.AdditionalNetworkComponents.Count>0){text.AppendLine();text.AppendLine("Network components:");foreach(var value in result.AdditionalNetworkComponents)text.AppendLine($"  {value.Role}: theoretical={Format(value.TheoreticalValue,value.ComponentType)}, selected={Format(value.SelectedValue,value.ComponentType)}, error={value.RelativeError:P3}");}
+        if (result.AdditionalNetworkComponents.Count > 0) { text.AppendLine(); text.AppendLine("Network components:"); foreach (var value in result.AdditionalNetworkComponents) text.AppendLine($"  {value.Role}: theoretical={Format(value.TheoreticalValue, value.ComponentType)}, selected={Format(value.SelectedValue, value.ComponentType)}, error={value.RelativeError:P3}"); }
         if (result.CircuitGraph != null) { text.AppendLine(); text.AppendLine($"CircuitGraph: {result.CircuitGraph.Components.Count} components, {result.CircuitGraph.Nets.Count} nets"); foreach (var component in result.CircuitGraph.Components) { text.AppendLine($"  {component.Reference} {component.Type}"); foreach (var parameter in component.Parameters.Values) text.AppendLine($"    {parameter.Key} = {parameter.Value:G9}"); } }
         foreach (var warning in result.Warnings) text.AppendLine($"WARNING: {warning}"); return text.ToString();
     }

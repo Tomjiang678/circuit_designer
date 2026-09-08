@@ -24,6 +24,16 @@ public sealed class PrecisionAnalogDesignReportBuilder
         text.AppendLine("ACTUAL VERIFICATION");
         foreach (var metric in result.VerificationMetrics)
             text.AppendLine($"{metric.Name,-28} target={metric.Target:G9} actual={metric.Actual:G9} error={metric.Error:G6} tolerance={metric.Tolerance:G6} {(metric.Pass ? "PASS" : "FAIL")}");
+        text.AppendLine();
+        text.AppendLine("DESIGN EQUATIONS");
+        foreach(var calculation in result.Calculations)
+            text.AppendLine($"{calculation.Title}: {calculation.Expression} => {calculation.Result}");
+        if(result.Warnings.Count>0)
+        {
+            text.AppendLine();
+            text.AppendLine("ENGINEERING NOTES");
+            foreach(var warning in result.Warnings)text.AppendLine("- "+warning);
+        }
         return text.ToString();
     }
 }

@@ -15,6 +15,8 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
         Text = "Circuit Module Designer";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1280, 800);
@@ -96,15 +98,20 @@ public sealed class MainForm : Form
         var isPrecisionAnalog = selection?.StartsWith("Precision Analog Computing", StringComparison.OrdinalIgnoreCase) == true;
         navigationHint?.Visible = !isFilter && !isPrecisionAnalog;
         if (designHost == null) return;
-        RemoveCurrentDesignControl();
-        if (isFilter) designHost.Controls.Add(new FilterWizardControl(navigationTree));
-        else if (isPrecisionAnalog)
+        designHost.SuspendLayout();
+        try
         {
-            precisionAnalogWizard ??= new PrecisionAnalogWizardControl();
-            precisionAnalogWizard.AttachNavigation(navigationTree);
-            designHost.Controls.Add(precisionAnalogWizard);
+            RemoveCurrentDesignControl();
+            if (isFilter) designHost.Controls.Add(new FilterWizardControl(navigationTree));
+            else if (isPrecisionAnalog)
+            {
+                precisionAnalogWizard ??= new PrecisionAnalogWizardControl();
+                precisionAnalogWizard.AttachNavigation(navigationTree);
+                designHost.Controls.Add(precisionAnalogWizard);
+            }
+            else { navigationTree.Nodes.Clear(); designHost.Controls.Add(CreateDefaultDesignArea()); }
         }
-        else { navigationTree.Nodes.Clear(); designHost.Controls.Add(CreateDefaultDesignArea()); }
+        finally { designHost.ResumeLayout(false); designHost.PerformLayout(); }
     }
 
     private void PreloadPrecisionAnalogOnIdle(object? sender, EventArgs e)
