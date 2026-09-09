@@ -1,0 +1,9 @@
+Circuit Module Designer - RC low-pass AC example
+* Generated text-netlist example; ground is node 0.
+V_INPUT VIN 0 DC 0 AC 1
+R1 VIN VOUT 1e+4
+C1 VOUT 0 1e-8
+R_LOAD VOUT 0 1e+6
+.AC DEC 40 1e+1 1e+6
+.PRINT AC VM(VOUT) VP(VOUT)
+.END

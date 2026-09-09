@@ -1,0 +1,11 @@
+Circuit Module Designer - explicit op-amp subcircuit example
+* X pin order exactly matches the .SUBCKT declaration below.
+V_INPUT VIN 0 DC 1e+0
+V_VCC VCC 0 DC 1.5e+1
+V_VEE VEE 0 DC -1.5e+1
+X_U1 VIN VOUT VCC VEE VOUT CMD_OPAMP
+.SUBCKT CMD_OPAMP INP INM VP VN OUT
+EGAIN OUT 0 INP INM 1e+6
+.ENDS CMD_OPAMP
+.OP
+.END

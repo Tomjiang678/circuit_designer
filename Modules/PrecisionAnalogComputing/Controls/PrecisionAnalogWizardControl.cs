@@ -426,9 +426,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl
                 calculationsView.Text = string.Join("\r\n", result.Calculations.Select(record => $"{record.Title}\r\n  {record.Expression}\r\n  => {record.Result}{(record.Note is null ? "" : "\r\n  " + record.Note)}")) + "\r\n\r\nACTUAL VERIFICATION\r\n" + string.Join("\r\n", result.VerificationMetrics.Select(metric => $"{metric.Name}: target {metric.Target:G9}, actual {metric.Actual:G9}, error {metric.Error:G6}, {(metric.Pass ? "PASS" : "FAIL")}"));
                 stageWatch.Stop(); UiPerformanceTrace.Stage("Precision Analog", "RenderCalculations", stageWatch.Elapsed);
                 stageWatch.Restart();
-                spiceView.Text = result.Request.Operation is AnalogComputeOperationType.GeneralLinearCombination or AnalogComputeOperationType.VoltageRangeMapper
-                    ? new PrecisionAnalogSpiceExportService().Export(result)
-                    : "* SPICE export is not available for this nonlinear or dynamic operation.";
+                spiceView.Text = new PrecisionAnalogSpiceExportService().Export(result);
                 stageWatch.Stop(); UiPerformanceTrace.Stage("Precision Analog", "RenderNetlist", stageWatch.Elapsed);
             }
             reportNeedsRefresh = true;
@@ -619,7 +617,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private void ExportCurrentCir()
     {
         if (renderedResult is not { Success: true } result) return;
-        using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = $"precision-{result.Request.Operation}.cir" };
+        using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|SPICE Netlist (*.net)|*.net|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = $"precision-{result.Request.Operation}.cir" };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
         try { new PrecisionAnalogSpiceExportService().Save(result, dialog.FileName); }
         catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }

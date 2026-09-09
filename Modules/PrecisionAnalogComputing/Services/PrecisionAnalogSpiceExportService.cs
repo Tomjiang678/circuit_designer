@@ -1,55 +1,84 @@
-using System.Globalization;
 using System.Text;
 using CircuitModuleDesigner.Core.Circuit;
+using CircuitModuleDesigner.Core.Circuit.Spice;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Services;
 
+/// <summary>Adds Precision Analog stimuli/model metadata; all CircuitGraph component serialization is shared.</summary>
 public sealed class PrecisionAnalogSpiceExportService
 {
+    private readonly ICircuitSpiceExporter exporter;
+    public PrecisionAnalogSpiceExportService(ICircuitSpiceExporter? exporter = null) => this.exporter = exporter ?? new LtspiceNetlistExporter();
+
     public string Export(AnalogComputeDesignResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!result.Success) throw new InvalidOperationException("Only a successful verified design can be exported.");
         var graph = result.CircuitGraph ?? throw new InvalidOperationException("The design result has no CircuitGraph.");
-        var text = new StringBuilder();
-        text.AppendLine($"Circuit Module Designer - Precision Analog {result.Request.Operation}");
-        text.AppendLine("* Multisim-compatible Berkeley SPICE netlist");
-        text.AppendLine("* Abstract op-amps use finite-gain VCVS models; VCC/VEE are explicit sources.");
-        text.AppendLine($"V_VCC VCC 0 DC {N(result.Request.SupplyVccVoltage)}");
-        text.AppendLine($"V_VEE VEE 0 DC {N(result.Request.SupplyVeeVoltage)}");
-        foreach (var input in result.Request.Inputs)
-            text.AppendLine($"V_{Safe(input.Name)} {Safe(input.Name)} 0 DC 0");
-        text.AppendLine();
-        foreach (var component in graph.Components.OrderBy(component => component.Type).ThenBy(component => component.Reference))
+        var request = result.Request;
+        var graphNets = graph.Nets.Select(net => net.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var sources = new List<SpiceIndependentSource>
         {
-            if (component.Type == ComponentType.Resistor)
-            {
-                text.AppendLine($"{component.Reference} {Net(graph, component, "1")} {Net(graph, component, "2")} {N(component.Parameters.GetRequiredValue(ComponentParameterNames.ResistanceOhm))}");
-                continue;
-            }
-            if (component.Type == ComponentType.OpAmp)
-            {
-                text.AppendLine($"E_{component.Reference} {Net(graph, component, "OUT")} 0 {Net(graph, component, "IN+")} {Net(graph, component, "IN-")} 1e9");
-                continue;
-            }
-            throw new NotSupportedException($"Precision Analog CIR export does not yet map {component.Type}.");
+            new("V_VCC", SpiceSourceKind.Voltage, "VCC", "0", request.SupplyVccVoltage),
+            new("V_VEE", SpiceSourceKind.Voltage, "VEE", "0", request.SupplyVeeVoltage)
+        };
+
+        var inputSourceNames = new List<string>();
+        for (var index = 0; index < request.Inputs.Count; index++)
+        {
+            var input = request.Inputs[index];
+            var node = graphNets.Contains(input.Name) ? input.Name : index == 0 && graphNets.Contains("VIN") ? "VIN" : input.Name;
+            var sourceName = "V_" + input.Name;
+            inputSourceNames.Add(sourceName);
+            var ac = IsDynamic(request.Operation) && index == 0 ? 1d : (double?)null;
+            sources.Add(new(sourceName, SpiceSourceKind.Voltage, node, "0", input.NominalVoltage, ac));
         }
-        text.AppendLine("R_OUTPUT_LOAD VOUT 0 1e9");
-        var swept = result.Request.Inputs[0].Name;
-        text.AppendLine(); text.AppendLine($".DC V_{Safe(swept)} -1 1 0.02");
-        text.AppendLine(".PRINT DC V(VOUT)"); text.AppendLine(".END");
-        return text.ToString();
+
+        var analyses = new List<SpiceAnalysisDirective>();
+        if (IsDynamic(request.Operation))
+        {
+            var start = Math.Max(1e-6, request.LowerCornerHz / 10);
+            var stop = Math.Max(start * 10, request.UpperCornerHz * 10);
+            analyses.Add(new SpiceAcAnalysis(SpiceSweepScale.Decade, 60, start, stop));
+        }
+        else
+        {
+            var (start, stop) = SweepRange(request);
+            analyses.Add(new SpiceDcAnalysis(inputSourceNames[0], start, stop, (stop - start) / 100));
+        }
+
+        var hasDiodes = graph.Components.Any(component => component.Type == ComponentType.Diode);
+        var options = new CircuitSpiceExportOptions($"Circuit Module Designer - Precision Analog {request.Operation}")
+        {
+            Dialect = SpiceNetlistDialect.Ltspice,
+            Sources = sources,
+            Analyses = analyses,
+            OutputExpressions = [IsDynamic(request.Operation) ? "VM(VOUT) VP(VOUT)" : "V(VOUT)"],
+            HighImpedanceOutputLoadOhm = 1e9,
+            OpAmpOpenLoopGain = 1e9,
+            DiodeModel = hasDiodes ? new SpiceDiodeModelDefinition("CMD_DIODE", request.Junction.SaturationCurrentAmpere, request.Junction.EmissionCoefficient) : null,
+            TemperatureCelsius = hasDiodes ? request.Junction.TemperatureCelsius : null,
+            AdditionalComments = request.Junction.Behavior == DiodeBehaviorModel.IdealSwitch && hasDiodes
+                ? ["Design verification used ideal-switch diode states; this exported netlist intentionally uses the nominal Shockley model below."]
+                : []
+        };
+        return exporter.Export(graph, options);
     }
 
     public void Save(AnalogComputeDesignResult result, string fileName)
     {
-        if (string.IsNullOrWhiteSpace(fileName)) throw new ArgumentException("A CIR file path is required.", nameof(fileName));
+        if (string.IsNullOrWhiteSpace(fileName)) throw new ArgumentException("A .cir or .net file path is required.", nameof(fileName));
         File.WriteAllText(fileName, Export(result), new UTF8Encoding(false));
     }
 
-    private static string Net(CircuitGraph graph, CircuitComponent component, string pin) =>
-        graph.GetNetForPin(component.Reference, pin)?.Name is { } name ? (name.Equals("GND", StringComparison.OrdinalIgnoreCase) ? "0" : Safe(name)) : throw new InvalidOperationException($"{component.Reference}.{pin} is not connected.");
-    private static string Safe(string value) => new(value.Select(character => char.IsLetterOrDigit(character) || character == '_' ? character : '_').ToArray());
-    private static string N(double value) => value.ToString("0.###############e+0", CultureInfo.InvariantCulture);
+    private static bool IsDynamic(AnalogComputeOperationType operation) => operation is AnalogComputeOperationType.PracticalIntegrator or AnalogComputeOperationType.PracticalDifferentiator;
+
+    private static (double Start, double Stop) SweepRange(AnalogComputeDesignRequest request)
+    {
+        if (request.Operation == AnalogComputeOperationType.VoltageRangeMapper) return (request.InputLowVoltage, request.InputHighVoltage);
+        if (request.Operation == AnalogComputeOperationType.GeneralLinearCombination && request.Inputs.Count > 0)
+            return (request.Inputs[0].MinimumVoltage, request.Inputs[0].MaximumVoltage);
+        return (request.MinimumInputVoltage, request.MaximumInputVoltage);
+    }
 }

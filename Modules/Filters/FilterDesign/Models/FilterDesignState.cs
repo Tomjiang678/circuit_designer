@@ -141,7 +141,7 @@ public sealed class FilterDesignState
 
         var normalized = Implementation is FilterImplementationType.Rc or FilterImplementationType.Lc
                 ? Implementation
-                : FilterImplementationType.Rc;
+                : FilterImplementationType.Lc;
         if (normalized != Implementation) SelectImplementation(normalized);
     }
 

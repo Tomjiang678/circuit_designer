@@ -66,7 +66,7 @@ public sealed class FilterDesignOutputControl : UserControl
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(5, 4, 5, 4) };
         var save = new Button { Text = "Save CIR...", AutoSize = true, MinimumSize = new Size(95, 26) }; var copy = new Button { Text = "Copy Netlist", AutoSize = true, MinimumSize = new Size(100, 26) };
         save.Click += (_, _) => SaveCurrentCir(); copy.Click += (_, _) => { if (netlist.TextLength > 0) Clipboard.SetText(netlist.Text); }; toolbar.Controls.Add(save); toolbar.Controls.Add(copy);
-        toolbar.Controls.Add(new Label { AutoSize = true, Margin = new Padding(12, 6, 0, 0), ForeColor = Color.DimGray, Text = "Multisim: File > Open > select the exported .cir file." });
+        toolbar.Controls.Add(new Label { AutoSize = true, Margin = new Padding(12, 6, 0, 0), ForeColor = Color.DimGray, Text = "Generic SPICE text netlist; usable as LTspice/Multisim .cir or .net." });
         layout.Controls.Add(toolbar, 0, 0); layout.Controls.Add(netlist, 0, 1); spicePage.Controls.Add(layout);
     }
 
@@ -80,7 +80,7 @@ public sealed class FilterDesignOutputControl : UserControl
 
     private void SaveCurrentCir()
     {
-        using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(currentResult) };
+        using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|SPICE Netlist (*.net)|*.net|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(currentResult) };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
         try { new FilterSpiceExportService().Save(currentResult, dialog.FileName); } catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }

@@ -127,6 +127,10 @@ var tests = new (string Name, Action Run)[]
     ,("Designed filter actual analysis", TestDesignedFilterActualAnalysis)
     ,("Passive LC insertion-gain analysis", TestPassiveLcInsertionGainAnalysis)
     ,("Multisim CIR export", TestMultisimCirExport)
+    ,("LTspice common serializer golden syntax", TestLtspiceCommonSerializer)
+    ,("LTspice op-amp subcircuit strategy", TestLtspiceOpAmpSubcircuit)
+    ,("SPICE directive profiles", TestSpiceDirectiveProfiles)
+    ,("SPICE invariant numeric formatting", TestSpiceInvariantFormatting)
     ,("Zero-ohm LC termination is rejected honestly", TestZeroOhmDefaultSource)
     ,("Passive response reference mathematics", TestPassiveResponseReferenceMathematics)
     ,("Passive RC and LC UI defaults", TestPassiveTerminationDefaults)
@@ -161,6 +165,7 @@ var tests = new (string Name, Action Run)[]
     ,("Precision analog interactive multi-input sweep", TestPrecisionAnalogInteractiveSweep)
     ,("Precision analog rail-limited multi-stage sweep", TestPrecisionAnalogRailLimitedSweep)
     ,("Precision analog Multisim CIR export", TestPrecisionAnalogCirExport)
+    ,("Precision analog nonlinear and AC CIR export", TestPrecisionAnalogExtendedCirExport)
     ,("Precision analog range mapper", TestPrecisionAnalogRangeMapper)
     ,("Precision analog supply capability", TestPrecisionAnalogSupplyCapability)
     ,("Precision analog abstract diode model", TestPrecisionAnalogAbstractDiode)
@@ -315,6 +320,33 @@ static void TestPrecisionAnalogCirExport()
     var cir = new PrecisionAnalogSpiceExportService().Export(result);
     foreach (var token in new[] { "V_VCC VCC 0 DC", "V_VEE VEE 0 DC", "V_U1 U1 0 DC", "V_U2 U2 0 DC", "E_U1", ".DC V_U1", ".PRINT DC V(VOUT)", ".END" })
         Require(cir.Contains(token, StringComparison.Ordinal), $"Precision Analog CIR export omitted {token}.");
+}
+
+static void TestPrecisionAnalogExtendedCirExport()
+{
+    var halfWave = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Operation = AnalogComputeOperationType.PrecisionHalfWaveRectifier, GainK = 1,
+        MinimumInputVoltage = -2, MaximumInputVoltage = 2, MaximumFunctionErrorPercent = 5
+    });
+    Require(halfWave.Success, halfWave.Capability.Message);
+    var nonlinear = new PrecisionAnalogSpiceExportService().Export(halfWave);
+    Require(nonlinear.Contains("D1 ", StringComparison.Ordinal) && nonlinear.Contains(" CMD_DIODE", StringComparison.Ordinal) &&
+            nonlinear.Contains(".MODEL CMD_DIODE D(IS=", StringComparison.Ordinal) && nonlinear.Contains(".TEMP ", StringComparison.Ordinal) &&
+            nonlinear.Contains(".DC V_U1 -2e+0 2e+0 4e-2", StringComparison.Ordinal),
+        $"Precision nonlinear export lacks its explicit diode model, temperature, or DC sweep.\n{nonlinear}");
+
+    var integrator = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Operation = AnalogComputeOperationType.PracticalIntegrator, IntegrationConstantPerSecond = 1_000,
+        LowerCornerHz = 10, UpperCornerHz = 10_000, MinimumInputVoltage = -.05, MaximumInputVoltage = .05,
+        MaximumFunctionErrorPercent = 10
+    });
+    Require(integrator.Success, integrator.Capability.Message);
+    var dynamic = new PrecisionAnalogSpiceExportService().Export(integrator);
+    Require(dynamic.Contains("C1 ", StringComparison.Ordinal) && dynamic.Contains("V_U1 VIN 0 DC 0 AC 1e+0 0", StringComparison.Ordinal) &&
+            dynamic.Contains(".AC DEC 60 1e+0 1e+5", StringComparison.Ordinal) && !dynamic.Contains(".DC ", StringComparison.Ordinal),
+        $"Precision dynamic export is not an AC netlist.\n{dynamic}");
 }
 
 static void TestPrecisionAnalogRangeMapper()
@@ -1855,8 +1887,9 @@ static void TestPassiveBandModesSelectLc()
 {
     var state=new FilterDesignState { Mode=FilterMode.Passive };
     state.SelectResponseType(FilterResponseType.BandPass);
-    Require(state.Implementation==FilterImplementationType.Rc && state.PassiveRcTopology==PassiveRcTopology.TwoCornerBandPass,
-        "Passive Band-Pass must expose the topology-based two-corner RC implementation.");
+    Require(state.Implementation==FilterImplementationType.Lc && state.PassiveRcTopology==PassiveRcTopology.TwoCornerBandPass,
+        "Passive Band-Pass must default to LC while retaining the response-specific RC topology option.");
+    state.SelectImplementation(FilterImplementationType.Rc);
     state.SelectResponseType(FilterResponseType.BandStop);
     Require(state.Implementation==FilterImplementationType.Rc && state.PassiveRcTopology==PassiveRcTopology.TwinTNotch,
         "Passive Band-Stop must expose the Twin-T RC implementation.");
@@ -1917,6 +1950,102 @@ static void TestMultisimCirExport()
     var passive=new FilterDesignEngine().Design(Request(FilterMode.Passive,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.Lc,1_000,2_000,manualOrder:3));
     Require(passive.IsImplemented,passive.Message);var lcNetlist=passive.SpiceNetlist;
     Require(lcNetlist.Contains("V_INPUT VSRC 0",StringComparison.Ordinal)&&lcNetlist.Contains("R_SOURCE VSRC VIN",StringComparison.Ordinal)&&lcNetlist.Contains("R_LOAD VOUT 0",StringComparison.Ordinal),"LC CIR must include its VSRC/Rs/VIN/VOUT/RL boundary.");
+}
+
+static void TestLtspiceCommonSerializer()
+{
+    var builder = new CircuitBuilder();
+    var resistor = builder.Add(ComponentFactory.Resistor("R1", 1_000));
+    var capacitor = builder.Add(ComponentFactory.Capacitor("C1", 2.2e-9));
+    var inductor = builder.Add(ComponentFactory.Inductor("L1", 3.3e-3));
+    var diode = builder.Add(ComponentFactory.Diode("D1"));
+    builder.Connect("VIN", resistor.GetPin("1"));
+    builder.Connect("N:RC/1", resistor.GetPin("2"), capacitor.GetPin("1"), inductor.GetPin("1"));
+    builder.Connect("VOUT", inductor.GetPin("2"), diode.GetPin("A"));
+    builder.Connect("GND", capacitor.GetPin("2"), diode.GetPin("K"));
+    var graph = builder.Build();
+    var options = new CircuitSpiceExportOptions("LTspice RLC and diode golden")
+    {
+        Sources =
+        [
+            new("V_INPUT", SpiceSourceKind.Voltage, "VIN", "GND", AcMagnitude: 1),
+            new("I_BIAS", SpiceSourceKind.Current, "VOUT", "GND", 1e-6)
+        ],
+        Analyses = [new SpiceAcAnalysis(SpiceSweepScale.Decade, 40, 10, 1e6)],
+        OutputExpressions = ["VM(VOUT) VP(VOUT)"],
+        DiodeModel = new("CMD_DIODE", 1e-12, 1.1)
+    };
+    var netlist = new LtspiceNetlistExporter().Export(graph, options);
+    foreach (var expected in new[]
+    {
+        "V_INPUT VIN 0 DC 0 AC 1e+0 0", "I_BIAS VOUT 0 DC 1e-6", "R1 VIN N_3A_RC_2F_1 1e+3",
+        "C1 N_3A_RC_2F_1 0 2.2e-9", "L1 N_3A_RC_2F_1 VOUT 3.3e-3", "D1 VOUT 0 CMD_DIODE",
+        ".MODEL CMD_DIODE D(IS=1e-12 N=1.1e+0)", ".AC DEC 40 1e+1 1e+6", ".END"
+    }) Require(netlist.Contains(expected, StringComparison.Ordinal), $"LTspice netlist omitted or changed '{expected}'.\n{netlist}");
+    Require(!netlist.Contains("GND", StringComparison.Ordinal), "SPICE ground was not normalized to node 0.");
+}
+
+static void TestLtspiceOpAmpSubcircuit()
+{
+    var builder = new CircuitBuilder(); var opAmp = builder.Add(ComponentFactory.OpAmp("U1"));
+    builder.Connect("VIN", opAmp.GetPin("IN+")); builder.Connect("VOUT", opAmp.GetPin("IN-"), opAmp.GetPin("OUT"));
+    builder.Connect("VCC", opAmp.GetPin("V+")); builder.Connect("VEE", opAmp.GetPin("V-"));
+    var graph = builder.Build();
+    var subcircuit = new SpiceOpAmpSubcircuit("CMD_OPAMP", ["IN+", "IN-", "V+", "V-", "OUT"], EmbeddedBodyLines: ["EGAIN OUT 0 IN_2B_ IN_2D_ 1e6"]);
+    var netlist = new LtspiceNetlistExporter().Export(graph, new CircuitSpiceExportOptions("Subcircuit golden")
+    {
+        OpAmpMode = SpiceOpAmpExportMode.ExternalSubcircuit, OpAmpSubcircuit = subcircuit,
+        Sources = [new("VCC_SOURCE", SpiceSourceKind.Voltage, "VCC", "0", 15), new("VEE_SOURCE", SpiceSourceKind.Voltage, "VEE", "0", -15)]
+    });
+    Require(netlist.Contains("X_U1 VIN VOUT VCC VEE VOUT CMD_OPAMP", StringComparison.Ordinal), "Op-amp was not emitted as an X subcircuit instance with explicit pin order.");
+    Require(netlist.Contains(".SUBCKT CMD_OPAMP IN_2B_ IN_2D_ V_2B_ V_2D_ OUT", StringComparison.Ordinal) && netlist.Contains(".ENDS CMD_OPAMP", StringComparison.Ordinal), "Embedded .SUBCKT block is incomplete.");
+    Require(!netlist.Contains("\nU1 ", StringComparison.Ordinal), "A bare U-device line was emitted even though SPICE does not define a generic U op-amp element.");
+}
+
+static void TestSpiceDirectiveProfiles()
+{
+    var builder = new CircuitBuilder(); var resistor = builder.Add(ComponentFactory.Resistor("R1", 10_000));
+    builder.Connect("VIN", resistor.GetPin("1")); builder.Connect("GND", resistor.GetPin("2")); var graph = builder.Build();
+    var transient = new LtspiceNetlistExporter().Export(graph, new CircuitSpiceExportOptions("Transient directives")
+    {
+        Sources = [new("V1", SpiceSourceKind.Voltage, "VIN", "0")],
+        Analyses = [new SpiceTransientAnalysis(1e-6, 1e-3, 0, 5e-6)], OutputExpressions = ["V(VIN)"],
+        Parameters = new Dictionary<string, double> { ["GAIN"] = 1.25 },
+        LibraryIncludes = ["models/common.lib"], Libraries = [new("vendor.lib", "OPAMP_ENTRY")]
+    });
+    foreach (var expected in new[] { ".INCLUDE \"models/common.lib\"", ".LIB \"vendor.lib\" OPAMP_ENTRY", ".PARAM GAIN=1.25e+0", ".TRAN 1e-6 1e-3 0 5e-6", ".PRINT TRAN V(VIN)" })
+        Require(transient.Contains(expected, StringComparison.Ordinal), $"SPICE directive profile omitted '{expected}'.");
+
+    var operatingPoint = new LtspiceNetlistExporter().Export(graph, new CircuitSpiceExportOptions("Operating point")
+    {
+        Sources = [new("V1", SpiceSourceKind.Voltage, "VIN", "0", 1)], Analyses = [new SpiceOperatingPointAnalysis()]
+    });
+    Require(operatingPoint.Contains(".OP", StringComparison.Ordinal), "Operating-point directive was not serialized.");
+
+    var currentSweep = new LtspiceNetlistExporter().Export(graph, new CircuitSpiceExportOptions("Current sweep")
+    {
+        Sources = [new("I_BIAS", SpiceSourceKind.Current, "VIN", "0")], Analyses = [new SpiceDcAnalysis("I_BIAS", 0, 1e-3, 1e-5)]
+    });
+    Require(currentSweep.Contains("I_BIAS VIN 0 DC 0", StringComparison.Ordinal) && currentSweep.Contains(".DC I_BIAS 0 1e-3 1e-5", StringComparison.Ordinal),
+        "Independent current source or current-source DC sweep was serialized with voltage-source semantics.");
+}
+
+static void TestSpiceInvariantFormatting()
+{
+    var previous = System.Globalization.CultureInfo.CurrentCulture;
+    try
+    {
+        System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+        var builder = new CircuitBuilder(); var resistor = builder.Add(ComponentFactory.Resistor("R1", 1.25e6));
+        builder.Connect("VIN", resistor.GetPin("1")); builder.Connect("GND", resistor.GetPin("2"));
+        var netlist = new MultisimNetlistExporter().Export(builder.Build(), new CircuitSpiceExportOptions("Culture golden")
+        {
+            Sources = [new("V1", SpiceSourceKind.Voltage, "VIN", "0", -1.25)], Analyses = [new SpiceDcAnalysis("V1", -1, 1, .1)]
+        });
+        Require(netlist.Contains("R1 VIN 0 1.25e+6", StringComparison.Ordinal) && netlist.Contains("V1 VIN 0 DC -1.25e+0", StringComparison.Ordinal), "SPICE values are not invariant scientific notation.");
+        Require(!netlist.Contains("1,25", StringComparison.Ordinal) && !netlist.Contains("1M", StringComparison.Ordinal), "Localized decimal or ambiguous M suffix leaked into SPICE output.");
+    }
+    finally { System.Globalization.CultureInfo.CurrentCulture = previous; }
 }
 
 static void TestPassiveReportAndCirBoundary()
@@ -2229,8 +2358,11 @@ static void TestZeroOhmDefaultSource()
 {
     var defaultState = new FilterDesignState { Mode = FilterMode.Passive };
     defaultState.SelectResponseType(FilterResponseType.LowPass);
+    Require(defaultState.Implementation == FilterImplementationType.Lc && defaultState.SourceResistanceOhm == 50 && defaultState.LoadResistanceOhm == 50 && defaultState.LcTerminationMode == LcTerminationMode.DoublyTerminated,
+        "Passive mode must default to the matched 50/50 ohm LC boundary.");
+    defaultState.SelectImplementation(FilterImplementationType.Rc);
     Require(defaultState.SourceResistanceOhm == 0 && defaultState.LoadResistanceOhm == 1_000_000 && defaultState.LcTerminationMode == LcTerminationMode.IdealVoltageSource,
-        "Rs/RL defaults must remain independently editable and must not silently invent a source termination.");
+        "Explicit RC selection must retain the independently editable ideal-source/high-load defaults.");
     var request = Request(FilterMode.Passive, FilterResponseType.LowPass, FilterApproximation.Butterworth,
         FilterImplementationType.Lc, 1_000, 3_000) with
         { SourceResistanceOhm = 0, LcTerminationMode = LcTerminationMode.IdealVoltageSource };
@@ -2260,11 +2392,12 @@ static void TestPassiveTerminationDefaults()
 {
     var state = new FilterDesignState { Mode = FilterMode.Passive };
     state.SelectResponseType(FilterResponseType.LowPass);
-    Require(state.Implementation == FilterImplementationType.Rc && state.SourceResistanceOhm == 0 && state.LoadResistanceOhm == 1_000_000,
-        "Passive RC defaults must be Rs=0 ohm and RL=1 Mohm.");
+    Require(state.Implementation == FilterImplementationType.Lc && state.SourceResistanceOhm == 50 && state.LoadResistanceOhm == 50 && state.LinkLcSourceAndLoad,
+        "Passive mode must default to linked 50/50 ohm LC.");
+    state.SelectImplementation(FilterImplementationType.Rc);
+    Require(state.SourceResistanceOhm == 0 && state.LoadResistanceOhm == 1_000_000,
+        "Explicitly selected passive RC must retain its Rs=0 ohm and RL=1 Mohm defaults.");
     state.SelectImplementation(FilterImplementationType.Lc);
-    Require(state.SourceResistanceOhm == 50 && state.LoadResistanceOhm == 50 && state.LinkLcSourceAndLoad,
-        "Passive LC defaults must be linked 50/50 ohm.");
     state.SourceResistanceOhm = 75; state.LoadResistanceOhm = 600;
     state.SelectImplementation(FilterImplementationType.Rc);
     state.SelectImplementation(FilterImplementationType.Lc);

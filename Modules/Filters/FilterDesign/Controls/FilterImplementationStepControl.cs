@@ -69,7 +69,7 @@ public sealed class FilterImplementationStepControl : FilterStepBase
         else
         {
             var request = FilterDesignRequest.FromState(state);
-            var implementations = new[] { FilterImplementationType.Rc, FilterImplementationType.Lc }
+            var implementations = new[] { FilterImplementationType.Lc, FilterImplementationType.Rc }
                 .Where(candidate => FilterSupportMatrix.Evaluate(request with
                 {
                     Implementation = candidate,
@@ -78,7 +78,7 @@ public sealed class FilterImplementationStepControl : FilterStepBase
                         : request.LcTerminationMode
                 }).IsSupported)
                 .ToArray();
-            if (implementations.Length == 0) implementations = [FilterImplementationType.Rc, FilterImplementationType.Lc];
+            if (implementations.Length == 0) implementations = [FilterImplementationType.Lc, FilterImplementationType.Rc];
             if (!implementations.Contains(state.Implementation)) state.Implementation=implementations[0];
             var implementation = Combo(implementations, DisplayName);
             implementation.SelectedIndex = Array.IndexOf(implementations,state.Implementation);
