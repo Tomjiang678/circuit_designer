@@ -41,7 +41,7 @@ public sealed class FilterDesignState
     public double PreferredResistorMaxOhm { get; set; } = 100_000;
     public double PreferredCapacitorMinF { get; set; } = 100e-12;
     public double PreferredCapacitorMaxF { get; set; } = 1e-6;
-    public StandardComponentSeries ResistorSeries { get; set; } = StandardComponentSeries.E24;
+    public StandardComponentSeries ResistorSeries { get; set; } = StandardComponentSeries.E96;
     public StandardComponentSeries CapacitorSeries { get; set; } = StandardComponentSeries.E24;
     public StandardComponentSeries InductorSeries { get; set; } = StandardComponentSeries.E24;
     public double ResistorTolerancePercent { get; set; } = 1;

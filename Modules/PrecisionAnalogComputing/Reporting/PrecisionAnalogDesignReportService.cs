@@ -22,12 +22,12 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
         html.Append("<h2>1. Design Summary</h2><table><tbody>")
             .Append(Row("Target", result.TargetRelation)).Append(Row("Topology", result.TopologyName))
             .Append(Row("Supply", $"VCC={N(result.RequiredVccVoltage)} V, GND=0 V, VEE={N(result.RequiredVeeVoltage)} V"))
-            .Append(Row("Design status", "Success")).Append(Row("CapabilityLevel", result.Capability.Level.ToString()))
+            .Append(Row("Design status", "Success")).Append(Row("FailureStage", result.FailureStage.ToString())).Append(Row("CapabilityLevel", result.Capability.Level.ToString()))
             .Append(Row("CapabilityReasonCode", result.Capability.ReasonCode.ToString()))
             .Append(Row("Allowed function error", N(result.Request.MaximumFunctionErrorPercent) + " %"))
             .Append(Row("Resistor series", result.Request.Components.ResistorSeries.ToString()))
             .Append("</tbody></table>");
-        html.Append("<h2>2. Component Values</h2><table><thead><tr><th>Reference</th><th>Role</th><th>Theoretical</th><th>Selected</th></tr></thead><tbody>");
+        html.Append("<h2>2. Component Values</h2><table><thead><tr><th>Reference</th><th>Role</th><th>Continuous</th><th>Selected</th></tr></thead><tbody>");
         foreach (var component in result.Components) html.Append("<tr><td>").Append(E(component.Reference)).Append("</td><td>").Append(E(component.Role))
             .Append("</td><td class=\"num\">").Append(N(component.TheoreticalValue)).Append(' ').Append(E(component.Unit)).Append("</td><td class=\"num\">").Append(N(component.SelectedValue)).Append(' ').Append(E(component.Unit)).Append("</td></tr>");
         html.Append("</tbody></table><h2>3. Actual Verification</h2><table><thead><tr><th>Metric</th><th>Target</th><th>Actual</th><th>Error</th><th>Tolerance</th><th>Result</th></tr></thead><tbody>");
@@ -46,7 +46,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
         {
             Schema = "CircuitModuleDesigner.PrecisionAnalogDesign.v1",
             GeneratedAtUtc = DateTimeOffset.UtcNow,
-            Design = new { result.Request.Operation, result.TargetRelation, result.TopologyName },
+            Design = new { result.Request.Operation, result.TargetRelation, result.TopologyName, result.FailureStage },
             Supply = new { VccVoltage = result.RequiredVccVoltage, GroundVoltage = 0d, VeeVoltage = result.RequiredVeeVoltage, ReferencePolicy = "Derived from VCC/GND/VEE; no independent VREF input." },
             Capability = new { result.Capability.Level, result.Capability.IsSupported, result.Capability.ReasonCode, result.Capability.Message, result.Capability.SuggestedAlternative },
             OperationSpecification = result.Request,

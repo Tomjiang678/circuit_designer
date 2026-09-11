@@ -1,5 +1,6 @@
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Core.Schematic;
+using CircuitModuleDesigner.Core.Schematic.Symbols;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Schematic;
 
@@ -8,9 +9,15 @@ public sealed class PrecisionAnalogSchematicLayoutService
 {
     public SchematicDocument Layout(CircuitGraph graph)
     {
+        if (graph.Nets.Any(net => net.Name is "RAW_LOG" or "RAW_EXP"))
+            return LayoutJunctionGraph(graph);
         if(graph.Components.Any(component=>component.Type==ComponentType.Diode) &&
            graph.Nets.Any(net=>net.Name is "SUM_RECT" or "SUM"))
             return LayoutRectifierGraph(graph);
+        if (graph.Components.Count(component => component.Type == ComponentType.OpAmp) == 1 &&
+            graph.Components.Any(component => component.Type == ComponentType.Capacitor) &&
+            graph.Nets.Any(net => net.Name == "SUM"))
+            return LayoutDynamicGraph(graph);
         if (graph.Components.Any(component => component.Type is ComponentType.Diode or ComponentType.Capacitor) ||
             graph.Components.Count(component => component.Type == ComponentType.OpAmp) > 2)
             return LayoutOperationGraph(graph);
@@ -120,6 +127,94 @@ public sealed class PrecisionAnalogSchematicLayoutService
         void Place(CircuitComponent component, SchematicPoint position, ComponentOrientation orientation = ComponentOrientation.Right)
         {
             var item = new PlacedComponent(component, position, orientation); placed.Add(component.Reference, item); document.AddPlacedComponent(item);
+        }
+    }
+
+    private static SchematicDocument LayoutJunctionGraph(CircuitGraph graph)
+    {
+        var document = new SchematicDocument(graph);
+        var placed = new Dictionary<string, PlacedComponent>(StringComparer.OrdinalIgnoreCase);
+        var logarithmic = graph.Nets.Any(net => net.Name == "RAW_LOG");
+
+        if (logarithmic)
+        {
+            // Matched log cells share one column; their difference/scale stage follows on the right.
+            Put("R1", new(260, 242)); Put("D1", new(520, 80)); Put("U1", new(520, 220));
+            Put("R5", new(150, 400), ComponentOrientation.Down); Put("R6", new(150, 550), ComponentOrientation.Down);
+            Put("R2", new(300, 622)); Put("D2", new(520, 460)); Put("U2", new(520, 600));
+            Put("R7", new(820, 350)); Put("R3", new(820, 500));
+            Put("R8", new(960, 600), ComponentOrientation.Down);
+            Put("R4", new(1120, 210)); Put("U3", new(1120, 420));
+        }
+        else
+        {
+            // Reference log cell, exponent drive, and transimpedance output form three left-to-right blocks.
+            Put("R5", new(150, 400), ComponentOrientation.Down); Put("R6", new(150, 550), ComponentOrientation.Down);
+            Put("R7", new(300, 622)); Put("D2", new(450, 460)); Put("U1", new(450, 600));
+            Put("R3", new(650, 250), ComponentOrientation.Down); Put("R4", new(650, 550), ComponentOrientation.Down);
+            Put("R1", new(580, 422)); Put("R2", new(820, 580)); Put("U2", new(820, 400));
+            Put("D1", new(980, 422), ComponentOrientation.Left);
+            Put("R8", new(1160, 210)); Put("U3", new(1160, 400));
+        }
+
+        var busX = logarithmic
+            ? new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SUM_LOG"] = 410, ["RAW_LOG"] = 650, ["VREF"] = 210, ["SUM_REF"] = 410,
+                ["RAW_REF"] = 700, ["PLUS_OUT"] = 930, ["SUM_OUT"] = 1000, ["VOUT"] = 1240
+            }
+            : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["VREF"] = 210, ["SUM_REF"] = 380, ["RAW_REF"] = 620,
+                ["PLUS_DRIVE"] = 690, ["SUM_DRIVE"] = 720, ["RAW_EXP"] = 920,
+                ["SUM_OUT"] = 1060, ["VOUT"] = 1280
+            };
+
+        foreach (var net in graph.Nets)
+        {
+            var pins = net.Pins.Where(pin => placed.ContainsKey(pin.ComponentReference)).ToArray();
+            if (pins.Length == 0) continue;
+            if (busX.TryGetValue(net.Name, out var x))
+            {
+                var anchors = pins.Select(pin => Pin(pin.ComponentReference, pin.Name)).ToArray();
+                document.AddWire(new(net.Name, [new SchematicPoint(x, anchors.Min(point => point.Y)), new SchematicPoint(x, anchors.Max(point => point.Y))]));
+                foreach (var anchor in anchors)
+                {
+                    document.AddWire(new(net.Name, [anchor, new SchematicPoint(x, anchor.Y)]));
+                    if (anchors.Length > 2) document.AddJunction(new(net.Name, new SchematicPoint(x, anchor.Y)));
+                }
+                if (net.Name == "VOUT")
+                {
+                    var end = new SchematicPoint(x + 85, anchors.Last().Y);
+                    document.AddWire(new(net.Name, [new SchematicPoint(x, end.Y), end])); document.AddNetLabel(new(net.Name, "VOUT", end));
+                }
+                continue;
+            }
+
+            // Only true external rails and the input use local labels; internal signal nets are wired above.
+            foreach (var pin in pins)
+            {
+                var component = placed[pin.ComponentReference]; var anchor = Pin(pin.ComponentReference, pin.Name);
+                var direction = SchematicGeometry.GetWorldPinDirection(component, pin.Name); const double length = 42;
+                var end = direction switch
+                {
+                    SymbolPinDirection.Left => new SchematicPoint(anchor.X - length, anchor.Y),
+                    SymbolPinDirection.Right => new SchematicPoint(anchor.X + length, anchor.Y),
+                    SymbolPinDirection.Up => new SchematicPoint(anchor.X, anchor.Y - length),
+                    _ => new SchematicPoint(anchor.X, anchor.Y + length)
+                };
+                document.AddWire(new(net.Name, [anchor, end])); document.AddNetLabel(new(net.Name, net.Name, end));
+            }
+        }
+        return document;
+
+        SchematicPoint Pin(string reference, string pin) => SchematicGeometry.GetWorldPin(placed[reference], pin);
+
+        void Put(string reference, SchematicPoint position, ComponentOrientation orientation = ComponentOrientation.Right)
+        {
+            if (!graph.Components.Any(component => component.Reference.Equals(reference, StringComparison.OrdinalIgnoreCase))) return;
+            var item = new PlacedComponent(graph.GetComponent(reference), position, orientation);
+            placed.Add(reference, item); document.AddPlacedComponent(item);
         }
     }
 
@@ -269,7 +364,89 @@ public sealed class PrecisionAnalogSchematicLayoutService
         return document;
     }
 
-    private static bool IsNamedExternal(string name)=>name is "VIN" or "VOUT" or "VCC" or "VEE" or "GND" or "VREF" or "VREF_HIGH" or "VREF_LOW";
+    private static SchematicDocument LayoutDynamicGraph(CircuitGraph graph)
+    {
+        var document = new SchematicDocument(graph);
+        var placed = new Dictionary<string, PlacedComponent>(StringComparer.OrdinalIgnoreCase);
+        var differentiator = graph.Nets.Any(net => net.Name == "N_INPUT");
+
+        Put("U1", differentiator ? new(800, 380) : new(720, 430));
+        if (differentiator)
+        {
+            Put("C1", new(260, 402));
+            Put("R1", new(470, 402));
+            Put("R2", new(800, 145));
+            Put("C2", new(800, 245));
+            WirePair("N_INPUT", Pin("C1", "2"), Pin("R1", "1"));
+            RouteBus("SUM", 650);
+            RouteBus("VOUT", 930, true);
+        }
+        else
+        {
+            Put("R1", new(360, 452));
+            Put("R2", new(720, 100));
+            Put("C1", new(720, 240));
+            RouteBus("SUM", 600);
+            RouteBus("VOUT", 850, true);
+        }
+
+        RouteExternal("VIN");
+        RouteExternal("GND");
+        RouteExternal("VCC");
+        RouteExternal("VEE");
+        return document;
+
+        void RouteBus(string netName, double busX, bool output = false)
+        {
+            var net = graph.Nets.Single(net => net.Name == netName);
+            var anchors = net.Pins.Select(pin => Pin(pin.ComponentReference, pin.Name)).ToArray();
+            document.AddWire(new(netName, [new(busX, anchors.Min(point => point.Y)), new(busX, anchors.Max(point => point.Y))]));
+            foreach (var anchor in anchors)
+            {
+                document.AddWire(new(netName, [anchor, new SchematicPoint(busX, anchor.Y)]));
+                if (anchors.Length > 2) document.AddJunction(new(netName, new(busX, anchor.Y)));
+            }
+            if (!output) return;
+            var opAmpOutput = Pin("U1", "OUT");
+            var end = new SchematicPoint(busX + 90, opAmpOutput.Y);
+            document.AddWire(new(netName, [new(busX, opAmpOutput.Y), end]));
+            document.AddNetLabel(new(netName, "VOUT", end));
+        }
+
+        void RouteExternal(string netName)
+        {
+            var net = graph.Nets.Single(net => net.Name == netName);
+            foreach (var pin in net.Pins)
+            {
+                var component = placed[pin.ComponentReference];
+                var anchor = Pin(pin.ComponentReference, pin.Name);
+                var direction = SchematicGeometry.GetWorldPinDirection(component, pin.Name);
+                var end = direction switch
+                {
+                    SymbolPinDirection.Left => new SchematicPoint(anchor.X - 40, anchor.Y),
+                    SymbolPinDirection.Right => new SchematicPoint(anchor.X + 40, anchor.Y),
+                    SymbolPinDirection.Up => new SchematicPoint(anchor.X, anchor.Y - 45),
+                    _ => new SchematicPoint(anchor.X, anchor.Y + 45)
+                };
+                document.AddWire(new(netName, [anchor, end]));
+                document.AddNetLabel(new(netName, netName, end));
+            }
+        }
+
+        void WirePair(string netName, SchematicPoint first, SchematicPoint second) =>
+            document.AddWire(new(netName, [first, second]));
+
+        SchematicPoint Pin(string reference, string pin) => SchematicGeometry.GetWorldPin(placed[reference], pin);
+
+        void Put(string reference, SchematicPoint position, ComponentOrientation orientation = ComponentOrientation.Right)
+        {
+            var item = new PlacedComponent(graph.GetComponent(reference), position, orientation);
+            placed.Add(reference, item);
+            document.AddPlacedComponent(item);
+        }
+    }
+
+    private static bool IsNamedExternal(string name)=>name is "VIN" or "VOUT" or "VCC" or "VEE" or "GND" or "VREF";
 
     private static bool IsOutputNet(string name) => name is "VOUT" or "STAGE_1_OUT";
     private static int NumericSuffix(string reference) => int.TryParse(new string(reference.SkipWhile(character => !char.IsDigit(character)).ToArray()), out var value) ? value : int.MaxValue;

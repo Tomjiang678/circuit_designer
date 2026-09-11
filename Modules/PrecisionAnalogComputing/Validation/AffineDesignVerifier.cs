@@ -29,7 +29,6 @@ internal sealed class AffineDesignVerifier
         metrics.Add(new("Output offset", request.OutputOffsetVoltage, baseline, baseline - request.OutputOffsetVoltage, offsetTolerance, Math.Abs(baseline - request.OutputOffsetVoltage) <= offsetTolerance, "V"));
 
         var swingPass = true;
-        if (request.UseInputRangesForFeasibility)
         {
             var expectedMin = request.OutputOffsetVoltage;
             var expectedMax = request.OutputOffsetVoltage;
@@ -43,8 +42,6 @@ internal sealed class AffineDesignVerifier
             var lowLimit = request.SupplyVeeVoltage + request.OpAmp.OutputSwingHeadroomVoltage;
             var highLimit = request.SupplyVccVoltage - request.OpAmp.OutputSwingHeadroomVoltage;
             swingPass = expectedMin >= lowLimit && expectedMax <= highLimit;
-            metrics.Add(new("Output minimum swing", expectedMin, Math.Max(expectedMin, lowLimit), Math.Max(0, lowLimit - expectedMin), 0, expectedMin >= lowLimit, "V"));
-            metrics.Add(new("Output maximum swing", expectedMax, Math.Min(expectedMax, highLimit), Math.Min(0, highLimit - expectedMax), 0, expectedMax <= highLimit, "V"));
         }
 
         var selected = request.Inputs.FirstOrDefault(input => input.Coefficient != 0) ?? request.Inputs[0];

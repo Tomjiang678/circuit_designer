@@ -2,6 +2,7 @@ using System.Text;
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Core.Circuit.Spice;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
+using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Synthesis;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Services;
 
@@ -15,6 +16,8 @@ public sealed class PrecisionAnalogSpiceExportService
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!result.Success) throw new InvalidOperationException("Only a successful verified design can be exported.");
+        if (result.Request.Operation is AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier)
+            throw new NotSupportedException("SPICE export is unavailable for precision rectifiers because v1 verification uses ideal-switch diode states; exporting a Shockley model would not reproduce the verified transfer.");
         var graph = result.CircuitGraph ?? throw new InvalidOperationException("The design result has no CircuitGraph.");
         var request = result.Request;
         var graphNets = graph.Nets.Select(net => net.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -38,9 +41,9 @@ public sealed class PrecisionAnalogSpiceExportService
         var analyses = new List<SpiceAnalysisDirective>();
         if (IsDynamic(request.Operation))
         {
-            var start = Math.Max(1e-6, request.LowerCornerHz / 10);
-            var stop = Math.Max(start * 10, request.UpperCornerHz * 10);
-            analyses.Add(new SpiceAcAnalysis(SpiceSweepScale.Decade, 60, start, stop));
+            var parameters = DynamicOperationParameters.Resolve(request);
+            analyses.Add(new SpiceAcAnalysis(SpiceSweepScale.Decade, 60,
+                parameters.SweepStartFrequencyHz, parameters.SweepStopFrequencyHz));
         }
         else
         {
@@ -59,9 +62,7 @@ public sealed class PrecisionAnalogSpiceExportService
             OpAmpOpenLoopGain = 1e9,
             DiodeModel = hasDiodes ? new SpiceDiodeModelDefinition("CMD_DIODE", request.Junction.SaturationCurrentAmpere, request.Junction.EmissionCoefficient) : null,
             TemperatureCelsius = hasDiodes ? request.Junction.TemperatureCelsius : null,
-            AdditionalComments = request.Junction.Behavior == DiodeBehaviorModel.IdealSwitch && hasDiodes
-                ? ["Design verification used ideal-switch diode states; this exported netlist intentionally uses the nominal Shockley model below."]
-                : []
+            AdditionalComments = []
         };
         return exporter.Export(graph, options);
     }

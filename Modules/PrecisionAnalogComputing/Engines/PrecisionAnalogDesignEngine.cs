@@ -18,24 +18,45 @@ public sealed class PrecisionAnalogDesignEngine
 
     public AnalogComputeCapabilityEvaluation EvaluateCapability(AnalogComputeDesignRequest request)
     {
-        if (request.SupplyVccVoltage <= 0 || request.SupplyVeeVoltage >= 0 ||
-            request.SupplyVccVoltage <= request.SupplyVeeVoltage)
-            return AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.SupplyRailsInvalid,
-                "VCC must be greater than 0 V and VEE must be less than 0 V.");
-        return Enum.IsDefined(request.Operation)
-            ? AnalogComputeCapabilityEvaluation.Supported()
-            : AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.TopologyCapabilityUnsupported,
-                $"No verified topology is registered for {request.Operation}.");
+        ArgumentNullException.ThrowIfNull(request);
+        return AnalogComputeRequestValidator.Validate(request) ?? AnalogComputeCapabilityEvaluation.Supported();
     }
 
     public AnalogComputeDesignResult Design(AnalogComputeDesignRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         var capability = EvaluateCapability(request);
-        if (!capability.IsSupported) return Failure(request, capability);
+        if (!capability.IsSupported) return Failure(request, capability, AnalogDesignFailureStage.SpecificationValidation);
+        var effective = request.Operation == AnalogComputeOperationType.VoltageRangeMapper ? ToAffineRequest(request) : request;
+        OperationSynthesisResult synthesis;
         try
         {
-            var effective = request.Operation == AnalogComputeOperationType.VoltageRangeMapper ? ToAffineRequest(request) : request;
-            var synthesis = Synthesize(effective);
+            synthesis = Synthesize(effective);
+        }
+        catch(ArgumentException exception)
+        {
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.InvalidInput,exception.Message),AnalogDesignFailureStage.SpecificationValidation);
+        }
+        catch(NotSupportedException exception)
+        {
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.TopologyCapabilityUnsupported,exception.Message),AnalogDesignFailureStage.Synthesis);
+        }
+        catch(InvalidOperationException exception)
+        {
+            var reason=exception.Message.Contains("junction current",StringComparison.OrdinalIgnoreCase)
+                ? AnalogCapabilityReasonCode.JunctionCurrentOutOfRange
+                : AnalogCapabilityReasonCode.ComponentRangeImpossible;
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(reason,exception.Message,
+                "Widen the component range or reduce the requested gain/frequency/dynamic range."),AnalogDesignFailureStage.Synthesis);
+        }
+        catch(Exception exception)
+        {
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.InternalError,
+                $"Unexpected synthesis error: {exception.Message}"),AnalogDesignFailureStage.Synthesis);
+        }
+
+        try
+        {
             var verification = Verify(effective, synthesis);
             var failed = verification.Metrics.Where(metric => !metric.Pass).ToArray();
             if (failed.Length > 0)
@@ -45,7 +66,6 @@ public sealed class PrecisionAnalogDesignEngine
                     $"{metric.Name}: target {metric.Target:G6}, actual {metric.Actual:G6}, tolerance {metric.Tolerance:G4}"));
                 var alternative = reason switch
                 {
-                    AnalogCapabilityReasonCode.OutputSwingInsufficient => "Increase the supply range or reduce input range/gain/output limits.",
                     AnalogCapabilityReasonCode.GbBandwidthInsufficient => "Use a faster abstract op-amp constraint or reduce the operating band/noise gain.",
                     AnalogCapabilityReasonCode.SlewRateInsufficient => "Increase slew-rate capability or reduce frequency/output amplitude.",
                     AnalogCapabilityReasonCode.JunctionCurrentOutOfRange => "Reduce the exponential range, increase resistance, or raise the allowed junction current.",
@@ -59,6 +79,7 @@ public sealed class PrecisionAnalogDesignEngine
                     Capability=AnalogComputeCapabilityEvaluation.Failure(reason,
                         $"The selected-value CircuitGraph did not pass independent verification. {details}",alternative),
                     Request=effective,TopologyName=synthesis.Topology,TargetRelation=synthesis.TargetRelation,
+                    FailureStage=AnalogDesignFailureStage.IndependentVerification,
                     CircuitGraph=synthesis.Circuit,Components=synthesis.Components,VerificationMetrics=verification.Metrics,
                     Calculations=synthesis.Calculations,Warnings=verification.Warnings,Analysis=verification.Analysis,
                     RequiredVccVoltage=effective.SupplyVccVoltage,RequiredVeeVoltage=effective.SupplyVeeVoltage
@@ -76,6 +97,7 @@ public sealed class PrecisionAnalogDesignEngine
                 Success=true,
                 Capability=AnalogComputeCapabilityEvaluation.Supported("Selected-value CircuitGraph passed its independent operation-specific verifier."),
                 Request=effective,TopologyName=synthesis.Topology,TargetRelation=synthesis.TargetRelation,
+                FailureStage=AnalogDesignFailureStage.None,
                 CircuitGraph=synthesis.Circuit,Components=synthesis.Components,VerificationMetrics=verification.Metrics,
                 Calculations=calculations,Warnings=verification.Warnings,Analysis=verification.Analysis,
                 RequiredVccVoltage=effective.SupplyVccVoltage,RequiredVeeVoltage=effective.SupplyVeeVoltage
@@ -83,19 +105,20 @@ public sealed class PrecisionAnalogDesignEngine
         }
         catch(ArgumentException exception)
         {
-            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.InvalidInput,exception.Message));
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.CircuitVerificationFailed,exception.Message),AnalogDesignFailureStage.IndependentVerification);
         }
         catch(NotSupportedException exception)
         {
-            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.TopologyCapabilityUnsupported,exception.Message));
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.CircuitVerificationFailed,exception.Message),AnalogDesignFailureStage.IndependentVerification);
         }
         catch(InvalidOperationException exception)
         {
-            var reason=exception.Message.Contains("junction current",StringComparison.OrdinalIgnoreCase)
-                ? AnalogCapabilityReasonCode.JunctionCurrentOutOfRange
-                : AnalogCapabilityReasonCode.ComponentRangeImpossible;
-            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(reason,exception.Message,
-                "Widen the component range or reduce the requested gain/frequency/dynamic range."));
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.CircuitVerificationFailed,exception.Message),AnalogDesignFailureStage.IndependentVerification);
+        }
+        catch(Exception exception)
+        {
+            return Failure(request,AnalogComputeCapabilityEvaluation.Failure(AnalogCapabilityReasonCode.InternalError,
+                $"Unexpected independent-verification error: {exception.Message}"),AnalogDesignFailureStage.IndependentVerification);
         }
     }
 
@@ -109,7 +132,7 @@ public sealed class PrecisionAnalogDesignEngine
         return request.Operation switch
         {
             AnalogComputeOperationType.PracticalIntegrator or AnalogComputeOperationType.PracticalDifferentiator => dynamic.Synthesize(request),
-            AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier or AnalogComputeOperationType.PrecisionLimiter => piecewise.Synthesize(request),
+            AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier => piecewise.Synthesize(request),
             AnalogComputeOperationType.LogarithmicAmplifier or AnalogComputeOperationType.ExponentialAmplifier => junction.Synthesize(request),
             _ => throw new NotSupportedException($"No synthesizer is registered for {request.Operation}.")
         };
@@ -122,7 +145,7 @@ public sealed class PrecisionAnalogDesignEngine
             affineVerifier.Verify(request,synthesis.Circuit),
         AnalogComputeOperationType.PracticalIntegrator or AnalogComputeOperationType.PracticalDifferentiator =>
             dynamicVerifier.Verify(request,synthesis.Circuit,synthesis.Components),
-        AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier or AnalogComputeOperationType.PrecisionLimiter =>
+        AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier =>
             piecewiseVerifier.Verify(request,synthesis.Circuit),
         AnalogComputeOperationType.LogarithmicAmplifier or AnalogComputeOperationType.ExponentialAmplifier =>
             junctionVerifier.Verify(request,synthesis.Circuit),
@@ -131,7 +154,6 @@ public sealed class PrecisionAnalogDesignEngine
 
     private static AnalogCapabilityReasonCode FailureReason(IReadOnlyList<VerificationMetric> failed,AnalogComputeDesignRequest request)
     {
-        if(failed.Any(metric=>metric.Name.Contains("swing",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.OutputSwingInsufficient;
         if(failed.Any(metric=>metric.Name.Contains("GBW",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.GbBandwidthInsufficient;
         if(failed.Any(metric=>metric.Name.Contains("slew",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.SlewRateInsufficient;
         if(failed.Any(metric=>metric.Name.Contains("junction current",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.JunctionCurrentOutOfRange;
@@ -152,8 +174,8 @@ public sealed class PrecisionAnalogDesignEngine
     private static string Relation(AnalogComputeDesignRequest request)=>
         $"Vout = {request.OutputOffsetVoltage:G6} V"+string.Concat(request.Inputs.Select(input=>$" {(input.Coefficient<0?"-":"+")} {Math.Abs(input.Coefficient):G6}*{input.Name}"));
 
-    private static AnalogComputeDesignResult Failure(AnalogComputeDesignRequest request,AnalogComputeCapabilityEvaluation capability)=>
-        new(){Success=false,Capability=capability,Request=request,RequiredVccVoltage=request.SupplyVccVoltage,RequiredVeeVoltage=request.SupplyVeeVoltage};
+    private static AnalogComputeDesignResult Failure(AnalogComputeDesignRequest request,AnalogComputeCapabilityEvaluation capability,AnalogDesignFailureStage stage)=>
+        new(){Success=false,Capability=capability,FailureStage=stage,Request=request,RequiredVccVoltage=request.SupplyVccVoltage,RequiredVeeVoltage=request.SupplyVeeVoltage};
 
     public static string DisplayName(AnalogComputeOperationType operation)=>operation switch
     {
@@ -165,7 +187,6 @@ public sealed class PrecisionAnalogDesignEngine
         AnalogComputeOperationType.ExponentialAmplifier=>"Antilog",
         AnalogComputeOperationType.PracticalIntegrator=>"Integrator",
         AnalogComputeOperationType.PracticalDifferentiator=>"Differentiator",
-        AnalogComputeOperationType.PrecisionLimiter=>"Limiter",
         _=>operation.ToString()
     };
 }

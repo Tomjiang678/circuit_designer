@@ -23,9 +23,10 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private readonly Label formula = new() { AutoSize = true, ForeColor = Color.Navy };
     private readonly Panel linearPanel = new() { Dock = DockStyle.Top, AutoSize = true };
     private readonly Panel mapperPanel = new() { Dock = DockStyle.Top, AutoSize = true, Visible = false };
-    private readonly Panel operationPanel = new() { Dock = DockStyle.Top, AutoSize = false, Height = 142, Visible = false };
+    private readonly Panel operationPanel = new() { Dock = DockStyle.Top, AutoSize = false, Height = 162, Visible = false };
     private readonly GroupBox operationGroup = new() { AutoSize = false, Dock = DockStyle.Fill, Padding = new Padding(8, 15, 8, 5) };
     private readonly FlowLayoutPanel operationFields = new() { Dock = DockStyle.Fill, AutoSize = false, WrapContents = true, AutoScroll = true };
+    private readonly Label operationFormula = new() { Dock = DockStyle.Bottom, Height = 34, ForeColor = Color.Navy, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(6, 0, 0, 0) };
     private AnalogComputeOperationType? displayedOperation;
     private readonly Dictionary<AnalogComputeOperationType, OperationUiState> operationStates = [];
     private readonly Dictionary<Control, OperationFieldUi> operationFieldUi = [];
@@ -39,18 +40,12 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private readonly NumericUpDown inputMinimum = Number(-1000, 1000, -5, 6);
     private readonly NumericUpDown inputMaximum = Number(-1000, 1000, 5, 6);
     private readonly NumericUpDown maximumFrequency = Number(.001m, 100_000_000, 1000, 3);
+    private readonly NumericUpDown referenceVoltage = Number(.000001m, 1000, 1, 6);
     private readonly NumericUpDown logScale = Number(.000001m, 1000, .1m, 6);
-    private readonly NumericUpDown temperature = Number(-200, 500, 25, 2);
-    private readonly NumericUpDown saturationCurrent = Number(.000000000000000001m, 1, .000000000001m, 15);
-    private readonly NumericUpDown ideality = Number(.1m, 10, 1, 4);
     private readonly NumericUpDown ki = Number(.000001m, 100_000_000, 1000, 6);
     private readonly NumericUpDown kd = Number(.000000001m, 1000, .001m, 9);
     private readonly NumericUpDown lowerCorner = Number(.001m, 100_000_000, 10, 3);
     private readonly NumericUpDown upperCorner = Number(.001m, 100_000_000, 10000, 3);
-    private readonly NumericUpDown lowerLimit = Number(-1000, 1000, -5, 6);
-    private readonly NumericUpDown upperLimit = Number(-1000, 1000, 5, 6);
-    private readonly NumericUpDown maximumJunctionCurrent = Number(.000000001m, 10, .01m, 9);
-    private readonly Label mapperEquation = new() { AutoSize = true, ForeColor = Color.Navy };
     private readonly NumericUpDown vcc = Number(.001m, 1000, 15, 3);
     private readonly NumericUpDown vee = Number(-1000, -.001m, -15, 3);
     private readonly NumericUpDown errorPercent = Number(.001m, 100, 1, 3);
@@ -67,6 +62,8 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private readonly NumericUpDown slewRate = Number(1, 1_000_000_000_000, 1_000_000, 0);
     private readonly Button design = new() { Text = "Design Circuit", AutoSize = true, Padding = new Padding(12, 3, 12, 3) };
     private readonly Label status = new() { AutoSize = false, AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(12, 2, 0, 0) };
+    private readonly Button advancedToggle = new() { Text = "Advanced ▸", AutoSize = true, FlatStyle = FlatStyle.System };
+    private readonly TableLayoutPanel advancedPanel = new() { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Visible = false, Margin = Padding.Empty };
     private readonly TabControl results = new() { Dock = DockStyle.Fill };
     private readonly TabPage schematicResultPage = new("Schematic") { BackColor = SystemColors.Window };
     private readonly TabPage analysisResultPage = new("Analysis") { BackColor = SystemColors.Window };
@@ -93,8 +90,21 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         inputCount.ValueChanged += (_, _) => { if (!updatingUi) RebuildInputRows(); };
         inputs.CellValueChanged += (_, _) => { if (!updatingUi) UpdateFormula(); };
         offset.ValueChanged += (_, _) => { if (!updatingUi) UpdateFormula(); };
-        foreach (var control in new Control[] { vinLow, vinHigh, voutLow, voutHigh }) control.TextChanged += (_, _) => { if (!updatingUi) UpdateMapperEquation(); };
+        logScale.ValueChanged += (_, _) => { if (!updatingUi) UpdateOperationFormula(); };
+        referenceVoltage.ValueChanged += (_, _) => { if (!updatingUi) UpdateOperationFormula(); };
+        idealOpAmp.CheckedChanged += (_, _) =>
+        {
+            gbw.Enabled = slewRate.Enabled = !idealOpAmp.Checked;
+            if (selectedOperation is AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier)
+                BuildOperationPanel();
+        };
+        gbw.Enabled = slewRate.Enabled = false;
         design.Click += DesignClicked;
+        advancedToggle.Click += (_, _) =>
+        {
+            advancedPanel.Visible = !advancedPanel.Visible;
+            advancedToggle.Text = advancedPanel.Visible ? "Advanced ▾" : "Advanced ▸";
+        };
         RebuildInputRows();
         OperationChanged();
     }
@@ -130,9 +140,10 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         var parameters = new GroupBox { Text = "Precision Analog Computing Parameters", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(10, 18, 10, 8) };
         var content = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
         BuildLinearPanel(); BuildMapperPanel();
-        InitializeOperationFields(); operationGroup.Controls.Add(operationFields); operationPanel.Controls.Add(operationGroup);
+        InitializeOperationFields(); operationGroup.Controls.Add(operationFields); operationGroup.Controls.Add(operationFormula); operationPanel.Controls.Add(operationGroup);
         content.Controls.Add(linearPanel); content.Controls.Add(mapperPanel); content.Controls.Add(operationPanel);
-        content.Controls.Add(BuildElectricalRow()); content.Controls.Add(BuildComponentRow());
+        advancedPanel.Controls.Add(BuildElectricalRow(),0,0);advancedPanel.Controls.Add(BuildComponentRow(),0,1);
+        content.Controls.Add(advancedToggle);content.Controls.Add(advancedPanel);
         var action = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1 };
         action.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         action.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -185,8 +196,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     {
         var row = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
         AddField(row, "Vin Low (V):", vinLow); AddField(row, "Vin High (V):", vinHigh); AddField(row, "Vout Low (V):", voutLow); AddField(row, "Vout High (V):", voutHigh);
-        var layout = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        layout.Controls.Add(row); layout.Controls.Add(mapperEquation); mapperPanel.Controls.Add(layout);
+        mapperPanel.Controls.Add(row);
     }
 
     private void BuildOperationPanel()
@@ -202,47 +212,52 @@ public sealed class PrecisionAnalogWizardControl : UserControl
                 ShowOperationField(halfPolarity, "Polarity:");
                 ShowOperationField(gainK, "Gain K:");
                 ShowInputRange();
+                if(!idealOpAmp.Checked)ShowOperationField(maximumFrequency,"Max f (Hz):");
                 break;
             case AnalogComputeOperationType.PrecisionFullWaveRectifier:
                 ShowOperationField(outputPolarity, "Output:");
                 ShowOperationField(gainK, "Gain K:");
                 ShowInputRange();
+                if(!idealOpAmp.Checked)ShowOperationField(maximumFrequency,"Max f (Hz):");
                 break;
             case AnalogComputeOperationType.LogarithmicAmplifier:
                 if (inputMinimum.Value <= 0) inputMinimum.Value = .01m;
                 ShowInputRange();
-                ShowOperationField(logScale, "S (V/neper):");
-                ShowJunctionFields();
+                ShowOperationField(referenceVoltage, "Vref (V):");
+                ShowOperationField(logScale, "Log Scale S (V):");
                 break;
             case AnalogComputeOperationType.ExponentialAmplifier:
                 ShowInputRange();
-                ShowOperationField(logScale, "S (V):");
-                ShowJunctionFields();
+                ShowOperationField(referenceVoltage, "Vref (V):");
+                ShowOperationField(logScale, "Exponent Scale S (V):");
                 break;
             case AnalogComputeOperationType.PracticalIntegrator:
                 ShowOperationField(ki, "Ki (1/s):");
                 ShowOperationField(lowerCorner, "Leak fL (Hz):");
-                ShowOperationField(upperCorner, "Verify to (Hz):");
-                ShowInputRange();
                 break;
             case AnalogComputeOperationType.PracticalDifferentiator:
                 ShowOperationField(kd, "Kd (s):");
-                ShowOperationField(lowerCorner, "Lower Corner (Hz):");
-                ShowOperationField(upperCorner, "Upper Corner (Hz):");
-                ShowInputRange();
-                break;
-            case AnalogComputeOperationType.PrecisionLimiter:
-                ShowOperationField(gainK, "Gain K:");
-                ShowOperationField(lowerLimit, "VLOW (V):");
-                ShowOperationField(upperLimit, "VHIGH (V):");
-                ShowInputRange();
-                ShowOperationField(maximumFrequency, "Max f (Hz):");
+                ShowOperationField(upperCorner, "Useful fMax (Hz):");
                 break;
         }
+        UpdateOperationFormula();
         operationFields.ResumeLayout(false);
         operationFields.PerformLayout();
         operationPanel.ResumeLayout(false);
         operationPanel.PerformLayout();
+    }
+
+    private void UpdateOperationFormula()
+    {
+        operationFormula.Text = selectedOperation switch
+        {
+            AnalogComputeOperationType.LogarithmicAmplifier =>
+                $"Vout = -S × ln(Vin / Vref),   S = {logScale.Value:G} V per e-fold,   Vref = {referenceVoltage.Value:G} V",
+            AnalogComputeOperationType.ExponentialAmplifier =>
+                $"Vout = Vref × exp(Vin / S),   S = {logScale.Value:G} V per e-fold,   Vref = {referenceVoltage.Value:G} V",
+            _ => string.Empty
+        };
+        operationFormula.Visible = !string.IsNullOrEmpty(operationFormula.Text);
     }
 
     private void InitializeOperationFields()
@@ -250,9 +265,8 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         foreach (var item in new (Control Control, string Label)[]
         {
             (halfPolarity,"Polarity:"),(outputPolarity,"Output:"),(gainK,"Gain K:"),(inputMinimum,"Vin Min (V):"),(inputMaximum,"Vin Max (V):"),
-            (maximumFrequency,"Max f (Hz):"),(logScale,"S:"),(saturationCurrent,"Is (A):"),(ideality,"n:"),(temperature,"Temp (C):"),
-            (maximumJunctionCurrent,"Max Ij (A):"),(ki,"Ki (1/s):"),(kd,"Kd (s):"),(lowerCorner,"Lower Corner (Hz):"),
-            (upperCorner,"Upper Corner (Hz):"),(lowerLimit,"VLOW (V):"),(upperLimit,"VHIGH (V):")
+            (maximumFrequency,"Max f (Hz):"),(referenceVoltage,"Vref (V):"),(logScale,"S:"),(ki,"Ki (1/s):"),(kd,"Kd (s):"),(lowerCorner,"Lower Corner (Hz):"),
+            (upperCorner,"Upper Corner (Hz):")
         })
         {
             var label = Label(item.Label, 7);
@@ -281,14 +295,6 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         ShowOperationField(inputMaximum, "Vin Max (V):");
     }
 
-    private void ShowJunctionFields()
-    {
-        ShowOperationField(saturationCurrent, "Is (A):");
-        ShowOperationField(ideality, "n:");
-        ShowOperationField(temperature, "Temp (C):");
-        ShowOperationField(maximumJunctionCurrent, "Max Ij (A):");
-    }
-
     private Control BuildElectricalRow()
     {
         var group = new GroupBox { Text = "Electrical / Practical Constraints", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 15, 8, 5) };
@@ -296,7 +302,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         AddField(row, "VCC (V):", vcc); AddField(row, "VEE (V):", vee); AddField(row, "Allowed Error (%):", errorPercent);
         idealOpAmp.Margin = new Padding(12, 6, 0, 0); row.Controls.Add(idealOpAmp);
         AddField(row, "GBW (Hz):", gbw); AddField(row, "Slew (V/s):", slewRate);
-        row.Controls.Add(new Label { Text = "GND = 0 V; references are synthesized from VCC/GND/VEE (no Vref input).", AutoSize = true, Margin = new Padding(14, 7, 0, 0), ForeColor = Color.DimGray });
+        row.Controls.Add(new Label { Text = "GND = 0 V; requested reference voltages are synthesized from the supply rails.", AutoSize = true, Margin = new Padding(14, 7, 0, 0), ForeColor = Color.DimGray });
         group.Controls.Add(row); return group;
     }
 
@@ -304,8 +310,9 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     {
         var group = new GroupBox { Text = "Component Constraints", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 15, 8, 5) };
         var row = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-        resistorSeries.DropDownStyle = ComboBoxStyle.DropDownList; resistorSeries.DataSource = Enum.GetValues<AnalogStandardSeries>(); resistorSeries.Width = 110; resistorSeries.SelectedItem = AnalogStandardSeries.E96;
-        capacitorSeries.DropDownStyle = ComboBoxStyle.DropDownList; capacitorSeries.DataSource = Enum.GetValues<AnalogStandardSeries>(); capacitorSeries.Width = 110; capacitorSeries.SelectedItem = AnalogStandardSeries.E96;
+        // These fixed choices need no CurrencyManager: binding before parenting resets selection.
+        resistorSeries.DropDownStyle = ComboBoxStyle.DropDownList; resistorSeries.Items.AddRange(Enum.GetValues<AnalogStandardSeries>().Cast<object>().ToArray()); resistorSeries.Width = 110; resistorSeries.SelectedItem = AnalogStandardSeries.E96;
+        capacitorSeries.DropDownStyle = ComboBoxStyle.DropDownList; capacitorSeries.Items.AddRange(Enum.GetValues<AnalogStandardSeries>().Cast<object>().ToArray()); capacitorSeries.Width = 110; capacitorSeries.SelectedItem = AnalogStandardSeries.E96;
         row.Controls.Add(Label("R Series:", 7)); row.Controls.Add(resistorSeries);
         AddField(row, "R Min:", resistorMinimum); AddField(row, "R Max:", resistorMaximum);
         row.Controls.Add(Label("C Series:", 7)); row.Controls.Add(capacitorSeries);
@@ -330,6 +337,13 @@ public sealed class PrecisionAnalogWizardControl : UserControl
             var coreWatch = Stopwatch.StartNew();
             var result = await Task.Run(() => engine.Design(request));
             coreWatch.Stop();
+            if (IsDisposed || Disposing) return;
+            if (selectedOperation != request.Operation)
+            {
+                status.Text = "Design result discarded because the selected operation changed.";
+                status.ForeColor = Color.DarkGoldenrod;
+                return;
+            }
             status.Text = result.Success ? "Verified design complete." : $"{result.Capability.ReasonCode}: {result.Capability.Message}";
             status.ForeColor = result.Success ? Color.DarkGreen : Color.Firebrick;
             var renderWatch = Stopwatch.StartNew();
@@ -337,8 +351,15 @@ public sealed class PrecisionAnalogWizardControl : UserControl
             renderWatch.Stop(); totalWatch.Stop();
             UiPerformanceTrace.Design("Precision Analog Computing", buildWatch.Elapsed, coreWatch.Elapsed, renderWatch.Elapsed, totalWatch.Elapsed);
         }
-        catch (Exception exception) { status.Text = exception.Message; status.ForeColor = Color.Firebrick; }
-        finally { designing = false; UpdateDesignAvailability(); }
+        catch (Exception exception)
+        {
+            if (!IsDisposed && !Disposing) { status.Text = exception.Message; status.ForeColor = Color.Firebrick; }
+        }
+        finally
+        {
+            designing = false;
+            if (!IsDisposed && !Disposing) UpdateDesignAvailability();
+        }
     }
 
     private AnalogComputeDesignRequest BuildRequest()
@@ -346,6 +367,8 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         var terms = new List<AnalogInputTerm>();
         foreach (DataGridViewRow row in inputs.Rows)
             terms.Add(new(Convert.ToString(row.Cells[0].Value)!, Parse(row, 1)));
+        var leakCorner = (double)lowerCorner.Value;
+        var usefulDifferentiationMaximum = (double)upperCorner.Value;
         return new()
         {
             Operation = selectedOperation,
@@ -358,29 +381,24 @@ public sealed class PrecisionAnalogWizardControl : UserControl
             SupplyVccVoltage = (double)vcc.Value,
             SupplyVeeVoltage = (double)vee.Value,
             MaximumFunctionErrorPercent = (double)errorPercent.Value,
-            UseInputRangesForFeasibility = false,
             GainK = (double)gainK.Value,
             HalfWavePolarity = (HalfWavePolarity)halfPolarity.SelectedItem!,
             OutputPolarity = (RectifierOutputPolarity)outputPolarity.SelectedItem!,
             MinimumInputVoltage = (double)inputMinimum.Value,
             MaximumInputVoltage = (double)inputMaximum.Value,
             MaximumExpectedFrequencyHz = (double)maximumFrequency.Value,
-            ReferenceVoltage = Math.Min(1d, (double)vcc.Value / 2d),
+            ReferenceVoltage = (double)referenceVoltage.Value,
             LogScaleVoltage = (double)logScale.Value,
             IntegrationConstantPerSecond = (double)ki.Value,
             DifferentiationConstantSecond = (double)kd.Value,
-            LowerCornerHz = (double)lowerCorner.Value,
-            UpperCornerHz = (double)upperCorner.Value,
-            LowerOutputLimitVoltage = (double)lowerLimit.Value,
-            UpperOutputLimitVoltage = (double)upperLimit.Value,
-            MaximumJunctionCurrentAmpere = (double)maximumJunctionCurrent.Value,
-            Junction = new()
-            {
-                Behavior = DiodeBehaviorModel.ShockleyJunction,
-                SaturationCurrentAmpere = (double)saturationCurrent.Value,
-                EmissionCoefficient = (double)ideality.Value,
-                TemperatureCelsius = (double)temperature.Value
-            },
+            DifferentiationUsefulUpperFrequencyHz = selectedOperation == AnalogComputeOperationType.PracticalDifferentiator
+                ? usefulDifferentiationMaximum : 0,
+            LowerCornerHz = leakCorner,
+            UpperCornerHz = selectedOperation == AnalogComputeOperationType.PracticalIntegrator
+                ? Math.Max(leakCorner * 1_000, leakCorner * 10)
+                : usefulDifferentiationMaximum,
+            MaximumJunctionCurrentAmpere = .01,
+            Junction = new JunctionModelParameters(),
             OpAmp = new()
             {
                 UseIdealOpAmp = idealOpAmp.Checked,
@@ -410,8 +428,8 @@ public sealed class PrecisionAnalogWizardControl : UserControl
             if (!result.Success || result.CircuitGraph is null)
             {
                 schematicView.Document = null;
-                UiControlHost.ReplaceSingleChild(analysisHost, CreateMessageControl($"{result.Capability.Level}\r\n{result.Capability.ReasonCode}\r\n{result.Capability.Message}\r\n{result.Capability.SuggestedAlternative}"));
-                calculationsView.Text = $"{result.Capability.Level}\r\n{result.Capability.ReasonCode}\r\n{result.Capability.Message}\r\n{result.Capability.SuggestedAlternative}";
+                UiControlHost.ReplaceSingleChild(analysisHost, CreateMessageControl($"{result.FailureStage}\r\n{result.Capability.ReasonCode}\r\n{result.Capability.Message}\r\n{result.Capability.SuggestedAlternative}"));
+                calculationsView.Text = $"Design failed during {result.FailureStage}.\r\n{result.Capability.ReasonCode}\r\n{result.Capability.Message}\r\n{result.Capability.SuggestedAlternative}";
                 spiceView.Text = "* No netlist generated.";
             }
             else
@@ -420,13 +438,13 @@ public sealed class PrecisionAnalogWizardControl : UserControl
                 schematicView.Document = new PrecisionAnalogSchematicLayoutService().Layout(result.CircuitGraph);
                 stageWatch.Stop(); UiPerformanceTrace.Stage("Precision Analog", "RenderSchematic", stageWatch.Elapsed);
                 stageWatch.Restart();
-                UiControlHost.ReplaceSingleChild(analysisHost, CreateInteractiveAnalysisControl(result));
+                UpdateAnalysisControl(result);
                 stageWatch.Stop(); UiPerformanceTrace.Stage("Precision Analog", "RenderAnalysis", stageWatch.Elapsed);
                 stageWatch.Restart();
-                calculationsView.Text = string.Join("\r\n", result.Calculations.Select(record => $"{record.Title}\r\n  {record.Expression}\r\n  => {record.Result}{(record.Note is null ? "" : "\r\n  " + record.Note)}")) + "\r\n\r\nACTUAL VERIFICATION\r\n" + string.Join("\r\n", result.VerificationMetrics.Select(metric => $"{metric.Name}: target {metric.Target:G9}, actual {metric.Actual:G9}, error {metric.Error:G6}, {(metric.Pass ? "PASS" : "FAIL")}"));
+                calculationsView.Text = new PrecisionAnalogDesignReportBuilder().BuildText(result);
                 stageWatch.Stop(); UiPerformanceTrace.Stage("Precision Analog", "RenderCalculations", stageWatch.Elapsed);
                 stageWatch.Restart();
-                spiceView.Text = new PrecisionAnalogSpiceExportService().Export(result);
+                spiceView.Text = BuildSpicePreview(result);
                 stageWatch.Stop(); UiPerformanceTrace.Stage("Precision Analog", "RenderNetlist", stageWatch.Elapsed);
             }
             reportNeedsRefresh = true;
@@ -438,113 +456,76 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         EnsureReportPreview();
     }
 
-    private static Control CreateInteractiveAnalysisControl(AnalogComputeDesignResult result)
+    private void UpdateAnalysisControl(AnalogComputeDesignResult result)
     {
         if (result.Request.Operation is AnalogComputeOperationType.PracticalIntegrator or AnalogComputeOperationType.PracticalDifferentiator)
-            return new AnalogBodePlotControl { Dock = DockStyle.Fill, Analysis = result.Analysis };
-        if (result.Request.Operation is AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier)
-            return new RectifierWaveformPlotControl { Dock = DockStyle.Fill, Result = result };
-        if (result.Request.Operation is not (AnalogComputeOperationType.GeneralLinearCombination or AnalogComputeOperationType.VoltageRangeMapper))
-            return new AffineTransferPlotControl
+        {
+            if (analysisHost.Controls.Count == 1 && analysisHost.Controls[0] is DynamicAnalysisControl existingDynamic)
             {
-                Dock = DockStyle.Fill,
-                Analysis = result.Analysis,
-                SweepInput = "Vin",
-                LowerLimit = result.Request.SupplyVeeVoltage + result.Request.OpAmp.OutputSwingHeadroomVoltage,
-                UpperLimit = result.Request.SupplyVccVoltage - result.Request.OpAmp.OutputSwingHeadroomVoltage
-            };
-        return result.Request.Operation == AnalogComputeOperationType.VoltageRangeMapper
-            ? CreateRangeMapperAnalysisControl(result)
-            : CreateLinearCombinationAnalysisControl(result);
-    }
-
-    private static Control CreateRangeMapperAnalysisControl(AnalogComputeDesignResult result)
-    {
-        var (root,toolbar)=CreateAnalysisLayout();
-        var inputStart = Math.Min(result.Request.InputLowVoltage, result.Request.InputHighVoltage);
-        var inputStop = Math.Max(result.Request.InputLowVoltage, result.Request.InputHighVoltage);
-        toolbar.Controls.Add(new Label
-        {
-            Text = $"Input range: {inputStart:G8} V to {inputStop:G8} V    Output range: {result.Request.OutputLowVoltage:G8} V to {result.Request.OutputHighVoltage:G8} V",
-            AutoSize = true,
-            Margin = new Padding(3, 7, 0, 0)
-        });
-        root.Controls.Add(new AffineTransferPlotControl
-        {
-            Dock = DockStyle.Fill,
-            SweepInput = "VIN",
-            LowerLimit = result.Request.SupplyVeeVoltage + result.Request.OpAmp.OutputSwingHeadroomVoltage,
-            UpperLimit = result.Request.SupplyVccVoltage - result.Request.OpAmp.OutputSwingHeadroomVoltage,
-            PreferredMinimumY = Math.Min(result.Request.OutputLowVoltage, result.Request.OutputHighVoltage),
-            PreferredMaximumY = Math.Max(result.Request.OutputLowVoltage, result.Request.OutputHighVoltage),
-            Analysis = new AffineSweepAnalysisService().Analyze(result, "VIN", new Dictionary<string, double>(), inputStart, inputStop)
-        }, 0, 1);
-        return root;
-    }
-
-    private static Control CreateLinearCombinationAnalysisControl(AnalogComputeDesignResult result)
-    {
-        var (root,toolbar)=CreateAnalysisLayout();
-        var sweep = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 105 };
-        sweep.Items.AddRange(result.Request.Inputs.Select(input => (object)input.Name).ToArray()); sweep.SelectedIndex = 0;
-        var start = Number(-1_000_000, 1_000_000, -1, 4); var stop = Number(-1_000_000, 1_000_000, 1, 4);
-        var update = new Button { Text = "Update Plot", AutoSize = true, MinimumSize = new Size(95, 27) };
-        toolbar.Controls.Add(Label("Sweep Input:", 7)); toolbar.Controls.Add(sweep); toolbar.Controls.Add(Label("From (V):", 7)); toolbar.Controls.Add(start); toolbar.Controls.Add(Label("To (V):", 7)); toolbar.Controls.Add(stop); toolbar.Controls.Add(update);
-        var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1, SplitterWidth = 6 };
-        split.SizeChanged += (_, _) =>
-        {
-            var available = split.ClientSize.Width - split.SplitterWidth;
-            if (available > 480) split.SplitterDistance = Math.Clamp(250, 190, available - 290);
-        };
-        var fixedGroup = new GroupBox { Text = "Fixed Inputs", Dock = DockStyle.Fill, Padding = new Padding(7, 18, 7, 7) };
-        var fixedGrid = new DataGridView { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
-        fixedGrid.Columns.Add("Input", "Input"); fixedGrid.Columns.Add("Voltage", "Voltage (V)"); fixedGrid.Columns[0].ReadOnly = true;
-        foreach (var input in result.Request.Inputs) fixedGrid.Rows.Add(input.Name, 0d);
-        fixedGroup.Controls.Add(fixedGrid); split.Panel1.Controls.Add(fixedGroup);
-        var plot = new AffineTransferPlotControl
-        {
-            Dock = DockStyle.Fill,
-            LowerLimit = result.Request.SupplyVeeVoltage + result.Request.OpAmp.OutputSwingHeadroomVoltage,
-            UpperLimit = result.Request.SupplyVccVoltage - result.Request.OpAmp.OutputSwingHeadroomVoltage
-        };
-        split.Panel2.Controls.Add(plot); root.Controls.Add(split, 0, 1);
-
-        void RefreshRows()
-        {
-            foreach (DataGridViewRow row in fixedGrid.Rows)
-            {
-                var swept = string.Equals(Convert.ToString(row.Cells[0].Value), Convert.ToString(sweep.SelectedItem), StringComparison.OrdinalIgnoreCase);
-                row.Cells[1].ReadOnly = swept;
-                row.DefaultCellStyle.BackColor = swept ? SystemColors.Control : SystemColors.Window;
-                row.Cells[1].ToolTipText = swept ? "This input is swept on the horizontal axis." : "This input is held at the entered voltage.";
+                existingDynamic.UpdateResult(result);
+                return;
             }
+            var dynamicAnalysis=new DynamicAnalysisControl();dynamicAnalysis.UpdateResult(result);
+            UiControlHost.ReplaceSingleChild(analysisHost,dynamicAnalysis);
+            return;
         }
-        void Analyze()
+        if (result.Request.Operation is AnalogComputeOperationType.LogarithmicAmplifier or
+            AnalogComputeOperationType.ExponentialAmplifier or
+            AnalogComputeOperationType.PrecisionHalfWaveRectifier or
+            AnalogComputeOperationType.PrecisionFullWaveRectifier)
         {
-            try
+            if (analysisHost.Controls.Count == 1 && analysisHost.Controls[0] is AffineTransferPlotControl existing)
             {
-                var fixedValues = fixedGrid.Rows.Cast<DataGridViewRow>().ToDictionary(row => Convert.ToString(row.Cells[0].Value)!, row => double.TryParse(Convert.ToString(row.Cells[1].Value), out var value) ? value : throw new FormatException($"{row.Cells[0].Value} fixed voltage is invalid."), StringComparer.OrdinalIgnoreCase);
-                var selected = Convert.ToString(sweep.SelectedItem)!;
-                var analysis = new AffineSweepAnalysisService().Analyze(result, selected, fixedValues, (double)start.Value, (double)stop.Value);
-                plot.SweepInput = selected; plot.Analysis = analysis;
+                ConfigureNonlinearTransferPlot(existing, result);
+                return;
             }
-            catch (Exception exception) { MessageBox.Show(root, exception.Message, "Analysis", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            var plot = new AffineTransferPlotControl { Dock = DockStyle.Fill };
+            ConfigureNonlinearTransferPlot(plot, result);
+            UiControlHost.ReplaceSingleChild(analysisHost, plot);
+            return;
         }
-        sweep.SelectedIndexChanged += (_, _) => { RefreshRows(); Analyze(); };
-        update.Click += (_, _) => Analyze();
-        fixedGrid.CellEndEdit += (_, _) => Analyze();
-        RefreshRows(); Analyze(); return root;
+        if(result.Request.Operation==AnalogComputeOperationType.VoltageRangeMapper)
+        {
+            if(analysisHost.Controls.Count==1&&analysisHost.Controls[0] is AffineTransferPlotControl existingMapper)
+            {ConfigureRangeMapperPlot(existingMapper,result);return;}
+            var mapper=new AffineTransferPlotControl{Dock=DockStyle.Fill};ConfigureRangeMapperPlot(mapper,result);
+            UiControlHost.ReplaceSingleChild(analysisHost,mapper);return;
+        }
+        if(analysisHost.Controls.Count==1&&analysisHost.Controls[0] is LinearCombinationAnalysisControl existingLinear)
+        {existingLinear.UpdateResult(result);return;}
+        var linear=new LinearCombinationAnalysisControl();linear.UpdateResult(result);UiControlHost.ReplaceSingleChild(analysisHost,linear);
     }
 
-    private static (TableLayoutPanel Root,FlowLayoutPanel Toolbar) CreateAnalysisLayout()
+    private static void ConfigureNonlinearTransferPlot(AffineTransferPlotControl plot, AnalogComputeDesignResult result)
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(8) };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Padding = new Padding(0, 0, 0, 5) };
-        root.Controls.Add(toolbar,0,0);
-        return (root,toolbar);
+        plot.SuspendLayout();
+        try
+        {
+            plot.SweepInput = "Vin";
+            plot.LowerLimit = result.Request.SupplyVeeVoltage + result.Request.OpAmp.OutputSwingHeadroomVoltage;
+            plot.UpperLimit = result.Request.SupplyVccVoltage - result.Request.OpAmp.OutputSwingHeadroomVoltage;
+            // Vin-Vout means a linear voltage axis. A logarithmic X axis would make ln(Vin) look like a straight line.
+            plot.LogarithmicXAxis = false;
+            if (result.Analysis is { Points.Count: > 0 } analysis)
+            {
+                var values = analysis.Points.SelectMany(point => new[] { point.Theoretical ?? point.Target, point.Actual }).ToArray();
+                var minimum = values.Min(); var maximum = values.Max(); var padding = Math.Max(.02, (maximum - minimum) * .08);
+                plot.PreferredMinimumY = minimum - padding; plot.PreferredMaximumY = maximum + padding;
+            }
+            plot.Analysis = result.Analysis;
+        }
+        finally { plot.ResumeLayout(false); }
+    }
+
+    private static void ConfigureRangeMapperPlot(AffineTransferPlotControl plot,AnalogComputeDesignResult result)
+    {
+        var inputStart=Math.Min(result.Request.InputLowVoltage,result.Request.InputHighVoltage);
+        var inputStop=Math.Max(result.Request.InputLowVoltage,result.Request.InputHighVoltage);
+        plot.SweepInput="VIN";plot.LowerLimit=result.Request.SupplyVeeVoltage+result.Request.OpAmp.OutputSwingHeadroomVoltage;
+        plot.UpperLimit=result.Request.SupplyVccVoltage-result.Request.OpAmp.OutputSwingHeadroomVoltage;
+        plot.PreferredMinimumY=Math.Min(result.Request.OutputLowVoltage,result.Request.OutputHighVoltage);
+        plot.PreferredMaximumY=Math.Max(result.Request.OutputLowVoltage,result.Request.OutputHighVoltage);
+        plot.Analysis=new AffineSweepAnalysisService().Analyze(result,"VIN",new Dictionary<string,double>(),inputStart,inputStop);
     }
 
     private static void ExportReport(Control owner, AnalogComputeDesignResult result, PrecisionAnalogDesignReportService service, bool json)
@@ -623,6 +604,12 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
+    private static string BuildSpicePreview(AnalogComputeDesignResult result)
+    {
+        try { return new PrecisionAnalogSpiceExportService().Export(result); }
+        catch(NotSupportedException exception) { return "* SPICE export unavailable: " + exception.Message; }
+    }
+
     private void ExportCurrentReport(bool json)
     {
         if (renderedResult is not { Success: true } result) return;
@@ -645,7 +632,6 @@ public sealed class PrecisionAnalogWizardControl : UserControl
             mapperPanel.Visible = selectedOperation == AnalogComputeOperationType.VoltageRangeMapper;
             operationPanel.Visible = !linearPanel.Visible && !mapperPanel.Visible;
             BuildOperationPanel();
-            if (selectedOperation == AnalogComputeOperationType.VoltageRangeMapper) UpdateMapperEquation();
             UpdateDesignAvailability();
             displayedOperation = selectedOperation;
             status.Text = string.Empty;
@@ -659,9 +645,9 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     }
 
     private OperationUiState CaptureOperationState() => new(
-        gainK.Value, inputMinimum.Value, inputMaximum.Value, maximumFrequency.Value, logScale.Value, temperature.Value,
-        saturationCurrent.Value, ideality.Value, ki.Value, kd.Value, lowerCorner.Value, upperCorner.Value,
-        lowerLimit.Value, upperLimit.Value, maximumJunctionCurrent.Value, halfPolarity.SelectedIndex, outputPolarity.SelectedIndex);
+        gainK.Value, inputMinimum.Value, inputMaximum.Value, maximumFrequency.Value, referenceVoltage.Value, logScale.Value,
+        ki.Value, kd.Value, lowerCorner.Value, upperCorner.Value,
+        halfPolarity.SelectedIndex, outputPolarity.SelectedIndex);
 
     private void RestoreOperationState(AnalogComputeOperationType operation)
     {
@@ -671,14 +657,12 @@ public sealed class PrecisionAnalogWizardControl : UserControl
                 AnalogComputeOperationType.LogarithmicAmplifier => OperationUiState.Default with { InputMinimum = .01m, InputMaximum = 10m },
                 AnalogComputeOperationType.ExponentialAmplifier => OperationUiState.Default with { InputMinimum = -.2m, InputMaximum = .2m },
                 AnalogComputeOperationType.PracticalIntegrator => OperationUiState.Default with { InputMinimum = -.05m, InputMaximum = .05m },
-                AnalogComputeOperationType.PracticalDifferentiator => OperationUiState.Default with { InputMinimum = -.1m, InputMaximum = .1m },
+                AnalogComputeOperationType.PracticalDifferentiator => OperationUiState.Default with { InputMinimum = -.1m, InputMaximum = .1m, UpperCorner = 1_000m },
                 _ => OperationUiState.Default
             };
         gainK.Value = state.GainK; inputMinimum.Value = state.InputMinimum; inputMaximum.Value = state.InputMaximum;
-        maximumFrequency.Value = state.MaximumFrequency; logScale.Value = state.LogScale; temperature.Value = state.Temperature;
-        saturationCurrent.Value = state.SaturationCurrent; ideality.Value = state.Ideality; ki.Value = state.Ki; kd.Value = state.Kd;
-        lowerCorner.Value = state.LowerCorner; upperCorner.Value = state.UpperCorner; lowerLimit.Value = state.LowerLimit;
-        upperLimit.Value = state.UpperLimit; maximumJunctionCurrent.Value = state.MaximumJunctionCurrent;
+        maximumFrequency.Value = state.MaximumFrequency; referenceVoltage.Value = state.ReferenceVoltage; logScale.Value = state.LogScale; ki.Value = state.Ki; kd.Value = state.Kd;
+        lowerCorner.Value = state.LowerCorner; upperCorner.Value = state.UpperCorner;
         halfPolarity.SelectedIndex = state.HalfPolarityIndex; outputPolarity.SelectedIndex = state.OutputPolarityIndex;
     }
 
@@ -703,15 +687,6 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     {
         var terms = inputs.Rows.Cast<DataGridViewRow>().Select(row => $"({row.Cells[1].Value ?? 0})*{row.Cells[0].Value}");
         formula.Text = $"Uout = {offset.Value:G} V + " + string.Join(" + ", terms);
-    }
-
-    private void UpdateMapperEquation()
-    {
-        var denominator = vinHigh.Value - vinLow.Value;
-        if (denominator == 0) { mapperEquation.Text = "Input endpoints must be different."; return; }
-        var scale = (voutHigh.Value - voutLow.Value) / denominator;
-        var calculatedOffset = voutLow.Value - scale * vinLow.Value;
-        mapperEquation.Text = $"Calculated Scale a = {scale:G8}; Calculated Offset b = {calculatedOffset:G8} V";
     }
 
     private void BuildNavigation(TreeView tree)
@@ -742,11 +717,11 @@ public sealed class PrecisionAnalogWizardControl : UserControl
 
     private static double Parse(DataGridViewRow row, int column) => double.TryParse(Convert.ToString(row.Cells[column].Value), out var value) ? value : throw new FormatException($"Row {row.Index + 1}, column {row.Cells[column].OwningColumn?.HeaderText ?? column.ToString()} is not a valid number.");
     private sealed record OperationUiState(decimal GainK, decimal InputMinimum, decimal InputMaximum, decimal MaximumFrequency,
-        decimal LogScale, decimal Temperature, decimal SaturationCurrent, decimal Ideality, decimal Ki, decimal Kd,
-        decimal LowerCorner, decimal UpperCorner, decimal LowerLimit, decimal UpperLimit, decimal MaximumJunctionCurrent,
+        decimal ReferenceVoltage, decimal LogScale, decimal Ki, decimal Kd,
+        decimal LowerCorner, decimal UpperCorner,
         int HalfPolarityIndex, int OutputPolarityIndex)
     {
-        public static OperationUiState Default => new(1, -5, 5, 1000, .1m, 25, .000000000001m, 1, 1000, .001m, 10, 10000, -5, 5, .01m, 0, 0);
+        public static OperationUiState Default => new(1, -5, 5, 1000, 1, .1m, 1000, .001m, 10, 10000, 0, 0);
     }
     private sealed record OperationFieldUi(Label Label, Control Container);
     private static NumericUpDown Number(decimal minimum, decimal maximum, decimal value, int decimals) => new CompactNumericUpDown

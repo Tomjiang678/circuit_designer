@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Drawing;
+using System.Diagnostics;
 using System.Windows.Forms;
 using CircuitModuleDesigner.Core.Analysis;
 using CircuitModuleDesigner.Core.Circuit;
@@ -177,9 +178,12 @@ var tests = new (string Name, Action Run)[]
     ,("Precision analog full-wave end-to-end", TestPrecisionAnalogFullWave)
     ,("Precision analog practical integrator end-to-end", TestPrecisionAnalogIntegrator)
     ,("Precision analog practical differentiator end-to-end", TestPrecisionAnalogDifferentiator)
-    ,("Precision analog limiter end-to-end", TestPrecisionAnalogLimiter)
     ,("Precision analog logarithmic end-to-end", TestPrecisionAnalogLog)
     ,("Precision analog antilog end-to-end", TestPrecisionAnalogAntilog)
+    ,("Precision analog E24 E96 operation matrix", TestPrecisionAnalogSeriesMatrix)
+    ,("Precision analog invalid specification matrix", TestPrecisionAnalogInvalidSpecificationMatrix)
+    ,("Precision analog constrained practical matrix", TestPrecisionAnalogConstrainedPracticalMatrix)
+    ,("Precision analog performance and render smoke", TestPrecisionAnalogPerformanceAndRender)
     ,("Precision analog v1 capability failures and freeze", TestPrecisionAnalogV1CapabilityFailures)
 };
 
@@ -251,7 +255,7 @@ static void TestPrecisionAnalogExactE12GainThree()
 {
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
-        Inputs = [new("U1", 3)], OutputOffsetVoltage = 0, UseInputRangesForFeasibility = false,
+        Inputs = [new("U1", 3)], OutputOffsetVoltage = 0,
         MaximumFunctionErrorPercent = 1,
         Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E12, OptimizeStandardValues = true }
     });
@@ -268,7 +272,7 @@ static void TestPrecisionAnalogEightInputs()
     var inputs = Enumerable.Range(1, 8).Select(index => new AnalogInputTerm($"U{index}", index % 2 == 0 ? -5 : 5)).ToArray();
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
-        Inputs = inputs, UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 1,
+        Inputs = inputs, MaximumFunctionErrorPercent = 1,
         Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E24 }
     });
     Require(result.Success, result.Capability.Message);
@@ -280,7 +284,7 @@ static void TestPrecisionAnalogInteractiveSweep()
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
         Inputs = [new("U1", 2), new("U2", -3), new("U3", .5)], OutputOffsetVoltage = 1,
-        UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 5,
+        MaximumFunctionErrorPercent = 5,
         Components = new AnalogComponentSelectionConstraints { ResistorSeries = AnalogStandardSeries.E96 }
     });
     Require(result.Success, result.Capability.Message);
@@ -295,7 +299,7 @@ static void TestPrecisionAnalogRailLimitedSweep()
     var inputs = Enumerable.Range(1, 8).Select(index => new AnalogInputTerm($"U{index}", 1)).ToArray();
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
-        Inputs = inputs, UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 5,
+        Inputs = inputs, MaximumFunctionErrorPercent = 5,
         SupplyVccVoltage = 15, SupplyVeeVoltage = -15
     });
     Require(result.Success, result.Capability.Message);
@@ -314,7 +318,7 @@ static void TestPrecisionAnalogCirExport()
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
         Inputs = [new("U1", 1), new("U2", -1)], OutputOffsetVoltage = .5,
-        UseInputRangesForFeasibility = false, MaximumFunctionErrorPercent = 5
+        MaximumFunctionErrorPercent = 5
     });
     Require(result.Success, result.Capability.Message);
     var cir = new PrecisionAnalogSpiceExportService().Export(result);
@@ -330,11 +334,18 @@ static void TestPrecisionAnalogExtendedCirExport()
         MinimumInputVoltage = -2, MaximumInputVoltage = 2, MaximumFunctionErrorPercent = 5
     });
     Require(halfWave.Success, halfWave.Capability.Message);
-    var nonlinear = new PrecisionAnalogSpiceExportService().Export(halfWave);
-    Require(nonlinear.Contains("D1 ", StringComparison.Ordinal) && nonlinear.Contains(" CMD_DIODE", StringComparison.Ordinal) &&
-            nonlinear.Contains(".MODEL CMD_DIODE D(IS=", StringComparison.Ordinal) && nonlinear.Contains(".TEMP ", StringComparison.Ordinal) &&
-            nonlinear.Contains(".DC V_U1 -2e+0 2e+0 4e-2", StringComparison.Ordinal),
-        $"Precision nonlinear export lacks its explicit diode model, temperature, or DC sweep.\n{nonlinear}");
+    var rectifierExportRejected=false;
+    try { _=new PrecisionAnalogSpiceExportService().Export(halfWave); }
+    catch(NotSupportedException exception) { rectifierExportRejected=exception.Message.Contains("ideal-switch",StringComparison.OrdinalIgnoreCase); }
+    Require(rectifierExportRejected,"Ideal-switch rectifier verification must not silently export a different Shockley-diode circuit.");
+
+    var antilog = new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.ExponentialAmplifier) with
+    {MinimumInputVoltage=-.2,MaximumInputVoltage=.2,ReferenceVoltage=1,LogScaleVoltage=.1});
+    Require(antilog.Success,antilog.Capability.Message);
+    var nonlinear = new PrecisionAnalogSpiceExportService().Export(antilog);
+    Require(nonlinear.Contains("D1 ",StringComparison.Ordinal)&&nonlinear.Contains(".MODEL CMD_DIODE D(IS=",StringComparison.Ordinal)&&
+            nonlinear.Contains(".TEMP ",StringComparison.Ordinal)&&nonlinear.Contains(".DC V_VIN",StringComparison.Ordinal),
+        "Verified Shockley-junction Antilog export is incomplete.");
 
     var integrator = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
@@ -388,6 +399,7 @@ static void TestPrecisionAnalogAbstractDiode()
 static void TestPrecisionAnalogPresentation()
 {
     Require(new AnalogComponentSelectionConstraints().ResistorSeries == AnalogStandardSeries.E96, "Precision Analog must default to E96.");
+    Require(new FilterDesignState().ResistorSeries == StandardComponentSeries.E96, "Filter Design must default resistors to E96.");
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
         Inputs = [new("U1", 1), new("U2", -1)], OutputOffsetVoltage = .5,
@@ -430,6 +442,21 @@ static void TestPrecisionAnalogWizardInitialization()
             using var tree = new TreeView();
             using var wizard = new PrecisionAnalogWizardControl();
             wizard.CreateControl();
+            var advancedPanel=(Control)typeof(PrecisionAnalogWizardControl).GetField("advancedPanel",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            Require(!advancedPanel.Visible,"Advanced electrical/component constraints must not occupy the primary specification surface by default.");
+            using var host = new Form();
+            host.Controls.Add(wizard);
+            host.CreateControl();
+            var seriesChoices = Descendants(wizard).OfType<ComboBox>()
+                .Where(box => box.Items.Cast<object>().Any(item => item is AnalogStandardSeries)).ToArray();
+            Require(seriesChoices.Length == 2 && seriesChoices.All(box => Equals(box.SelectedItem, AnalogStandardSeries.E96)),
+                "Hosted Precision Analog series selectors must default to E96: " + string.Join(", ", seriesChoices.Select(box => box.SelectedItem)));
+            seriesChoices[0].SelectedItem = AnalogStandardSeries.E24;
+            host.Controls.Remove(wizard);
+            host.Controls.Add(wizard);
+            Require(Equals(seriesChoices[0].SelectedItem, AnalogStandardSeries.E24), "Reparenting must preserve the user's series selection.");
+            seriesChoices[0].SelectedItem = AnalogStandardSeries.E96;
+            host.Controls.Remove(wizard);
             Require(tree.Nodes.Count == 0, "Preloaded Precision Analog wizard changed navigation before activation.");
             wizard.AttachNavigation(tree);
             Require(tree.Nodes.Count == 1 && tree.Nodes[0].Nodes.Count == Enum.GetValues<AnalogComputeOperationType>().Length, "Wizard navigation did not expose all planned operations.");
@@ -439,13 +466,23 @@ static void TestPrecisionAnalogWizardInitialization()
             void Select(AnalogComputeOperationType operation){operationField.SetValue(wizard,operation);operationChanged.Invoke(wizard,null);}
             Select(AnalogComputeOperationType.LogarithmicAmplifier);
             Require(inputMinimum.Value==.01m,"Log operation did not restore its own positive-domain input default.");
+            var operationFields=(FlowLayoutPanel)typeof(PrecisionAnalogWizardControl).GetField("operationFields",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var logLabels=operationFields.Controls.Cast<Control>().Where(control=>control.Visible).SelectMany(Descendants).OfType<Label>().Where(label=>label.Visible).Select(label=>label.Text).ToArray();
+            Require(logLabels.SequenceEqual(new[]{"Vin Min (V):","Vin Max (V):","Vref (V):","Log Scale S (V):"}),"Log UI fields are incomplete or still expose internal junction parameters: "+string.Join(",",logLabels));
+            var referenceVoltage=(NumericUpDown)typeof(PrecisionAnalogWizardControl).GetField("referenceVoltage",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            referenceVoltage.Value=2.5m;
+            var buildRequest=typeof(PrecisionAnalogWizardControl).GetMethod("BuildRequest",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+            var logRequest=(AnalogComputeDesignRequest)buildRequest.Invoke(wizard,null)!;
+            Require(Nearly(logRequest.ReferenceVoltage,2.5,1e-12),"The editable Vref value was not copied into the Log design request.");
+            Require(typeof(PrecisionAnalogWizardControl).GetField("temperature",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic) is null&&
+                    typeof(PrecisionAnalogWizardControl).GetField("ideality",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic) is null,
+                "Temperature/ideality input controls still exist in the simplified UI.");
             Select(AnalogComputeOperationType.PrecisionHalfWaveRectifier);
             Require(inputMinimum.Value==-5m,"Rectifier inherited the Log operation input range instead of its own bipolar state.");
             inputMinimum.Value=-3m;
             Select(AnalogComputeOperationType.PrecisionFullWaveRectifier);
             Select(AnalogComputeOperationType.PrecisionHalfWaveRectifier);
             Require(inputMinimum.Value==-3m,"Rectifier operation state was not preserved across lightweight navigation changes.");
-            var operationFields=(FlowLayoutPanel)typeof(PrecisionAnalogWizardControl).GetField("operationFields",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             var visibleLabels=operationFields.Controls.Cast<Control>().Where(control=>control.Visible).SelectMany(Descendants).OfType<Label>().Where(label=>label.Visible).Select(label=>label.Text).ToArray();
             Require(visibleLabels.SequenceEqual(new[]{"Polarity:","Gain K:","Vin Min (V):","Vin Max (V):"}),"Half-wave field visibility/order is unstable: "+string.Join(",",visibleLabels));
             var halfPolarity=(ComboBox)typeof(PrecisionAnalogWizardControl).GetField("halfPolarity",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
@@ -474,10 +511,43 @@ static void TestPrecisionAnalogUiResultPageStability()
             Require(result.Success,result.Capability.Message);
             var show=typeof(PrecisionAnalogWizardControl).GetMethod("ShowResult",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
             var tabs=(TabControl)typeof(PrecisionAnalogWizardControl).GetField("results",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var analysisHost=(Panel)typeof(PrecisionAnalogWizardControl).GetField("analysisHost",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             var original=tabs.TabPages.Cast<TabPage>().ToArray();
+            show.Invoke(wizard,[result]);wizard.PerformLayout();
+            var rectifierPlot=analysisHost.Controls[0];var rectifierBounds=rectifierPlot.Bounds;
             for(var index=0;index<20;index++){show.Invoke(wizard,[result]);wizard.PerformLayout();}
             Require(tabs.TabPages.Count==5,"Repeated Design changed the result tab count.");
             Require(original.SequenceEqual(tabs.TabPages.Cast<TabPage>()),"Repeated Design recreated one or more result TabPages.");
+            Require(ReferenceEquals(rectifierPlot,analysisHost.Controls[0])&&rectifierBounds==rectifierPlot.Bounds,
+                "Repeated Rectifier Design rebuilt or moved the Vin-Vout plot control.");
+            var log=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.LogarithmicAmplifier) with
+            {MinimumInputVoltage=.1,MaximumInputVoltage=10,ReferenceVoltage=1,LogScaleVoltage=.1});
+            var antilog=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.ExponentialAmplifier) with
+            {MinimumInputVoltage=-.2,MaximumInputVoltage=.2,ReferenceVoltage=1,LogScaleVoltage=.1});
+            Require(log.Success&&antilog.Success,"Log/Antilog UI reuse fixtures failed synthesis.");
+            show.Invoke(wizard,[log]);var transferPlot=analysisHost.Controls[0];show.Invoke(wizard,[log]);
+            Require(ReferenceEquals(transferPlot,analysisHost.Controls[0]),"Repeated Log rendering rebuilt the Vin-Vout plot control.");
+            show.Invoke(wizard,[antilog]);
+            Require(ReferenceEquals(transferPlot,analysisHost.Controls[0]),"Log-to-Antilog rendering rebuilt the compatible Vin-Vout plot control.");
+            var integrator=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PracticalIntegrator) with
+            {IntegrationConstantPerSecond=1_000,LowerCornerHz=10,UpperCornerHz=10_000});
+            var differentiator=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with
+            {DifferentiationConstantSecond=.001,DifferentiationUsefulUpperFrequencyHz=1_000});
+            Require(integrator.Success&&differentiator.Success,"Dynamic UI reuse fixtures failed synthesis.");
+            show.Invoke(wizard,[integrator]);wizard.PerformLayout();
+            var bodePlot=analysisHost.Controls[0];var bodeBounds=bodePlot.Bounds;
+            var dynamicTabs=Descendants(bodePlot).OfType<TabControl>().Single();
+            Require(dynamicTabs.TabPages.Count==3,"Dynamic Analysis must contain Magnitude, Phase, and Time-Domain pages.");
+            var dynamicChildren=dynamicTabs.TabPages.Cast<TabPage>().SelectMany(page=>page.Controls.Cast<Control>())
+                .Select(control=>(Control:control,Bounds:control.Bounds)).ToArray();
+            var pageChildCounts=tabs.TabPages.Cast<TabPage>().Select(page=>page.Controls.Count).ToArray();
+            for(var index=0;index<20;index++){show.Invoke(wizard,[integrator]);wizard.PerformLayout();}
+            Require(ReferenceEquals(bodePlot,analysisHost.Controls[0]),"Repeated Integrator Design rebuilt the Bode control.");
+            Require(bodePlot.Bounds==bodeBounds,"Repeated Integrator Design moved or resized the Bode control.");
+            Require(dynamicChildren.All(item=>item.Control.Bounds==item.Bounds),"Repeated Integrator Design moved an Analysis child control.");
+            Require(pageChildCounts.SequenceEqual(tabs.TabPages.Cast<TabPage>().Select(page=>page.Controls.Count)),"Repeated Integrator Design duplicated result-page controls.");
+            show.Invoke(wizard,[differentiator]);wizard.PerformLayout();
+            Require(ReferenceEquals(bodePlot,analysisHost.Controls[0]),"Integrator-to-Differentiator rendering rebuilt the compatible Bode control.");
         }
         catch(Exception exception){failure=exception;}
     });
@@ -502,9 +572,8 @@ static void TestPrecisionAnalogDpiFieldLayout()
                 foreach(var expected in new (AnalogComputeOperationType Operation,int Fields)[]
                 {
                     (AnalogComputeOperationType.PrecisionHalfWaveRectifier,4),(AnalogComputeOperationType.PrecisionFullWaveRectifier,4),
-                    (AnalogComputeOperationType.LogarithmicAmplifier,7),(AnalogComputeOperationType.ExponentialAmplifier,7),
-                    (AnalogComputeOperationType.PracticalIntegrator,5),(AnalogComputeOperationType.PracticalDifferentiator,5),
-                    (AnalogComputeOperationType.PrecisionLimiter,6)
+                    (AnalogComputeOperationType.LogarithmicAmplifier,4),(AnalogComputeOperationType.ExponentialAmplifier,4),
+                    (AnalogComputeOperationType.PracticalIntegrator,2),(AnalogComputeOperationType.PracticalDifferentiator,2)
                 })
                 {
                     operation.SetValue(wizard,expected.Operation);change.Invoke(wizard,null);wizard.PerformLayout();fields.PerformLayout();
@@ -554,7 +623,8 @@ static void RequirePrecisionPresentation(AnalogComputeDesignResult result)
     var document=new PrecisionAnalogSchematicLayoutService().Layout(graph);
     Equal(graph.Components.Count,document.PlacedComponents.Count);
     Require(document.Wires.Count>0,"Precision operation schematic contains no wiring.");
-    Require(new ComponentCollisionDetector().Find(document,4).Count==0,"Precision operation schematic contains overlapping component bodies.");
+    var bodyCollisions=new ComponentCollisionDetector().Find(document,4);
+    Require(bodyCollisions.Count==0,"Precision operation schematic contains overlapping component bodies: "+string.Join(", ",bodyCollisions.Select(pair=>$"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
     var report=new PrecisionAnalogDesignReportService();
     Require(report.ExportHtml(result).Contains(result.TopologyName,StringComparison.Ordinal)&&report.ExportJson(result).Contains("\"Verification\"",StringComparison.Ordinal),"Precision operation report is incomplete.");
 }
@@ -575,16 +645,16 @@ static void TestPrecisionAnalogHalfWave()
         Require(blocked.Max(point=>Math.Abs(point.Actual))<1e-8,"Half-wave blocking region is not zero.");
     }
     var simplifiedUi=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with
-    {GainK=3,HalfWavePolarity=HalfWavePolarity.Negative,MinimumInputVoltage=-5,MaximumInputVoltage=5,UseInputRangesForFeasibility=false});
+    {GainK=3,HalfWavePolarity=HalfWavePolarity.Negative,MinimumInputVoltage=-5,MaximumInputVoltage=5});
     Require(simplifiedUi.Success,"Hidden rectifier sweep defaults must not trigger an output-swing failure when the UI does not request an input range.");
     Require(simplifiedUi.VerificationMetrics.All(metric=>metric.Name!="Output swing"),"Simplified rectifier UI must not report a hidden output-swing gate.");
     var clippedUi=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with
-    {GainK=10,HalfWavePolarity=HalfWavePolarity.Positive,MinimumInputVoltage=-5,MaximumInputVoltage=5,UseInputRangesForFeasibility=false});
+    {GainK=10,HalfWavePolarity=HalfWavePolarity.Positive,MinimumInputVoltage=-5,MaximumInputVoltage=5});
     Require(clippedUi.Success,"Rectifier UI analysis clipping must not reject an otherwise valid topology.");
     Require(clippedUi.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&clippedUi.Analysis.Points.Max(point=>point.Actual)<=15+1e-9,"Rectifier Analysis did not show the rail-clipped selected-value curve.");
-    var waveform=new RectifierWaveformAnalysisService().Build(clippedUi);
-    Require(waveform.Count==361&&Nearly(waveform[0].Periods,0,1e-12)&&Nearly(waveform[^1].Periods,3,1e-12),"Rectifier Analysis must contain exactly three normalized periods.");
-    Require(waveform.Any(point=>point.IsSupplyLimited)&&waveform.Max(point=>point.SelectedVoltage)<=15+1e-9,"Three-period rectifier waveform lost the selected-value rail clipping.");
+    Require(clippedUi.Analysis.AnalysisType.Contains("Vin-Vout",StringComparison.OrdinalIgnoreCase)&&
+            Nearly(clippedUi.Analysis.Points[0].Input,-5,1e-12)&&Nearly(clippedUi.Analysis.Points[^1].Input,5,1e-12),
+        "Rectifier primary Analysis must remain the independently verified Vin-Vout transfer.");
 }
 
 static void TestPrecisionAnalogFullWave()
@@ -629,24 +699,132 @@ static void TestPrecisionAnalogIntegrator()
     Require(result.CircuitGraph!.Components.Any(component=>component.Type==ComponentType.Capacitor)&&
             result.VerificationMetrics.Any(metric=>metric.Name=="Integration constant Ki"),"Integrator did not use/verify its feedback capacitor and Ki.");
     Require(result.Analysis!.Points.All(point=>point.ActualPhaseDegrees.HasValue),"Integrator analysis omitted MNA phase.");
+    var time=result.Analysis.TimeDomain!;
+    Require(time.InputWaveform=="Square Wave"&&time.OutputWaveform=="Triangle Wave"&&time.Points.Count>600,
+        "Integrator Analysis did not generate a three-cycle square-to-triangle demonstration.");
+    var positiveSlope=time.Points.Zip(time.Points.Skip(1),(first,second)=>(first,second))
+        .Where(pair=>pair.first.InputVoltage>0&&pair.second.InputVoltage>0)
+        .Average(pair=>pair.second.ActualOutputVoltage-pair.first.ActualOutputVoltage);
+    var negativeSlope=time.Points.Zip(time.Points.Skip(1),(first,second)=>(first,second))
+        .Where(pair=>pair.first.InputVoltage<0&&pair.second.InputVoltage<0)
+        .Average(pair=>pair.second.ActualOutputVoltage-pair.first.ActualOutputVoltage);
+    Require(positiveSlope<0&&negativeSlope>0,"Integrator time-domain polarity is not inverting.");
+    var selectedValues=result.Components.ToDictionary(component=>component.Reference,component=>component.SelectedValue);
+    var changedComponents=result.Components.Select(component=>component.Reference=="R1"
+        ? component with{SelectedValue=component.SelectedValue*1.2}:component).ToArray();
+    var changedTime=new DynamicTimeDomainAnalysisService().Analyze(result.Request,changedComponents);
+    Require(Math.Abs(changedTime.ActualOutputAmplitudeVoltage-time.ActualOutputAmplitudeVoltage)>1e-5,
+        "Integrator time-domain result is not derived from final selected component values.");
+    var integratorPoint=result.Analysis.Points[result.Analysis.Points.Count/2];
+    var integratorOmega=2*Math.PI*integratorPoint.Input;
+    var integratorTransfer=-selectedValues["R2"]/selectedValues["R1"]/
+        new Complex(1,integratorOmega*selectedValues["R2"]*selectedValues["C1"]);
+    Require(Math.Abs(20*Math.Log10(integratorTransfer.Magnitude)-integratorPoint.Actual)<1e-6,
+        "Integrator Bode curve is inconsistent with selected-value CircuitGraph MNA.");
+    Require(result.TargetRelation.Contains("Rf/Rin",StringComparison.Ordinal)&&
+            result.Calculations.Any(record=>record.Expression.Contains("Ki=1/(Rin*Cf)",StringComparison.Ordinal))&&
+            result.Calculations.Any(record=>record.Expression.Contains("fL=1/(2*pi*Rf*Cf)",StringComparison.Ordinal)),
+        "Integrator calculations do not document the complete practical transfer and design equations.");
+    Require(result.Components.All(component=>component.Series is null or AnalogStandardSeries.E96),"Integrator selected components lost E96 provenance.");
+    foreach(var series in new[]{AnalogStandardSeries.E24,AnalogStandardSeries.E48,AnalogStandardSeries.E96})
+    {
+        var request=PrecisionOperation(AnalogComputeOperationType.PracticalIntegrator) with
+        {IntegrationConstantPerSecond=1_000,LowerCornerHz=10,UpperCornerHz=10_000};
+        var selected=new PrecisionAnalogDesignEngine().Design(request with
+        {Components=request.Components with{ResistorSeries=series,CapacitorSeries=series}});
+        Require(selected.Success,$"Integrator {series} coupled optimization failed: {selected.Capability.Message}");
+        Require(selected.Components.All(component=>component.Series is null||component.Series==series),$"Integrator {series} provenance is incorrect.");
+    }
+    RequireCleanDynamicSchematic(result);
 }
 
 static void TestPrecisionAnalogDifferentiator()
 {
+    var defaultResult = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    {
+        Operation = AnalogComputeOperationType.PracticalDifferentiator,
+        DifferentiationConstantSecond = .001, DifferentiationUsefulUpperFrequencyHz = 1000,
+        MaximumFunctionErrorPercent = 1
+    });
+    Require(defaultResult.Success, "Default E96 differentiator at 1% failed: " + defaultResult.Capability.Message);
+    foreach (var constant in new[] { .0001, .0003, .001 })
+    foreach (var frequency in new[] { 100d, 300d, 1000d })
+    {
+        var selected = new PrecisionAnalogDesignEngine().Design(defaultResult.Request with
+        { DifferentiationConstantSecond = constant, DifferentiationUsefulUpperFrequencyHz = frequency });
+        Require(selected.Success, $"E96 differentiator Kd={constant}, fUseful={frequency}, 1%: {selected.Capability.Message}");
+    }
+    var tooStrict = new PrecisionAnalogDesignEngine().Design(defaultResult.Request with { MaximumFunctionErrorPercent = .001 });
+    Require(!tooStrict.Success && tooStrict.Capability.ReasonCode == AnalogCapabilityReasonCode.StandardValueAccuracyInsufficient,
+        "Unattainable E96 accuracy must still fail independent verification.");
+    var outOfRange = new PrecisionAnalogDesignEngine().Design(defaultResult.Request with { DifferentiationUsefulUpperFrequencyHz = 10_000 });
+    Require(!outOfRange.Success && outOfRange.Capability.ReasonCode == AnalogCapabilityReasonCode.ComponentRangeImpossible,
+        "Physically infeasible differentiator ranges must still be rejected.");
     var result=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with
     {DifferentiationConstantSecond=.001,LowerCornerHz=100,UpperCornerHz=10_000,MinimumInputVoltage=-.1,MaximumInputVoltage=.1});
     RequirePrecisionPresentation(result);
     Equal(2,result.CircuitGraph!.Components.Count(component=>component.Type==ComponentType.Capacitor));
     Require(result.VerificationMetrics.Any(metric=>metric.Name=="Upper limiting corner"),"Differentiator did not independently verify both limiting poles.");
+    var theoreticalPhase=result.Analysis!.Points.Select(point=>point.TargetPhaseDegrees!.Value).ToArray();
+    Require(theoreticalPhase.Zip(theoreticalPhase.Skip(1),(first,second)=>Math.Abs(second-first)).Max()<30,
+        "Differentiator theoretical phase contains an atan2 branch-cut jump.");
+    var time=result.Analysis!.TimeDomain!;
+    Require(time.InputWaveform=="Triangle Wave"&&time.OutputWaveform=="Square Wave"&&time.Points.Count>900,
+        "Differentiator Analysis did not generate a three-cycle triangle-to-square demonstration.");
+    var rising=time.Points.Where(point=>point.Periods-Math.Floor(point.Periods) is >.08 and <.42)
+        .Average(point=>point.ActualOutputVoltage);
+    var falling=time.Points.Where(point=>point.Periods-Math.Floor(point.Periods) is >.58 and <.92)
+        .Average(point=>point.ActualOutputVoltage);
+    Require(rising<0&&falling>0,"Differentiator time-domain polarity is not Vout=-Kd*dVin/dt.");
+    var selectedValues=result.Components.ToDictionary(component=>component.Reference,component=>component.SelectedValue);
+    var changedComponents=result.Components.Select(component=>component.Reference=="R2"
+        ? component with{SelectedValue=component.SelectedValue*1.2}:component).ToArray();
+    var changedTime=new DynamicTimeDomainAnalysisService().Analyze(result.Request,changedComponents);
+    Require(Math.Abs(changedTime.ActualOutputAmplitudeVoltage-time.ActualOutputAmplitudeVoltage)>1e-5,
+        "Differentiator time-domain result is not derived from final selected component values.");
+    var differentiatorPoint=result.Analysis.Points[result.Analysis.Points.Count/2];
+    var s=new Complex(0,2*Math.PI*differentiatorPoint.Input);
+    var differentiatorTransfer=-selectedValues["R2"]*selectedValues["C1"]*s/
+        ((Complex.One+s*selectedValues["R1"]*selectedValues["C1"])*
+         (Complex.One+s*selectedValues["R2"]*selectedValues["C2"]));
+    Require(Math.Abs(20*Math.Log10(differentiatorTransfer.Magnitude)-differentiatorPoint.Actual)<1e-6,
+        "Differentiator Bode curve is inconsistent with selected-value CircuitGraph MNA.");
+    Require(result.TargetRelation.Contains("(1+s Rin Cin)(1+s Rf Cf)",StringComparison.Ordinal)&&
+            result.Calculations.Any(record=>record.Expression.Contains("Kd=Rf*Cin",StringComparison.Ordinal)),
+        "Differentiator does not document its complete bounded transfer and Kd relationship.");
+    var automatic=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with
+    {DifferentiationConstantSecond=.001,DifferentiationUsefulUpperFrequencyHz=1_000});
+    Require(automatic.Success,automatic.Capability.Message);
+    var first=automatic.VerificationMetrics.Single(metric=>metric.Name=="Lower limiting corner");
+    var second=automatic.VerificationMetrics.Single(metric=>metric.Name=="Upper limiting corner");
+    Require(Nearly(first.Target,5_000,1e-12)&&Nearly(second.Target,10_000,1e-12),
+        "Automatic differentiator bandwidth did not produce the documented 5x/10x limiting poles.");
+    foreach(var series in new[]{AnalogStandardSeries.E24,AnalogStandardSeries.E48,AnalogStandardSeries.E96})
+    {
+        var request=PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with
+        {DifferentiationConstantSecond=.001,DifferentiationUsefulUpperFrequencyHz=100,
+         MaximumFunctionErrorPercent=series==AnalogStandardSeries.E24?6:2};
+        var selected=new PrecisionAnalogDesignEngine().Design(request with
+        {Components=request.Components with{ResistorSeries=series,CapacitorSeries=series}});
+        Require(selected.Success,$"Differentiator {series} coupled optimization failed: {selected.Capability.Message}");
+        Require(selected.Components.All(component=>component.Series is null||component.Series==series),$"Differentiator {series} provenance is incorrect.");
+    }
+    RequireCleanDynamicSchematic(result);
 }
 
-static void TestPrecisionAnalogLimiter()
+static void RequireCleanDynamicSchematic(AnalogComputeDesignResult result)
 {
-    var result=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PrecisionLimiter) with
-    {GainK=2,LowerOutputLimitVoltage=-3,UpperOutputLimitVoltage=4,MinimumInputVoltage=-5,MaximumInputVoltage=5});
-    RequirePrecisionPresentation(result);
-    var first=result.Analysis!.Points.First();var last=result.Analysis.Points.Last();
-    Require(Math.Abs(first.Actual+3)<.1&&Math.Abs(last.Actual-4)<.1,"Asymmetric limiter levels were not realized.");
+    var document=new PrecisionAnalogSchematicLayoutService().Layout(result.CircuitGraph!);
+    Require(document.TextAnnotations.Count==0,"Dynamic-operation schematic contains non-circuit captions.");
+    var collisions=new ComponentCollisionDetector().Find(document,12);
+    Require(collisions.Count==0,"Dynamic-operation schematic component/value regions overlap: "+
+        string.Join(", ",collisions.Select(pair=>$"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
+    foreach(var wire in document.Wires)
+    foreach(var segment in wire.Points.Zip(wire.Points.Skip(1),(first,second)=>(First:first,Second:second)))
+    {
+        var crossed=document.PlacedComponents.FirstOrDefault(component=>SegmentCrossesInterior(segment.First,segment.Second,SchematicGeometry.GetBounds(component)));
+        Require(crossed is null,$"Dynamic-operation net {wire.NetName} crosses {crossed?.Component.Reference}.");
+    }
 }
 
 static void TestPrecisionAnalogLog()
@@ -655,7 +833,10 @@ static void TestPrecisionAnalogLog()
     {MinimumInputVoltage=.1,MaximumInputVoltage=10,ReferenceVoltage=1,LogScaleVoltage=.1,
      Junction=new(){Behavior=DiodeBehaviorModel.ShockleyJunction,SaturationCurrentAmpere=1e-12,EmissionCoefficient=1,TemperatureCelsius=25}});
     RequirePrecisionPresentation(result);
-    Require(result.Analysis!.Points.All(point=>point.Input>0)&&result.Warnings.Any(warning=>warning.Contains("vendor-independent",StringComparison.OrdinalIgnoreCase)),"Log domain or matching warning is missing.");
+    Require(result.Analysis!.AnalysisType.Contains("Vin-Vout",StringComparison.OrdinalIgnoreCase)&&result.Analysis.Points.All(point=>point.Input>0&&point.Theoretical.HasValue)&&
+            Nearly(result.Analysis.Points[0].Input,.1,1e-12)&&Nearly(result.Analysis.Points[^1].Input,10,1e-9),"Log Analysis is not the configured Vin-Vout transfer.");
+    Require(result.Warnings.Any(warning=>warning.Contains("vendor-independent",StringComparison.OrdinalIgnoreCase)),"Log matching warning is missing.");
+    RequireCleanJunctionSchematic(result);
 }
 
 static void TestPrecisionAnalogAntilog()
@@ -666,6 +847,43 @@ static void TestPrecisionAnalogAntilog()
     RequirePrecisionPresentation(result);
     var zero=result.Analysis!.Points.MinBy(point=>Math.Abs(point.Input))!;
     Require(Math.Abs(zero.Actual-1)<.03,"Antilog reference output at Vin=0 is incorrect.");
+    Require(result.Analysis.AnalysisType.Contains("Vin-Vout",StringComparison.OrdinalIgnoreCase)&&result.Analysis.Points.All(point=>point.Theoretical.HasValue)&&
+            Nearly(result.Analysis.Points[0].Input,-.2,1e-12)&&Nearly(result.Analysis.Points[^1].Input,.2,1e-12),"Antilog Analysis is not the configured Vin-Vout transfer.");
+    RequireCleanJunctionSchematic(result);
+}
+
+static void RequireCleanJunctionSchematic(AnalogComputeDesignResult result)
+{
+    var document=new PrecisionAnalogSchematicLayoutService().Layout(result.CircuitGraph!);
+    Require(document.TextAnnotations.Count==0,"Log/Antilog schematic should contain only the circuit, without functional-area captions.");
+    var collisions=new ComponentCollisionDetector().Find(document,12);
+    Require(collisions.Count==0,"Log/Antilog schematic contains overlapping component/value regions: "+string.Join(", ",collisions.Select(pair=>$"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
+    foreach(var label in document.NetLabels)
+        Require(!document.PlacedComponents.Any(component=>PointInside(label.Position,SchematicGeometry.GetBounds(component,4))),
+            $"Net label {label.Text} overlaps a component body.");
+    foreach(var wire in document.Wires)
+    foreach(var segment in wire.Points.Zip(wire.Points.Skip(1),(first,second)=>(First:first,Second:second)))
+        Require(!document.PlacedComponents.Any(component=>SegmentCrossesInterior(segment.First,segment.Second,SchematicGeometry.GetBounds(component))),
+            $"Net {wire.NetName} crosses a component body in the Log/Antilog layout.");
+
+    var positions=document.PlacedComponents.ToDictionary(component=>component.Component.Reference,component=>component.Position);
+    if(result.Request.Operation==AnalogComputeOperationType.LogarithmicAmplifier)
+    {
+        Require(Nearly(positions["U1"].X,positions["U2"].X,1e-12)&&positions["U1"].Y<positions["U2"].Y,
+            "Matched Log cells are not aligned as parallel signal modules.");
+        Require(positions["D1"].Y<positions["U1"].Y&&positions["D2"].Y<positions["U2"].Y&&positions["U3"].X>positions["U1"].X,
+            "Log junction feedback and output scale stage lost their module ordering.");
+    }
+    else
+    {
+        Require(positions["R1"].X<positions["U2"].X&&positions["U2"].X<positions["D1"].X&&positions["D1"].X<positions["U3"].X,
+            "Antilog input, junction, and output stages are not ordered left to right.");
+        Require(positions["D2"].Y>positions["D1"].Y&&positions["U1"].Y>positions["U2"].Y,
+            "Antilog matched-reference module is not grouped below the signal path.");
+    }
+
+    static bool PointInside(SchematicPoint point,SchematicRect bounds)=>
+        point.X>bounds.X&&point.X<bounds.X+bounds.Width&&point.Y>bounds.Y&&point.Y<bounds.Y+bounds.Height;
 }
 
 static void TestPrecisionAnalogV1CapabilityFailures()
@@ -679,11 +897,166 @@ static void TestPrecisionAnalogV1CapabilityFailures()
     Require(!overflow.Success&&overflow.Capability.ReasonCode==AnalogCapabilityReasonCode.InvalidInput,"Antilog overflow guard did not fail explicitly.");
     var swing=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with
     {GainK=20,MinimumInputVoltage=-2,MaximumInputVoltage=2});
-    Require(!swing.Success&&swing.Capability.ReasonCode==AnalogCapabilityReasonCode.OutputSwingInsufficient,"Rectifier output swing failure was not classified.");
+    Require(swing.Success&&swing.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&
+            swing.Warnings.Any(warning=>warning.Contains("clipped",StringComparison.OrdinalIgnoreCase)),
+        "Output swing exceedance should remain a successful design and appear as clipped Analysis samples plus a warning.");
+    var affineSwing=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with
+    {Inputs=[new("U1",20,-2,2,0)]});
+    Require(affineSwing.Success&&affineSwing.Warnings.Any(warning=>warning.Contains("beyond",StringComparison.OrdinalIgnoreCase)),
+        "Linear/Affine output swing is still incorrectly treated as a synthesis failure.");
+    var junctionSwing=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.ExponentialAmplifier) with
+    {MinimumInputVoltage=-.2,MaximumInputVoltage=.2,ReferenceVoltage=10,LogScaleVoltage=.1});
+    Require(junctionSwing.Success&&junctionSwing.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&
+            junctionSwing.Warnings.Any(warning=>warning.Contains("clipped",StringComparison.OrdinalIgnoreCase)),
+        "Log/Antilog output swing is still incorrectly treated as a verification failure.");
     var slow=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with
     {DifferentiationConstantSecond=.001,LowerCornerHz=100,UpperCornerHz=10_000,MinimumInputVoltage=-.01,MaximumInputVoltage=.01,
      OpAmp=new(){UseIdealOpAmp=false,GainBandwidthHz=1_000,SlewRateVoltPerSecond=1_000_000}});
     Require(!slow.Success&&slow.Capability.ReasonCode==AnalogCapabilityReasonCode.GbBandwidthInsufficient,"Insufficient GBW was not classified.");
+}
+
+static void TestPrecisionAnalogSeriesMatrix()
+{
+    var operations=Enum.GetValues<AnalogComputeOperationType>();
+    foreach(var series in new[]{AnalogStandardSeries.E24,AnalogStandardSeries.E96})
+    foreach(var operation in operations)
+    {
+        var request=operation switch
+        {
+            AnalogComputeOperationType.GeneralLinearCombination=>PrecisionOperation(operation) with
+                {Inputs=[new("U1",.7,-1,1),new("U2",-1.3,-1,1)],OutputOffsetVoltage=.2},
+            AnalogComputeOperationType.VoltageRangeMapper=>PrecisionOperation(operation) with
+                {InputLowVoltage=.5,InputHighVoltage=4.5,OutputLowVoltage=.2,OutputHighVoltage=3.1},
+            AnalogComputeOperationType.PrecisionHalfWaveRectifier=>PrecisionOperation(operation) with {GainK=1.5},
+            AnalogComputeOperationType.PrecisionFullWaveRectifier=>PrecisionOperation(operation) with {GainK=1.5},
+            AnalogComputeOperationType.LogarithmicAmplifier=>PrecisionOperation(operation) with
+                {MinimumInputVoltage=.1,MaximumInputVoltage=10,ReferenceVoltage=1,LogScaleVoltage=.1},
+            AnalogComputeOperationType.ExponentialAmplifier=>PrecisionOperation(operation) with
+                {MinimumInputVoltage=-.2,MaximumInputVoltage=.2,ReferenceVoltage=1,LogScaleVoltage=.1},
+            AnalogComputeOperationType.PracticalIntegrator=>PrecisionOperation(operation) with
+                {IntegrationConstantPerSecond=1_000,LowerCornerHz=10,UpperCornerHz=10_000},
+            AnalogComputeOperationType.PracticalDifferentiator=>PrecisionOperation(operation) with
+                {DifferentiationConstantSecond=.001,DifferentiationUsefulUpperFrequencyHz=100},
+            _=>throw new InvalidOperationException()
+        };
+        request=request with
+        {
+            MaximumFunctionErrorPercent=series==AnalogStandardSeries.E24?8:2,
+            Components=request.Components with{ResistorSeries=series,CapacitorSeries=series}
+        };
+        var result=new PrecisionAnalogDesignEngine().Design(request);
+        Require(result.Success,$"{operation} {series}: {result.Capability.ReasonCode}: {result.Capability.Message}");
+        Require(result.VerificationMetrics.Count>0&&result.VerificationMetrics.All(metric=>metric.Pass),
+            $"{operation} {series} bypassed independent verification.");
+        Require(result.Components.All(component=>component.Series is null||component.Series==series),
+            $"{operation} {series} component provenance is inconsistent.");
+    }
+}
+
+static void TestPrecisionAnalogInvalidSpecificationMatrix()
+{
+    var invalid=new AnalogComputeDesignRequest[]
+    {
+        PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with {SupplyVccVoltage=double.NaN},
+        PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with {Inputs=[new("U1",1),new("u1",2)]},
+        PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with {Inputs=[new("U1",1,-1,1,2)]},
+        PrecisionOperation(AnalogComputeOperationType.VoltageRangeMapper) with {OutputLowVoltage=1,OutputHighVoltage=1},
+        PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with {GainK=double.PositiveInfinity},
+        PrecisionOperation(AnalogComputeOperationType.PrecisionFullWaveRectifier) with {MinimumInputVoltage=1,MaximumInputVoltage=-1},
+        PrecisionOperation(AnalogComputeOperationType.LogarithmicAmplifier) with {MinimumInputVoltage=0,MaximumInputVoltage=1},
+        PrecisionOperation(AnalogComputeOperationType.ExponentialAmplifier) with {MinimumInputVoltage=-10,MaximumInputVoltage=10,LogScaleVoltage=.1},
+        PrecisionOperation(AnalogComputeOperationType.PracticalIntegrator) with {IntegrationConstantPerSecond=0},
+        PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with {DifferentiationConstantSecond=double.NaN}
+    };
+    foreach(var request in invalid)
+    {
+        var result=new PrecisionAnalogDesignEngine().Design(request);
+        Require(!result.Success&&result.FailureStage==AnalogDesignFailureStage.SpecificationValidation&&
+                result.Capability.ReasonCode is AnalogCapabilityReasonCode.InvalidInput or AnalogCapabilityReasonCode.SupplyRailsInvalid,
+            $"{request.Operation} invalid specification was not classified before synthesis.");
+    }
+}
+
+static void TestPrecisionAnalogConstrainedPracticalMatrix()
+{
+    foreach(var operation in Enum.GetValues<AnalogComputeOperationType>())
+    {
+        var request=PrecisionOperation(operation) with
+        {
+            Components=new AnalogComponentSelectionConstraints
+            {
+                ResistorSeries=AnalogStandardSeries.E24,CapacitorSeries=AnalogStandardSeries.E24,
+                ResistorMinimumOhm=10_000,ResistorMaximumOhm=10_000,
+                CapacitorMinimumFarad=1e-9,CapacitorMaximumFarad=1e-9,OptimizeStandardValues=true
+            }
+        };
+        if(operation==AnalogComputeOperationType.LogarithmicAmplifier)
+            request=request with{MinimumInputVoltage=.1,MaximumInputVoltage=1};
+        if(operation==AnalogComputeOperationType.ExponentialAmplifier)
+            request=request with{MinimumInputVoltage=-.1,MaximumInputVoltage=.1};
+        var result=new PrecisionAnalogDesignEngine().Design(request);
+        Require(result.Success&&result.VerificationMetrics.All(metric=>metric.Pass) ||
+                !result.Success&&result.Capability.ReasonCode is AnalogCapabilityReasonCode.ComponentRangeImpossible or AnalogCapabilityReasonCode.StandardValueAccuracyInsufficient,
+            $"{operation} narrow-range outcome is neither verified nor a precise range/standard-value failure: {result.Capability.ReasonCode}.");
+    }
+
+    foreach(var operation in new[]{AnalogComputeOperationType.PrecisionHalfWaveRectifier,
+                AnalogComputeOperationType.PracticalIntegrator,AnalogComputeOperationType.PracticalDifferentiator})
+    {
+        var request=PrecisionOperation(operation) with
+        {
+            MinimumInputVoltage=-.01,MaximumInputVoltage=.01,
+            OpAmp=new(){UseIdealOpAmp=false,GainBandwidthHz=1,SlewRateVoltPerSecond=1}
+        };
+        if(operation==AnalogComputeOperationType.PracticalIntegrator)
+            request=request with{IntegrationConstantPerSecond=1_000,LowerCornerHz=10,UpperCornerHz=10_000};
+        if(operation==AnalogComputeOperationType.PracticalDifferentiator)
+            request=request with{DifferentiationConstantSecond=.001,DifferentiationUsefulUpperFrequencyHz=100};
+        var result=new PrecisionAnalogDesignEngine().Design(request);
+        Require(!result.Success&&result.FailureStage==AnalogDesignFailureStage.IndependentVerification&&
+                result.Capability.ReasonCode is AnalogCapabilityReasonCode.GbBandwidthInsufficient or AnalogCapabilityReasonCode.SlewRateInsufficient,
+            $"{operation} practical op-amp pressure was not classified by independent verification.");
+    }
+}
+
+static void TestPrecisionAnalogPerformanceAndRender()
+{
+    var requests=Enum.GetValues<AnalogComputeOperationType>().Select(operation=>operation switch
+    {
+        AnalogComputeOperationType.LogarithmicAmplifier=>PrecisionOperation(operation) with {MinimumInputVoltage=.1,MaximumInputVoltage=10},
+        AnalogComputeOperationType.ExponentialAmplifier=>PrecisionOperation(operation) with {MinimumInputVoltage=-.2,MaximumInputVoltage=.2},
+        AnalogComputeOperationType.PracticalIntegrator=>PrecisionOperation(operation) with {IntegrationConstantPerSecond=1_000,LowerCornerHz=10,UpperCornerHz=10_000},
+        AnalogComputeOperationType.PracticalDifferentiator=>PrecisionOperation(operation) with {DifferentiationConstantSecond=.001,DifferentiationUsefulUpperFrequencyHz=100},
+        _=>PrecisionOperation(operation)
+    }).ToArray();
+    var engine=new PrecisionAnalogDesignEngine();
+    var coreWatch=Stopwatch.StartNew();
+    var results=new List<AnalogComputeDesignResult>();
+    for(var repeat=0;repeat<5;repeat++)
+    foreach(var request in requests)
+    {
+        var result=engine.Design(request);Require(result.Success,$"Performance fixture {request.Operation}: {result.Capability.Message}");
+        if(repeat==4)results.Add(result);
+    }
+    coreWatch.Stop();
+
+    TimeSpan buildRequestElapsed=TimeSpan.Zero,renderElapsed=TimeSpan.Zero;Exception? failure=null;
+    var thread=new Thread(() =>
+    {
+        try
+        {
+            using var wizard=new PrecisionAnalogWizardControl();wizard.CreateControl();
+            var build=typeof(PrecisionAnalogWizardControl).GetMethod("BuildRequest",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+            var show=typeof(PrecisionAnalogWizardControl).GetMethod("ShowResult",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+            var watch=Stopwatch.StartNew();for(var index=0;index<100;index++)_ = build.Invoke(wizard,null);watch.Stop();buildRequestElapsed=watch.Elapsed;
+            watch.Restart();foreach(var result in results)for(var index=0;index<20;index++){show.Invoke(wizard,[result]);wizard.PerformLayout();}watch.Stop();renderElapsed=watch.Elapsed;
+        }
+        catch(Exception exception){failure=exception;}
+    });
+    thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();
+    if(failure is not null)throw new InvalidOperationException("Precision performance/render fixture failed.",failure);
+    Console.WriteLine($"[PRECISION PERF] Core40={coreWatch.Elapsed.TotalMilliseconds:F1} ms; BuildRequest100={buildRequestElapsed.TotalMilliseconds:F1} ms; Render160={renderElapsed.TotalMilliseconds:F1} ms");
+    Require(coreWatch.Elapsed<TimeSpan.FromSeconds(10)&&renderElapsed<TimeSpan.FromSeconds(10),"Precision Analog performance smoke exceeded the 10 s safety budget.");
 }
 
 static void TestChebyshevLadderPrototype()

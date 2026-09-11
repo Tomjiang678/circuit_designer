@@ -11,26 +11,26 @@ public enum AnalogComputeOperationType
     LogarithmicAmplifier,
     ExponentialAmplifier,
     PracticalIntegrator,
-    PracticalDifferentiator,
-    PrecisionLimiter
+    PracticalDifferentiator
 }
 
-public enum AnalogCapabilityLevel { Supported, Conditional, Unsupported }
+public enum AnalogCapabilityLevel { Supported, Unsupported }
+
+public enum AnalogDesignFailureStage { None, SpecificationValidation, Synthesis, IndependentVerification }
 
 public enum AnalogCapabilityReasonCode
 {
     None,
-    OperationNotImplemented,
     InvalidInput,
     SupplyRailsInvalid,
-    OutputSwingInsufficient,
     ComponentRangeImpossible,
     StandardValueAccuracyInsufficient,
     CircuitVerificationFailed,
     GbBandwidthInsufficient,
     SlewRateInsufficient,
     JunctionCurrentOutOfRange,
-    TopologyCapabilityUnsupported
+    TopologyCapabilityUnsupported,
+    InternalError
 }
 
 public enum AnalogStandardSeries { E12, E24, E48, E96 }
@@ -62,8 +62,6 @@ public sealed record ComponentSelectionConstraints
 {
     public AnalogStandardSeries ResistorSeries { get; init; } = AnalogStandardSeries.E96;
     public AnalogStandardSeries CapacitorSeries { get; init; } = AnalogStandardSeries.E96;
-    public double ResistorTolerancePercent { get; init; } = 1;
-    public double CapacitorTolerancePercent { get; init; } = 5;
     public double ResistorMinimumOhm { get; init; } = 1_000;
     public double ResistorMaximumOhm { get; init; } = 1_000_000;
     public double CapacitorMinimumFarad { get; init; } = 10e-12;
@@ -77,8 +75,6 @@ public sealed record OpAmpPracticalConstraints
     public bool UseIdealOpAmp { get; init; } = true;
     public double GainBandwidthHz { get; init; } = double.PositiveInfinity;
     public double SlewRateVoltPerSecond { get; init; } = double.PositiveInfinity;
-    public double InputOffsetVoltage { get; init; }
-    public double InputBiasCurrentAmpere { get; init; }
     public double OutputSwingHeadroomVoltage { get; init; }
 }
 
@@ -90,7 +86,6 @@ public sealed record AnalogComputeDesignRequest
     public double SupplyVccVoltage { get; init; } = 15;
     public double SupplyVeeVoltage { get; init; } = -15;
     public double MaximumFunctionErrorPercent { get; init; } = 1;
-    public bool UseInputRangesForFeasibility { get; init; } = true;
     public ComponentSelectionConstraints Components { get; init; } = new();
     public OpAmpPracticalConstraints OpAmp { get; init; } = new();
 
@@ -111,10 +106,9 @@ public sealed record AnalogComputeDesignRequest
     public double LogScaleVoltage { get; init; } = .1;
     public double IntegrationConstantPerSecond { get; init; } = 1_000;
     public double DifferentiationConstantSecond { get; init; } = .001;
+    public double DifferentiationUsefulUpperFrequencyHz { get; init; }
     public double LowerCornerHz { get; init; } = 10;
     public double UpperCornerHz { get; init; } = 10_000;
-    public double LowerOutputLimitVoltage { get; init; } = -5;
-    public double UpperOutputLimitVoltage { get; init; } = 5;
     public double MaximumJunctionCurrentAmpere { get; init; } = .01;
     public JunctionModelParameters Junction { get; init; } = new();
 }
@@ -165,13 +159,31 @@ public sealed record AnalogAnalysisPoint(
 public sealed record AnalogAnalysisResult(
     string AnalysisType,
     IReadOnlyList<AnalogAnalysisPoint> Points,
-    IReadOnlyList<VerificationMetric> Metrics);
+    IReadOnlyList<VerificationMetric> Metrics,
+    DynamicTimeDomainAnalysisResult? TimeDomain = null);
+
+public sealed record DynamicTimeDomainPoint(
+    double Periods,
+    double InputVoltage,
+    double TargetOutputVoltage,
+    double ActualOutputVoltage);
+
+public sealed record DynamicTimeDomainAnalysisResult(
+    string InputWaveform,
+    string OutputWaveform,
+    double DemoFrequencyHz,
+    double InputAmplitudeVoltage,
+    double TargetOutputAmplitudeVoltage,
+    double ActualOutputAmplitudeVoltage,
+    double AmplitudeErrorPercent,
+    IReadOnlyList<DynamicTimeDomainPoint> Points);
 
 public sealed record AnalogComputeDesignResult
 {
     public required bool Success { get; init; }
     public required AnalogComputeCapabilityEvaluation Capability { get; init; }
     public required AnalogComputeDesignRequest Request { get; init; }
+    public AnalogDesignFailureStage FailureStage { get; init; }
     public string TopologyName { get; init; } = "";
     public string TargetRelation { get; init; } = "";
     public CircuitGraph? CircuitGraph { get; init; }
@@ -187,5 +199,5 @@ public sealed record AnalogComputeDesignResult
 public static class PrecisionAnalogV1Status
 {
     public const bool IsFrozen = true;
-    public const string SupportedOperations = "Linear Combination; Range Mapper; Half-Wave; Full-Wave; Log; Antilog; Integrator; Differentiator; Limiter.";
+    public const string SupportedOperations = "Linear Combination; Range Mapper; Half-Wave; Full-Wave; Log; Antilog; Integrator; Differentiator.";
 }

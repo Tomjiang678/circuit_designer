@@ -14,12 +14,13 @@ public sealed class PrecisionAnalogDesignReportBuilder
         text.AppendLine($"Topology: {result.TopologyName}");
         text.AppendLine($"Supply: VCC={result.RequiredVccVoltage:G9} V, GND=0 V, VEE={result.RequiredVeeVoltage:G9} V");
         text.AppendLine("DesignStatus: Success");
+        text.AppendLine($"FailureStage: {result.FailureStage}");
         text.AppendLine($"CapabilityLevel: {result.Capability.Level}");
         text.AppendLine($"CapabilityReasonCode: {result.Capability.ReasonCode}");
         text.AppendLine();
         text.AppendLine("COMPONENT VALUES");
         foreach (var component in result.Components)
-            text.AppendLine($"{component.Reference,-6} {component.Role,-38} theoretical={component.TheoreticalValue:G9} {component.Unit}, selected={component.SelectedValue:G9} {component.Unit}");
+            text.AppendLine($"{component.Reference,-6} {component.Role,-38} continuous={component.TheoreticalValue:G9} {component.Unit}, selected={component.SelectedValue:G9} {component.Unit}");
         text.AppendLine();
         text.AppendLine("ACTUAL VERIFICATION");
         foreach (var metric in result.VerificationMetrics)
@@ -27,7 +28,10 @@ public sealed class PrecisionAnalogDesignReportBuilder
         text.AppendLine();
         text.AppendLine("DESIGN EQUATIONS");
         foreach(var calculation in result.Calculations)
+        {
             text.AppendLine($"{calculation.Title}: {calculation.Expression} => {calculation.Result}");
+            if(!string.IsNullOrWhiteSpace(calculation.Note))text.AppendLine("  Note: "+calculation.Note);
+        }
         if(result.Warnings.Count>0)
         {
             text.AppendLine();

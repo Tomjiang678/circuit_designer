@@ -9,13 +9,11 @@ internal sealed class PiecewiseOperationSynthesizer
     {
         AnalogComputeOperationType.PrecisionHalfWaveRectifier => HalfWave(request),
         AnalogComputeOperationType.PrecisionFullWaveRectifier => FullWave(request),
-        AnalogComputeOperationType.PrecisionLimiter => Limiter(request),
         _ => throw new NotSupportedException($"{request.Operation} is not a piecewise operation.")
     };
 
     private static OperationSynthesisResult HalfWave(AnalogComputeDesignRequest request)
     {
-        ValidateRangeAndGain(request);
         var ratio = SelectRatio(request.GainK, request.Components);
         // The feedback-clamped core conducts for a negative drive voltage.  A
         // unity input inverter is therefore required for positive half-wave.
@@ -38,7 +36,6 @@ internal sealed class PiecewiseOperationSynthesizer
 
     private static OperationSynthesisResult FullWave(AnalogComputeDesignRequest request)
     {
-        ValidateRangeAndGain(request);
         var network = SelectFullWave(request.GainK, request.Components);
         var negativeOutput=request.OutputPolarity==RectifierOutputPolarity.Negative;
         var recovery = negativeOutput ? null : SelectRatio(1, request.Components);
@@ -67,42 +64,7 @@ internal sealed class PiecewiseOperationSynthesizer
         ]);
     }
 
-    private static OperationSynthesisResult Limiter(AnalogComputeDesignRequest request)
-    {
-        ValidateRangeAndGain(request);
-        if (!(request.LowerOutputLimitVoltage < 0 && request.UpperOutputLimitVoltage > 0 &&
-              request.LowerOutputLimitVoltage < request.UpperOutputLimitVoltage))
-            throw new NotSupportedException("This precision limiter topology requires VLOW < 0 < VHIGH so both references can be derived independently from VEE/GND and VCC/GND.");
-        if (request.UpperOutputLimitVoltage >= request.SupplyVccVoltage ||
-            request.LowerOutputLimitVoltage <= request.SupplyVeeVoltage)
-            throw new ArgumentException("Limiter thresholds must lie strictly inside VEE and VCC.");
-        var gain = SelectRatio(request.GainK, request.Components);
-        var high = SelectDivider(request.UpperOutputLimitVoltage / request.SupplyVccVoltage, request.Components);
-        var low = SelectDivider(request.LowerOutputLimitVoltage / request.SupplyVeeVoltage, request.Components);
-        var unity = SelectRatio(1, request.Components);
-        var graph = BuildLimiter(gain, high, low, unity);
-        AnalogStandardSeries? series = request.Components.OptimizeStandardValues ? request.Components.ResistorSeries : null;
-        var components = RatioComponents(gain, request, "Linear-region gain").Concat(new[]
-        {
-            AnalogSynthesisSupport.Component("R3","VCC to VREF_HIGH","Resistance",high.TopTheory,high.Top,"ohm",series),
-            AnalogSynthesisSupport.Component("R4","VREF_HIGH to GND","Resistance",high.BottomTheory,high.Bottom,"ohm",series),
-            AnalogSynthesisSupport.Component("R5","VEE to VREF_LOW","Resistance",low.TopTheory,low.Top,"ohm",series),
-            AnalogSynthesisSupport.Component("R6","VREF_LOW to GND","Resistance",low.BottomTheory,low.Bottom,"ohm",series),
-            AnalogSynthesisSupport.Component("R7","Output polarity input","Resistance",unity.InputTheory,unity.Input,"ohm",series),
-            AnalogSynthesisSupport.Component("R8","Output polarity feedback","Resistance",unity.FeedbackTheory,unity.Feedback,"ohm",series)
-        }).ToArray();
-        return new(graph, components, "Precision op-amp gain stage with dual diode reference limiter",
-            $"Vout = clamp({request.GainK:G9}*Vin, {request.LowerOutputLimitVoltage:G9}, {request.UpperOutputLimitVoltage:G9})",
-        [
-            new("Linear gain", "K=Rf/Rin", $"target {request.GainK:G9}; selected {gain.Feedback/gain.Input:G9}"),
-            new("Upper reference", "VREF_HIGH=VCC*Rbottom/(Rtop+Rbottom)", $"{request.SupplyVccVoltage*high.Bottom/(high.Top+high.Bottom):G9} V"),
-            new("Lower reference", "VREF_LOW=VEE*Rbottom/(Rtop+Rbottom)", $"{request.SupplyVeeVoltage*low.Bottom/(low.Top+low.Bottom):G9} V"),
-            new("Reference policy", "Both thresholds are constructed from VCC/GND/VEE", "No independent VREF input")
-        ]);
-    }
-
     private sealed record RatioChoice(double InputTheory, double FeedbackTheory, double Input, double Feedback);
-    private sealed record DividerChoice(double TopTheory, double BottomTheory, double Top, double Bottom);
     private sealed record FullWaveChoice(
         double RectifierInputTheory,double RectifierFeedbackTheory,double DirectInputTheory,double RectifiedInputTheory,double SummerFeedbackTheory,
         double RectifierInput,double RectifierFeedback,double DirectInput,double RectifiedInput,double SummerFeedback)
@@ -125,11 +87,18 @@ internal sealed class PiecewiseOperationSynthesizer
             rectifiedTheory=feedbackTheory/(2*gain);
         }
         var best=(Ri:0d,Rf:0d,Rd:0d,Rh:0d,Rs:0d,Score:double.PositiveInfinity);
-        foreach(var ri in AnalogSynthesisSupport.Candidates(rectifierInputTheory,true,constraints))
-        foreach(var rf in AnalogSynthesisSupport.Candidates(rectifierFeedbackTheory,true,constraints))
-        foreach(var rd in AnalogSynthesisSupport.Candidates(directTheory,true,constraints))
-        foreach(var rh in AnalogSynthesisSupport.Candidates(rectifiedTheory,true,constraints))
-        foreach(var rs in AnalogSynthesisSupport.Candidates(feedbackTheory,true,constraints))
+        var summerCandidates=constraints.OptimizeStandardValues
+            ? AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)
+            : [feedbackTheory];
+        foreach(var rs in summerCandidates)
+        {
+        var scaledDirect=rs/gain;var scaledRectified=rs/(2*gain);
+        if(scaledDirect<constraints.ResistorMinimumOhm||scaledDirect>constraints.ResistorMaximumOhm||
+           scaledRectified<constraints.ResistorMinimumOhm||scaledRectified>constraints.ResistorMaximumOhm)continue;
+        foreach(var ri in AnalogSynthesisSupport.Candidates(rs,true,constraints))
+        foreach(var rf in AnalogSynthesisSupport.Candidates(rs,true,constraints))
+        foreach(var rd in AnalogSynthesisSupport.Candidates(scaledDirect,true,constraints))
+        foreach(var rh in AnalogSynthesisSupport.Candidates(scaledRectified,true,constraints))
         {
             var positive=rs/rd;
             var negative=(rs/rh)*(rf/ri)-positive;
@@ -140,6 +109,8 @@ internal sealed class PiecewiseOperationSynthesizer
             var score=errorPositive*errorPositive+errorNegative*errorNegative+symmetry*symmetry+.000001*Math.Log(spread);
             if(score<best.Score)best=(ri,rf,rd,rh,rs,score);
         }
+        }
+        if(!(best.Ri>0))throw new InvalidOperationException("No joint full-wave E-series network exists inside the selected resistor range.");
         return new(rectifierInputTheory,rectifierFeedbackTheory,directTheory,rectifiedTheory,feedbackTheory,best.Ri,best.Rf,best.Rd,best.Rh,best.Rs);
     }
 
@@ -152,34 +123,25 @@ internal sealed class PiecewiseOperationSynthesizer
             inputTheory = Math.Sqrt(constraints.ResistorMinimumOhm * constraints.ResistorMaximumOhm);
             feedbackTheory = inputTheory * target;
         }
-        var inputs = AnalogSynthesisSupport.Candidates(inputTheory, true, constraints);
-        var feedbacks = AnalogSynthesisSupport.Candidates(feedbackTheory, true, constraints);
+        var feedbacks=constraints.OptimizeStandardValues
+            ? AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)
+            : [feedbackTheory];
+        var allValues=constraints.OptimizeStandardValues
+            ? AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)
+            : [inputTheory];
         var best = (Input:0d,Feedback:0d,Score:double.PositiveInfinity);
-        foreach(var input in inputs) foreach(var feedback in feedbacks)
+        foreach(var feedback in feedbacks)
         {
+            var desiredInput=feedback/target;
+            if(desiredInput<constraints.ResistorMinimumOhm||desiredInput>constraints.ResistorMaximumOhm)continue;
+            var input=constraints.OptimizeStandardValues?AnalogPreferredValueSeries.Nearest(desiredInput,allValues):desiredInput;
             var error=Math.Abs(feedback/input-target)/target;
             var spread=Math.Abs(Math.Log(feedback/input));
             var score=error*error+.000001*spread;
             if(score<best.Score) best=(input,feedback,score);
         }
+        if(!(best.Input>0))throw new InvalidOperationException("No standard-value resistor ratio exists inside the selected range.");
         return new(inputTheory,feedbackTheory,best.Input,best.Feedback);
-    }
-
-    private static DividerChoice SelectDivider(double fraction, ComponentSelectionConstraints constraints)
-    {
-        if (!(fraction > 0 && fraction < 1)) throw new ArgumentException("Reference divider fraction must lie between zero and one.");
-        var bottomTheory=Math.Sqrt(constraints.ResistorMinimumOhm*constraints.ResistorMaximumOhm);
-        var topTheory=bottomTheory*(1-fraction)/fraction;
-        if(topTheory<constraints.ResistorMinimumOhm||topTheory>constraints.ResistorMaximumOhm)
-        { topTheory=Math.Sqrt(constraints.ResistorMinimumOhm*constraints.ResistorMaximumOhm); bottomTheory=topTheory*fraction/(1-fraction); }
-        var best=(Top:0d,Bottom:0d,Score:double.PositiveInfinity);
-        foreach(var top in AnalogSynthesisSupport.Candidates(topTheory,true,constraints))
-        foreach(var bottom in AnalogSynthesisSupport.Candidates(bottomTheory,true,constraints))
-        {
-            var error=Math.Abs(bottom/(top+bottom)-fraction);
-            if(error<best.Score)best=(top,bottom,error);
-        }
-        return new(topTheory,bottomTheory,best.Top,best.Bottom);
     }
 
     private static IReadOnlyList<SelectedAnalogComponent> RatioComponents(RatioChoice ratio, AnalogComputeDesignRequest request, string role, int firstReference=1)
@@ -236,15 +198,4 @@ internal sealed class PiecewiseOperationSynthesizer
         return b.Build();
     }
 
-    private static CircuitGraph BuildLimiter(RatioChoice gain,DividerChoice high,DividerChoice low,RatioChoice unity)
-    {
-        var b=Base();var r1=b.Add(ComponentFactory.Resistor("R1",gain.Input));var r2=b.Add(ComponentFactory.Resistor("R2",gain.Feedback));var r3=b.Add(ComponentFactory.Resistor("R3",high.Top));var r4=b.Add(ComponentFactory.Resistor("R4",high.Bottom));var r5=b.Add(ComponentFactory.Resistor("R5",low.Top));var r6=b.Add(ComponentFactory.Resistor("R6",low.Bottom));var r7=b.Add(ComponentFactory.Resistor("R7",unity.Input));var r8=b.Add(ComponentFactory.Resistor("R8",unity.Feedback));var u1=b.Add(ComponentFactory.OpAmp("U1"));var u2=b.Add(ComponentFactory.OpAmp("U2"));var dh=b.Add(ComponentFactory.Diode("D1"));var dl=b.Add(ComponentFactory.Diode("D2"));
-        b.Connect("VIN",r1.GetPin("1"));b.Connect("SUM_GAIN",r1.GetPin("2"),r2.GetPin("1"),u1.GetPin("IN-"));b.Connect("GAIN_INV",r2.GetPin("2"),u1.GetPin("OUT"),r7.GetPin("1"));b.Connect("SUM_RECOVERY",r7.GetPin("2"),r8.GetPin("1"),u2.GetPin("IN-"));b.Connect("VOUT",r8.GetPin("2"),u2.GetPin("OUT"),dh.GetPin("A"),dl.GetPin("K"));b.Connect("VREF_HIGH",r3.GetPin("2"),r4.GetPin("1"),dh.GetPin("K"));b.Connect("VREF_LOW",r5.GetPin("2"),r6.GetPin("1"),dl.GetPin("A"));b.Connect("VCC",r3.GetPin("1"));b.Connect("VEE",r5.GetPin("1"));b.Connect("GND",r4.GetPin("2"),r6.GetPin("2"),u1.GetPin("IN+"),u2.GetPin("IN+"));AnalogSynthesisSupport.ConnectOpAmpSupplies(b,u1);AnalogSynthesisSupport.ConnectOpAmpSupplies(b,u2);return b.Build();
-    }
-
-    private static void ValidateRangeAndGain(AnalogComputeDesignRequest request)
-    {
-        if (!(request.GainK>0&&double.IsFinite(request.GainK)))throw new ArgumentException("Gain K must be positive and finite.");
-        if (!(request.MinimumInputVoltage<request.MaximumInputVoltage))throw new ArgumentException("Input minimum must be below input maximum.");
-    }
 }

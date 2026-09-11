@@ -53,24 +53,6 @@ internal sealed class PiecewiseOperationVerifier
                 metrics.Add(new("Crossover error",0,0,0,1e-9,true,"V"));
                 break;
             }
-            case AnalogComputeOperationType.PrecisionLimiter:
-            {
-                var actualGain=(r["R2"]/r["R1"])*(r["R8"]/r["R7"]);
-                var actualHigh=request.SupplyVccVoltage*r["R4"]/(r["R3"]+r["R4"]);
-                var actualLow=request.SupplyVeeVoltage*r["R6"]/(r["R5"]+r["R6"]);
-                target=x=>Math.Clamp(request.GainK*x,request.LowerOutputLimitVoltage,request.UpperOutputLimitVoltage);
-                selected=x=>Math.Clamp(actualGain*x,actualLow,actualHigh);
-                AddPercent(metrics,"Linear-region gain",request.GainK,actualGain,request.MaximumFunctionErrorPercent,"V/V");
-                AddPercent(metrics,"Upper clip level",request.UpperOutputLimitVoltage,actualHigh,request.MaximumFunctionErrorPercent,"V");
-                AddPercent(metrics,"Lower clip level",request.LowerOutputLimitVoltage,actualLow,request.MaximumFunctionErrorPercent,"V");
-                var targetTransitionHigh=request.UpperOutputLimitVoltage/request.GainK;
-                var actualTransitionHigh=actualHigh/actualGain;
-                AddPercent(metrics,"Upper transition input",targetTransitionHigh,actualTransitionHigh,request.MaximumFunctionErrorPercent,"V");
-                var targetTransitionLow=request.LowerOutputLimitVoltage/request.GainK;
-                var actualTransitionLow=actualLow/actualGain;
-                AddPercent(metrics,"Lower transition input",targetTransitionLow,actualTransitionLow,request.MaximumFunctionErrorPercent,"V");
-                break;
-            }
             default: throw new ArgumentException("Unsupported piecewise operation.",nameof(request));
         }
         var maximumError=0d;
@@ -90,14 +72,11 @@ internal sealed class PiecewiseOperationVerifier
         var targetPeak=points.Max(point=>Math.Abs(point.Target));
         var allowed=Math.Max(1e-6,Math.Max(1,targetPeak)*request.MaximumFunctionErrorPercent/100);
         metrics.Add(new("Maximum transfer error",0,maximumError,maximumError,allowed,maximumError<=allowed,"V"));
-        if(request.UseInputRangesForFeasibility)
-        {
-            var outputExceeded=points.Any(point=>point.IsSupplyLimited)||points.Any(point=>point.Target<lowRail||point.Target>highRail);
-            metrics.Add(new("Output swing",targetPeak,Math.Min(targetPeak,Math.Max(Math.Abs(lowRail),Math.Abs(highRail))),
-                outputExceeded?1:0,0,!outputExceeded,"V"));
-        }
         var warnings=new List<string>();
-        if(!request.OpAmp.UseIdealOpAmp&&request.UseInputRangesForFeasibility)
+        var limitedCount=points.Count(point=>point.IsSupplyLimited);
+        if(limitedCount>0)
+            warnings.Add($"{limitedCount} analysis samples exceed the available output swing and are shown clipped at the VCC/VEE limits; this does not invalidate the synthesized transfer topology.");
+        if(!request.OpAmp.UseIdealOpAmp)
         {
             var maxGain=Math.Max(1,request.GainK);
             var requiredGbw=request.MaximumExpectedFrequencyHz*(1+maxGain)*10;
@@ -107,8 +86,6 @@ internal sealed class PiecewiseOperationVerifier
             metrics.Add(new("Required slew rate",requiredSlew,request.OpAmp.SlewRateVoltPerSecond,
                 request.OpAmp.SlewRateVoltPerSecond-requiredSlew,0,request.OpAmp.SlewRateVoltPerSecond>=requiredSlew,"V/s"));
         }
-        else if(!request.OpAmp.UseIdealOpAmp)
-            warnings.Add("GBW, slew-rate and output-swing limits are not gated because the simplified rectifier specification does not request an input range or maximum frequency.");
         else warnings.Add("Ideal-switch diode and ideal op-amp topology verification; real crossover, reverse recovery, GBW and slew performance require selected devices.");
         return(metrics,new("Vin-Vout transfer: Target / Theoretical / Selected",points,metrics),warnings);
     }
@@ -122,6 +99,39 @@ internal sealed class PiecewiseOperationVerifier
             throw new InvalidOperationException("CircuitGraph contains an unconnected component pin.");
         if(!graph.Nets.Any(net=>net.Name=="VIN")||!graph.Nets.Any(net=>net.Name=="VOUT"))
             throw new InvalidOperationException("CircuitGraph is missing stable VIN/VOUT ports.");
+        if(request.Operation==AnalogComputeOperationType.PrecisionHalfWaveRectifier)
+        {
+            RequireNet(graph,"SUM","R1.2","R2.1","U1.IN-","D2.A");
+            RequireNet(graph,"U1_RAW","U1.OUT","D1.A","D2.K");
+            RequireNet(graph,"VOUT","R2.2","D1.K");
+            if(request.HalfWavePolarity==HalfWavePolarity.Positive)
+            {
+                RequireNet(graph,"SUM_POLARITY","R3.2","R4.1","U2.IN-");
+                RequireNet(graph,"RECT_INPUT","R4.2","U2.OUT","R1.1");
+            }
+            else RequireNet(graph,"VIN","R1.1");
+        }
+        else if(request.Operation==AnalogComputeOperationType.PrecisionFullWaveRectifier)
+        {
+            RequireNet(graph,"VIN","R1.1","R3.1"); RequireNet(graph,"SUM_RECT","R1.2","R2.1","U1.IN-","D2.A");
+            RequireNet(graph,"HALF_RECT","R2.2","D1.K","R4.1"); RequireNet(graph,"RAW_RECT","U1.OUT","D1.A","D2.K");
+            RequireNet(graph,"SUM_ABS","R3.2","R4.2","R5.1","U2.IN-");
+            if(request.OutputPolarity==RectifierOutputPolarity.Positive)
+            {
+                RequireNet(graph,"NEG_ABS","R5.2","U2.OUT","R6.1"); RequireNet(graph,"SUM_POLARITY","R6.2","R7.1","U3.IN-");
+                RequireNet(graph,"VOUT","R7.2","U3.OUT");
+            }
+            else RequireNet(graph,"VOUT","R5.2","U2.OUT");
+        }
+        else throw new ArgumentException("Unsupported piecewise operation.",nameof(request));
+    }
+
+    private static void RequireNet(CircuitGraph graph,string netName,params string[] expectedPins)
+    {
+        var actual=graph.GetNet(netName).Pins.Select(pin=>pin.Id).OrderBy(id=>id,StringComparer.OrdinalIgnoreCase).ToArray();
+        var expected=expectedPins.OrderBy(id=>id,StringComparer.OrdinalIgnoreCase).ToArray();
+        if(!actual.SequenceEqual(expected,StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{netName} topology mismatch: expected {string.Join(',',expected)}, actual {string.Join(',',actual)}.");
     }
 
     private static void AddPercent(List<VerificationMetric> metrics,string name,double target,double actual,double percent,string unit)

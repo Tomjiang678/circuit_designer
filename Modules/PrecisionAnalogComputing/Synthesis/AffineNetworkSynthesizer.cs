@@ -16,7 +16,6 @@ internal sealed class AffineNetworkSynthesizer
 
     public AffineSynthesisResult Synthesize(AnalogComputeDesignRequest request)
     {
-        Validate(request);
         var positive = request.Inputs.Where(input => input.Coefficient > 0).ToArray();
         var negative = request.Inputs.Where(input => input.Coefficient < 0).ToArray();
         var positiveOffset = Math.Max(0, request.OutputOffsetVoltage);
@@ -153,17 +152,4 @@ internal sealed class AffineNetworkSynthesizer
         return best!;
     }
 
-    private static void Validate(AnalogComputeDesignRequest request)
-    {
-        if (request.Inputs.Count is < 1 or > 8) throw new ArgumentException("General Linear Combination supports 1 to 8 inputs.");
-        if (request.SupplyVccVoltage <= 0 || request.SupplyVeeVoltage >= 0 || request.SupplyVccVoltage <= request.SupplyVeeVoltage)
-            throw new ArgumentException("VCC must be positive and VEE must be negative.");
-        if (request.Inputs.All(input => input.Coefficient == 0) && request.OutputOffsetVoltage == 0)
-            throw new ArgumentException("At least one coefficient or the output offset must be non-zero.");
-        if (request.Inputs.Any(input => !double.IsFinite(input.Coefficient) || input.MinimumVoltage > input.MaximumVoltage || input.NominalVoltage < input.MinimumVoltage || input.NominalVoltage > input.MaximumVoltage))
-            throw new ArgumentException("Input coefficients and voltage ranges must be finite and consistent.");
-        var c = request.Components;
-        if (!(c.ResistorMinimumOhm > 0) || c.ResistorMaximumOhm < c.ResistorMinimumOhm)
-            throw new ArgumentException("Resistor constraints are invalid.");
-    }
 }

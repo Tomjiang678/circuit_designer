@@ -89,12 +89,9 @@ public sealed class FilterAnalysisPlotControl : UserControl
         DrawCurve(e.Graphics, magnitudeBounds, minimumLogFrequency, maximumLogFrequency, magnitudeMinimum, magnitudeMaximum, analysis.Points.Select(point => (point.FrequencyHz, point.MagnitudeDb)), Color.Navy);
         DrawCurve(e.Graphics, phaseBounds, minimumLogFrequency, maximumLogFrequency, phaseMinimum, phaseMaximum, analysis.Points.Select(point => (point.FrequencyHz, point.PhaseDegrees)), Color.DarkGreen);
         DrawCursor(e.Graphics);
-        using var titleFont = new Font(Font, FontStyle.Bold);
-        e.Graphics.DrawString("Actual Circuit Frequency Response", titleFont, Brushes.Black, outer.Left, outer.Top - 2);
-        e.Graphics.DrawString("Frequency (Hz, logarithmic)", Font, Brushes.Black, phaseBounds.Left + phaseBounds.Width / 2 - 70, phaseBounds.Bottom + 20);
-        using var legendPen = new Pen(Color.Navy, 2); e.Graphics.DrawLine(legendPen, magnitudeBounds.Right - 145, magnitudeBounds.Top + 12, magnitudeBounds.Right - 115, magnitudeBounds.Top + 12);
-        e.Graphics.DrawString("CircuitGraph / selected values", Font, Brushes.Navy, magnitudeBounds.Right - 110, magnitudeBounds.Top + 4);
-        e.Graphics.DrawString($"Display floor {magnitudeMinimum:0} dB", Font, Brushes.DimGray, magnitudeBounds.Left + 6, magnitudeBounds.Bottom - 18);
+        var frequencyLabel = "Frequency (Hz)";
+        e.Graphics.DrawString(frequencyLabel, Font, Brushes.Black,
+            phaseBounds.Left + (phaseBounds.Width - e.Graphics.MeasureString(frequencyLabel, Font).Width) / 2, phaseBounds.Bottom + 20);
     }
 
     private double DetermineMagnitudeMinimum()
