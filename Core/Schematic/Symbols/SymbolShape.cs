@@ -6,7 +6,9 @@ public enum SymbolShape
     CapacitorPlates,
     InductorCoil,
     OpAmpTriangle,
-    DiodeJunction
+    DiodeJunction,
+    ComparatorTriangle,
+    LogicGate
 }
 
 public enum SymbolPinDirection

@@ -74,17 +74,19 @@ internal sealed class PiecewiseOperationVerifier
         metrics.Add(new("Maximum transfer error",0,maximumError,maximumError,allowed,maximumError<=allowed,"V"));
         var warnings=new List<string>();
         var limitedCount=points.Count(point=>point.IsSupplyLimited);
+        var envelope=OperatingEnvelopeEvaluator.Metric(points.Select(point=>point.Target),
+            points.Select(point=>point.Theoretical ?? point.Actual),lowRail,highRail);
+        metrics.Add(envelope);
         if(limitedCount>0)
-            warnings.Add($"{limitedCount} analysis samples exceed the available output swing and are shown clipped at the VCC/VEE limits; this does not invalidate the synthesized transfer topology.");
+            warnings.Add($"{limitedCount} analysis samples exceed the available output swing and are shown clipped; the transfer topology remains mathematically valid, but the declared operating envelope is unsupported.");
         if(!request.OpAmp.UseIdealOpAmp)
         {
-            var maxGain=Math.Max(1,request.GainK);
-            var requiredGbw=request.MaximumExpectedFrequencyHz*(1+maxGain)*10;
-            metrics.Add(new("Required GBW",requiredGbw,request.OpAmp.GainBandwidthHz,
-                request.OpAmp.GainBandwidthHz-requiredGbw,0,request.OpAmp.GainBandwidthHz>=requiredGbw,"Hz"));
+            var stageNoiseGains=request.Operation==AnalogComputeOperationType.PrecisionHalfWaveRectifier
+                ? new[]{1+r["R2"]/r["R1"],r.ContainsKey("R4")?1+r["R4"]/r["R3"]:1}
+                : new[]{1+r["R2"]/r["R1"],1+r["R5"]/r["R3"]+r["R5"]/r["R4"],r.ContainsKey("R7")?1+r["R7"]/r["R6"]:1};
+            var requiredGbw=OpAmpFeasibilityEvaluator.RequiredGbw(request.MaximumExpectedFrequencyHz,stageNoiseGains.Max());
             var requiredSlew=2*Math.PI*request.MaximumExpectedFrequencyHz*Math.Min(targetPeak,Math.Max(Math.Abs(lowRail),Math.Abs(highRail)));
-            metrics.Add(new("Required slew rate",requiredSlew,request.OpAmp.SlewRateVoltPerSecond,
-                request.OpAmp.SlewRateVoltPerSecond-requiredSlew,0,request.OpAmp.SlewRateVoltPerSecond>=requiredSlew,"V/s"));
+            OpAmpFeasibilityEvaluator.AddMetrics(metrics,request,requiredGbw,requiredSlew);
         }
         else warnings.Add("Ideal-switch diode and ideal op-amp topology verification; real crossover, reverse recovery, GBW and slew performance require selected devices.");
         return(metrics,new("Vin-Vout transfer: Target / Theoretical / Selected",points,metrics),warnings);

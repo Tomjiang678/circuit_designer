@@ -68,6 +68,7 @@ public sealed class PrecisionAnalogDesignEngine
                 {
                     AnalogCapabilityReasonCode.GbBandwidthInsufficient => "Use a faster abstract op-amp constraint or reduce the operating band/noise gain.",
                     AnalogCapabilityReasonCode.SlewRateInsufficient => "Increase slew-rate capability or reduce frequency/output amplitude.",
+                    AnalogCapabilityReasonCode.OperatingEnvelopeExceeded => "Reduce the declared input/output envelope or provide supply rails and output headroom that cover the complete requested range.",
                     AnalogCapabilityReasonCode.JunctionCurrentOutOfRange => "Reduce the exponential range, increase resistance, or raise the allowed junction current.",
                     _ => effective.Components.ResistorSeries == AnalogStandardSeries.E24
                         ? "Use E48/E96, widen component ranges, or relax the function-error limit."
@@ -157,6 +158,7 @@ public sealed class PrecisionAnalogDesignEngine
         if(failed.Any(metric=>metric.Name.Contains("GBW",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.GbBandwidthInsufficient;
         if(failed.Any(metric=>metric.Name.Contains("slew",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.SlewRateInsufficient;
         if(failed.Any(metric=>metric.Name.Contains("junction current",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.JunctionCurrentOutOfRange;
+        if(failed.Any(metric=>metric.Name.Contains("Operating envelope",StringComparison.OrdinalIgnoreCase)))return AnalogCapabilityReasonCode.OperatingEnvelopeExceeded;
         return request.Components.OptimizeStandardValues?AnalogCapabilityReasonCode.StandardValueAccuracyInsufficient:AnalogCapabilityReasonCode.CircuitVerificationFailed;
     }
 

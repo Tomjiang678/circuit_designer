@@ -613,3 +613,35 @@ C:\Users\Lenovo\AppData\Local\Temp\cmd-pac-field-order\CircuitModuleDesigner.dep
 C:\Users\Lenovo\AppData\Local\Temp\cmd-pac-field-order\CircuitModuleDesigner.runtimeconfig.json
 C:\Users\Lenovo\AppData\Local\Temp\cmd-pac-field-order\CircuitModuleDesigner.dll
 C:\Users\Lenovo\AppData\Local\Temp\cmd-pac-field-order\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\comparator-out\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\comparator-out\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\comparator-out\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\comparator-out\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\comparator-tests -- Comparator\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\comparator-tests -- Comparator\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\comparator-tests -- Comparator\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\comparator-tests -- Comparator\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\comparator-tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\comparator-tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\comparator-tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\comparator-tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\verification\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\verification\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\verification\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\verification\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\verification-tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\verification-tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\verification-tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\verification-tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\final-tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\final-tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\final-tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\final-tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\ui-fix-tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\ui-fix-tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\ui-fix-tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\ui-fix-tests\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\artifacts\final-ui-tests\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\artifacts\final-ui-tests\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\artifacts\final-ui-tests\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\artifacts\final-ui-tests\CircuitModuleDesigner.pdb

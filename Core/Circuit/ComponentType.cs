@@ -6,5 +6,7 @@ public enum ComponentType
     Capacitor,
     Inductor,
     OpAmp,
-    Diode
+    Diode,
+    Comparator,
+    LogicGate
 }

@@ -57,8 +57,8 @@ internal static class AnalogComputeRequestValidator
     }
 
     private static AnalogComputeCapabilityEvaluation? ValidateMapper(AnalogComputeDesignRequest request) =>
-        Finite(request.InputLowVoltage,request.InputHighVoltage,request.OutputLowVoltage,request.OutputHighVoltage) && request.InputHighVoltage!=request.InputLowVoltage && request.OutputHighVoltage!=request.OutputLowVoltage
-            ? null : Failure(AnalogCapabilityReasonCode.InvalidInput,"Range Mapper endpoints must be finite and both input and output endpoint pairs must differ.");
+        Finite(request.InputLowVoltage,request.InputHighVoltage,request.OutputLowVoltage,request.OutputHighVoltage) && request.InputHighVoltage!=request.InputLowVoltage
+            ? null : Failure(AnalogCapabilityReasonCode.InvalidInput,"Range Mapper endpoints must be finite and the input endpoint pair must differ.");
 
     private static AnalogComputeCapabilityEvaluation? ValidatePiecewise(AnalogComputeDesignRequest request) =>
         Enum.IsDefined(request.HalfWavePolarity) && Enum.IsDefined(request.OutputPolarity) && Positive(request.GainK) && Finite(request.MinimumInputVoltage,request.MaximumInputVoltage,request.MaximumExpectedFrequencyHz) &&

@@ -15,6 +15,9 @@ internal sealed class LinearCircuitDcVerifier
     public double Solve(CircuitGraph graph, IReadOnlyDictionary<string, double> fixedVoltages, string outputNet = "VOUT") =>
         SolveNetwork(graph, fixedVoltages, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase), 0, 0).Nodes[outputNet];
 
+    public IReadOnlyDictionary<string, double> SolveNodes(CircuitGraph graph, IReadOnlyDictionary<string, double> fixedVoltages) =>
+        SolveNetwork(graph, fixedVoltages, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase), 0, 0).Nodes;
+
     public LimitedDcSolution SolveWithSupplyLimits(CircuitGraph graph, IReadOnlyDictionary<string, double> fixedVoltages, double lowerOutputVoltage, double upperOutputVoltage, string outputNet = "VOUT")
     {
         if (!(lowerOutputVoltage < upperOutputVoltage)) throw new ArgumentException("The lower op-amp output limit must be below the upper limit.");

@@ -36,7 +36,7 @@ internal sealed class PiecewiseOperationSynthesizer
 
     private static OperationSynthesisResult FullWave(AnalogComputeDesignRequest request)
     {
-        var network = SelectFullWave(request.GainK, request.Components);
+        var network = SelectFullWave(request);
         var negativeOutput=request.OutputPolarity==RectifierOutputPolarity.Negative;
         var recovery = negativeOutput ? null : SelectRatio(1, request.Components);
         var graph = BuildFullWave(network, recovery);
@@ -60,6 +60,8 @@ internal sealed class PiecewiseOperationSynthesizer
         [
             new("Absolute-value identity", "|Vin| = Vin + 2*max(-Vin,0)", "The half-wave core and both summer ratios are selected together."),
             new("Half-axis matching", "K+=R5/R3; K-=(R5/R4)*(R2/R1)-R5/R3", $"target {request.GainK:G9}; selected +{network.PositiveGain:G9}/-{network.NegativeGain:G9}"),
+            new("Standard-value optimization audit","Coupled rectifier ratio + weighted-summer ratio + impedance-scale search",
+                $"evaluated {network.Evaluated} candidates; scalar-feasible {network.ScalarFeasible}; best normalized score {network.Score:G9}",request.Components.OptimizeStandardValues?"Strict selected E-series search.":"Optimize=false continuous component path."),
             new("Verification model", "Ideal-diode state sweep", "121 bipolar samples", "Crossover accuracy depends on real diode and op-amp dynamics.")
         ]);
     }
@@ -67,14 +69,18 @@ internal sealed class PiecewiseOperationSynthesizer
     private sealed record RatioChoice(double InputTheory, double FeedbackTheory, double Input, double Feedback);
     private sealed record FullWaveChoice(
         double RectifierInputTheory,double RectifierFeedbackTheory,double DirectInputTheory,double RectifiedInputTheory,double SummerFeedbackTheory,
-        double RectifierInput,double RectifierFeedback,double DirectInput,double RectifiedInput,double SummerFeedback)
+        double RectifierInput,double RectifierFeedback,double DirectInput,double RectifiedInput,double SummerFeedback,
+        long Evaluated,long ScalarFeasible,double Score)
     {
         public double PositiveGain=>SummerFeedback/DirectInput;
         public double NegativeGain=>(SummerFeedback/RectifiedInput)*(RectifierFeedback/RectifierInput)-PositiveGain;
     }
 
-    private static FullWaveChoice SelectFullWave(double gain,ComponentSelectionConstraints constraints)
+    private sealed record StandardRatio(double Ratio,double Input,double Feedback);
+
+    private static FullWaveChoice SelectFullWave(AnalogComputeDesignRequest request)
     {
+        var gain=request.GainK;var constraints=request.Components;
         var feedbackTheory=Math.Sqrt(constraints.ResistorMinimumOhm*constraints.ResistorMaximumOhm);
         var rectifierInputTheory=feedbackTheory;
         var rectifierFeedbackTheory=feedbackTheory;
@@ -90,28 +96,108 @@ internal sealed class PiecewiseOperationSynthesizer
         var summerCandidates=constraints.OptimizeStandardValues
             ? AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)
             : [feedbackTheory];
+        var allValues=constraints.OptimizeStandardValues
+            ? AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)
+            : [rectifierInputTheory,rectifierFeedbackTheory];
+        var standardRatios=BuildStandardRatios(allValues);
+        var gainTolerance=Math.Max(1e-9,gain*request.MaximumFunctionErrorPercent/100);
+        var positivePeak=Math.Max(0,request.MaximumInputVoltage);
+        var negativePeak=Math.Max(0,-request.MinimumInputVoltage);
+        var targetPeak=gain*Math.Max(positivePeak,negativePeak);
+        var voltageTolerance=Math.Max(1e-6,Math.Max(1,targetPeak)*request.MaximumFunctionErrorPercent/100);
+        long evaluated=0,scalarFeasible=0;
+        void Evaluate(bool feasibleOnly)
+        {
         foreach(var rs in summerCandidates)
         {
-        var scaledDirect=rs/gain;var scaledRectified=rs/(2*gain);
-        if(scaledDirect<constraints.ResistorMinimumOhm||scaledDirect>constraints.ResistorMaximumOhm||
-           scaledRectified<constraints.ResistorMinimumOhm||scaledRectified>constraints.ResistorMaximumOhm)continue;
-        foreach(var ri in AnalogSynthesisSupport.Candidates(rs,true,constraints))
-        foreach(var rf in AnalogSynthesisSupport.Candidates(rs,true,constraints))
-        foreach(var rd in AnalogSynthesisSupport.Candidates(scaledDirect,true,constraints))
-        foreach(var rh in AnalogSynthesisSupport.Candidates(scaledRectified,true,constraints))
-        {
-            var positive=rs/rd;
-            var negative=(rs/rh)*(rf/ri)-positive;
-            var errorPositive=(positive-gain)/gain;
-            var errorNegative=(negative-gain)/gain;
-            var symmetry=(positive-negative)/gain;
-            var spread=new[]{ri,rf,rd,rh,rs}.Max()/new[]{ri,rf,rd,rh,rs}.Min();
-            var score=errorPositive*errorPositive+errorNegative*errorNegative+symmetry*symmetry+.000001*Math.Log(spread);
-            if(score<best.Score)best=(ri,rf,rd,rh,rs,score);
+            var scaledDirect=rs/gain;var scaledRectified=rs/(2*gain);
+            if(scaledDirect<constraints.ResistorMinimumOhm||scaledDirect>constraints.ResistorMaximumOhm)continue;
+            var positiveVoltageTolerance=positivePeak>0?voltageTolerance/positivePeak:double.PositiveInfinity;
+            var positiveLimit=Math.Min(gainTolerance,positiveVoltageTolerance);
+            var directCandidates=!constraints.OptimizeStandardValues?[scaledDirect]
+                :feasibleOnly?allValues.Where(value=>Math.Abs(rs/value-gain)<=positiveLimit+1e-12).ToArray()
+                :AnalogPreferredValueSeries.Nearby(scaledDirect,allValues,3).ToArray();
+            if(directCandidates.Length==0)continue;
+            // Rh is not an independent nearest-value choice: it couples the absolute-value
+            // summer ratio to the rectifier Ri/Rf ratio. Search every bounded series value.
+            var rectifiedCandidates=constraints.OptimizeStandardValues?allValues:[scaledRectified];
+            foreach(var rd in directCandidates)
+            foreach(var rh in rectifiedCandidates)
+            {
+                var positive=rs/rd;
+                var negativeVoltageTolerance=negativePeak>0?voltageTolerance/negativePeak:double.PositiveInfinity;
+                var negativeLow=Math.Max(gain-gainTolerance,Math.Max(positive-gainTolerance,gain-negativeVoltageTolerance));
+                var negativeHigh=Math.Min(gain+gainTolerance,Math.Min(positive+gainTolerance,gain+negativeVoltageTolerance));
+                var ratioLow=(negativeLow+positive)*rh/rs;
+                var ratioHigh=(negativeHigh+positive)*rh/rs;
+                var desiredNegative=(gain+positive)/2;
+                var desiredRectifierRatio=(desiredNegative+positive)*rh/rs;
+                // For fixed Rs/Rd/Rh every verification error is monotone in the
+                // distance between the rectifier ratio and desiredRectifierRatio.
+                // Therefore the two standard ratios bracketing that target contain
+                // the optimum, and are also sufficient to prove whether the
+                // admissible [ratioLow,ratioHigh] interval contains a solution.
+                // This preserves the complete pass/fail search while avoiding a
+                // repeated scan of every Ri/Rf ratio for every impedance scale.
+                var ratioCandidates=BracketingRatios(standardRatios,desiredRectifierRatio,
+                    feasibleOnly?ratioLow:double.NegativeInfinity,
+                    feasibleOnly?ratioHigh:double.PositiveInfinity);
+                foreach(var ratio in ratioCandidates)
+                {
+                    evaluated++;
+                    var negative=(rs/rh)*ratio.Ratio-positive;
+                    var positiveError=Math.Abs(positive-gain);
+                    var negativeError=Math.Abs(negative-gain);
+                    var symmetry=Math.Abs(positive-negative);
+                    var maximumTransferError=Math.Max(positiveError*positivePeak,negativeError*negativePeak);
+                    var worst=Math.Max(Math.Max(positiveError/gainTolerance,negativeError/gainTolerance),
+                        Math.Max(symmetry/gainTolerance,maximumTransferError/voltageTolerance));
+                    if(worst<=1+1e-12)scalarFeasible++;
+                    var sum=(positiveError+negativeError+symmetry)/gainTolerance+maximumTransferError/voltageTolerance;
+                    var spread=new[]{ratio.Input,ratio.Feedback,rd,rh,rs}.Max()/new[]{ratio.Input,ratio.Feedback,rd,rh,rs}.Min();
+                    var score=worst+.001*sum+1e-9*Math.Log(spread);
+                    if(score<best.Score)best=(ratio.Input,ratio.Feedback,rd,rh,rs,score);
+                }
+            }
         }
         }
+        Evaluate(true);
+        if(scalarFeasible==0)Evaluate(false);
         if(!(best.Ri>0))throw new InvalidOperationException("No joint full-wave E-series network exists inside the selected resistor range.");
-        return new(rectifierInputTheory,rectifierFeedbackTheory,directTheory,rectifiedTheory,feedbackTheory,best.Ri,best.Rf,best.Rd,best.Rh,best.Rs);
+        return new(rectifierInputTheory,rectifierFeedbackTheory,directTheory,rectifiedTheory,feedbackTheory,best.Ri,best.Rf,best.Rd,best.Rh,best.Rs,
+            evaluated,scalarFeasible,best.Score);
+    }
+
+    private static IReadOnlyList<StandardRatio> BuildStandardRatios(IReadOnlyList<double> values)
+    {
+        var center=Math.Sqrt(values.Min()*values.Max());
+        return values.SelectMany(input=>values.Select(feedback=>new StandardRatio(feedback/input,input,feedback)))
+            .GroupBy(item=>item.Ratio.ToString("G12",System.Globalization.CultureInfo.InvariantCulture),StringComparer.Ordinal)
+            .Select(group=>group.MinBy(item=>Math.Abs(Math.Log(Math.Sqrt(item.Input*item.Feedback)/center)))!)
+            .OrderBy(item=>item.Ratio).ToArray();
+    }
+
+    private static IReadOnlyList<StandardRatio> BracketingRatios(
+        IReadOnlyList<StandardRatio> ratios,double target,double minimum,double maximum)
+    {
+        if(minimum>maximum||ratios.Count==0)return [];
+        var query=Math.Max(minimum,Math.Min(maximum,target));
+        var low=0;var high=ratios.Count;
+        while(low<high)
+        {
+            var middle=(low+high)/2;
+            if(ratios[middle].Ratio<query)low=middle+1;else high=middle;
+        }
+        var candidates=new List<StandardRatio>(2);
+        void Add(int index)
+        {
+            if(index<0||index>=ratios.Count)return;
+            var candidate=ratios[index];
+            if(candidate.Ratio<minimum-1e-12||candidate.Ratio>maximum+1e-12)return;
+            if(candidates.Count==0||!ReferenceEquals(candidates[0],candidate))candidates.Add(candidate);
+        }
+        Add(low-1);Add(low);
+        return candidates;
     }
 
     private static RatioChoice SelectRatio(double target, ComponentSelectionConstraints constraints)

@@ -148,6 +148,7 @@ public sealed class FilterSchematicControl : UserControl
                 graphics.DrawLine(pen, -40, 0, -24, 0); for (var i = 0; i < 4; i++) graphics.DrawArc(pen, -24 + i * 12, -6, 12, 12, 180, 180); graphics.DrawLine(pen, 24, 0, 40, 0);
                 break;
             case SymbolShape.OpAmpTriangle:
+            case SymbolShape.ComparatorTriangle:
                 graphics.DrawPolygon(pen, [new(-36, -38), new(-36, 38), new(42, 0)]);
                 graphics.DrawLine(pen, -55, -22, -36, -22); graphics.DrawLine(pen, -55, 22, -36, 22); graphics.DrawLine(pen, 42, 0, 55, 0);
                 using (var symbolFont = new Font("Segoe UI", 8F, FontStyle.Bold, GraphicsUnit.Point))
@@ -156,6 +157,12 @@ public sealed class FilterSchematicControl : UserControl
                     graphics.DrawString("+", symbolFont, Brushes.Black, new RectangleF(-35, -31, 18, 18), format);
                     graphics.DrawString("−", symbolFont, Brushes.Black, new RectangleF(-35, 13, 18, 18), format);
                 }
+                break;
+            case SymbolShape.LogicGate:
+                graphics.DrawRectangle(pen, -30, -27, 60, 54);
+                graphics.DrawLine(pen, -45, -17, -30, -17); graphics.DrawLine(pen, -45, 17, -30, 17); graphics.DrawLine(pen, 30, 0, 45, 0);
+                using (var gateFont = new Font("Segoe UI", 8F, FontStyle.Bold, GraphicsUnit.Point))
+                    graphics.DrawString("LOGIC", gateFont, Brushes.Black, -21, -8);
                 break;
             case SymbolShape.DiodeJunction:
                 graphics.DrawLine(pen, -40, 0, -15, 0);

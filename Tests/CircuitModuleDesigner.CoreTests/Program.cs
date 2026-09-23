@@ -32,6 +32,14 @@ using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Schematic;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Controls;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Analysis;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Services;
+using CircuitModuleDesigner.Modules.Comparators.Engines;
+using CircuitModuleDesigner.Modules.Comparators.Models;
+using CircuitModuleDesigner.Modules.Comparators.Validation;
+using CircuitModuleDesigner.Modules.Comparators.Analysis;
+using CircuitModuleDesigner.Modules.Comparators.Services;
+using CircuitModuleDesigner.Modules.Comparators.Controls;
+using CircuitModuleDesigner.Modules.Comparators.Schematic;
+using CircuitModuleDesigner.Modules.Comparators.Reporting;
 using AnalogComponentSelectionConstraints = CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models.ComponentSelectionConstraints;
 using ComponentSelectionConstraints = CircuitModuleDesigner.Modules.Filters.FilterDesign.Models.ComponentSelectionConstraints;
 
@@ -185,6 +193,12 @@ var tests = new (string Name, Action Run)[]
     ,("Precision analog constrained practical matrix", TestPrecisionAnalogConstrainedPracticalMatrix)
     ,("Precision analog performance and render smoke", TestPrecisionAnalogPerformanceAndRender)
     ,("Precision analog v1 capability failures and freeze", TestPrecisionAnalogV1CapabilityFailures)
+    ,("Comparator Schmitt topology and E-series matrix", TestComparatorSchmittMatrix)
+    ,("Comparator window mode and hysteresis matrix", TestComparatorWindowMatrix)
+    ,("Comparator invalid inputs and boundary conditions", TestComparatorValidation)
+    ,("Comparator CircuitGraph verification and SPICE", TestComparatorGraphAndSpice)
+    ,("Comparator UI result pages remain stable", TestComparatorUiStability)
+    ,("Comparator 150-row format and batch dialog", TestComparatorManualRows)
 };
 
 var failures = new List<string>();
@@ -204,6 +218,257 @@ Console.WriteLine($"All {tests.Length} filter design tests passed.");
 
 static void TestButterworthOrder() => Equal(8, new ButterworthOrderCalculator().CalculateMinimumOrder(1, 40, 2));
 static void TestChebyshevOrder() => Equal(5, new ChebyshevOrderCalculator().CalculateMinimumOrder(1, 40, 2));
+
+static void TestComparatorSchmittMatrix()
+{
+    var engine = new ComparatorDesignEngine();
+    foreach (var topology in Enum.GetValues<SchmittTopology>())
+    foreach (var series in new[] { StandardComponentSeries.E24, StandardComponentSeries.E48, StandardComponentSeries.E96 })
+    foreach (var bipolar in new[] { false, true })
+    {
+        var request = new ComparatorDesignRequest
+        {
+            Kind = ComparatorDesignerKind.SchmittTrigger, Topology = topology, ResistorSeries = series,
+            LowerThresholdVoltage = bipolar ? -1 : 1.5, UpperThresholdVoltage = bipolar ? 1 : 3.5,
+            SupplyLowVoltage = bipolar ? -5 : 0, SupplyHighVoltage = 5,
+            OutputLowVoltage = bipolar ? -4.8 : .1, OutputHighVoltage = bipolar ? 4.8 : 4.9
+        };
+        var result = engine.Design(request);
+        Require(result.Success, $"{topology}/{series}/{(bipolar ? "bipolar" : "single")}: {result.Message}");
+        Require(result.CircuitGraph!.Components.Count(c => c.Type == ComponentType.Comparator) == 1, "Schmitt must use one Comparator component.");
+        Require(!result.CircuitGraph.Components.Any(c => c.Type == ComponentType.OpAmp), "Comparator must not be represented as an op-amp.");
+        Require(result.CircuitGraph.GetNetForPin("RVT", "1")?.Name == "VCC" &&
+                result.CircuitGraph.GetNetForPin("RVB", "2")?.Name == (bipolar ? "VEE" : "GND") &&
+                result.CircuitGraph.GetNetForPin("RVT", "2")?.Name == "NBIAS" &&
+                result.CircuitGraph.GetNetForPin("RVB", "1")?.Name == "NBIAS", "Schmitt bias node must be derived from the supply rails.");
+        Require(result.Resistors.All(c => StandardValueSeries.IsSeriesValue(c.SelectedOhm, series, 5e-3)), "Schmitt selected a resistor outside its E-series.");
+        Require(result.Verification.Count == 2 && result.Verification.All(v => v.Pass), "Schmitt independent two-direction verification failed.");
+        Require(result.ActualThresholds!.Lower < result.ActualThresholds.Upper, "Schmitt thresholds are not ordered.");
+        var schematic = new ComparatorSchematicLayoutService().Layout(result.CircuitGraph);
+        Require(schematic.TextAnnotations.Count == 0, "Comparator schematic must not contain descriptive captions.");
+        Require(!schematic.NetLabels.Any(label => label.Text.Equals("NBIAS", StringComparison.OrdinalIgnoreCase)),
+            "Schmitt schematic must not display the internal bias-net name.");
+        var dividerWire = schematic.Wires.SingleOrDefault(wire => wire.NetName == "NBIAS" && wire.Points.Count == 2);
+        Require(dividerWire is not null && dividerWire.Points.Contains(SchematicGeometry.GetWorldPin(schematic.PlacedComponents.Single(item => item.Component.Reference == "RVT"), "2")) &&
+                dividerWire.Points.Contains(SchematicGeometry.GetWorldPin(schematic.PlacedComponents.Single(item => item.Component.Reference == "RVB"), "1")),
+            "Schmitt schematic bias node is not drawn from the physical RVT/RVB midpoint.");
+        var collisions = new ComponentCollisionDetector().Find(schematic);
+        Require(collisions.Count == 0, "Schmitt schematic component labels/symbols collide: " + string.Join(", ", collisions.Select(pair => $"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
+    }
+
+    var continuous = engine.Design(new ComparatorDesignRequest
+    {
+        Kind = ComparatorDesignerKind.SchmittTrigger,
+        LowerThresholdVoltage = 1.5,
+        UpperThresholdVoltage = 3.5,
+        OptimizeStandardValues = false
+    });
+    Require(continuous.Success && continuous.Resistors.All(item => Math.Abs(item.SelectedOhm - item.ContinuousOhm) < 1e-9),
+        "Schmitt continuous-value mode still rounded resistors to an E-series.");
+
+    foreach (var topology in Enum.GetValues<SchmittTopology>())
+    {
+        var asymmetric = engine.Design(new ComparatorDesignRequest
+        {
+            Kind = ComparatorDesignerKind.SchmittTrigger,
+            Topology = topology,
+            LowerThresholdVoltage = 0.8,
+            UpperThresholdVoltage = 2.0,
+            OptimizeStandardValues = false
+        });
+        Require(asymmetric.Success, $"Asymmetric {topology} rail-divider design failed: {asymmetric.Message}");
+        Require(asymmetric.Verification.All(metric => metric.Pass && Math.Abs(metric.ErrorVoltage) < 1e-9),
+            $"Asymmetric {topology} rail-divider polarity is incorrect.");
+        var top = asymmetric.Resistors.Single(item => item.Reference == "RVT").SelectedOhm;
+        var bottom = asymmetric.Resistors.Single(item => item.Reference == "RVB").SelectedOhm;
+        var graphBias = (asymmetric.Request.SupplyHighVoltage / top + asymmetric.Request.SupplyLowVoltage / bottom) / (1 / top + 1 / bottom);
+        Require(Math.Abs(graphBias - asymmetric.BiasNodeVoltage) < 1e-9, "Stored bias voltage does not come from the final rail divider.");
+    }
+}
+
+static void TestComparatorWindowMatrix()
+{
+    var engine = new ComparatorDesignEngine();
+    var cases = new[]
+    {
+        new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, OutputMode=WindowOutputMode.InsideWindowHigh, LowerThresholdVoltage=1, UpperThresholdVoltage=4, ResistorSeries=StandardComponentSeries.E24 },
+        new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, OutputMode=WindowOutputMode.OutsideWindowHigh, LowerThresholdVoltage=.7, UpperThresholdVoltage=3.2, ResistorSeries=StandardComponentSeries.E48 },
+        new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, OutputMode=WindowOutputMode.InsideWindowHigh, LowerThresholdVoltage=1.2, UpperThresholdVoltage=3.8, LowerBoundaryHysteresisVoltage=.12, UpperBoundaryHysteresisVoltage=.18, ResistorSeries=StandardComponentSeries.E96 },
+        new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, OutputMode=WindowOutputMode.OutsideWindowHigh, LowerThresholdVoltage=.8, UpperThresholdVoltage=3.6, OutputLowVoltage=.4, OutputHighVoltage=4.2, ResistorSeries=StandardComponentSeries.E96 },
+        new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, OutputMode=WindowOutputMode.InsideWindowHigh, LowerThresholdVoltage=1.1, UpperThresholdVoltage=3.9, OptimizeStandardValues=false }
+    };
+    foreach (var request in cases)
+    {
+        var result = engine.Design(request); Require(result.Success, result.Message);
+        var graph = result.CircuitGraph!; Require(graph.Components.Count(c => c.Type == ComponentType.Comparator) == 2, "Window must contain two comparators.");
+        Require(!graph.Components.Any(c => c.Type == ComponentType.LogicGate), "Window must not contain an abstract LOGIC component.");
+        Require(graph.Components.Count(c => c.Type == ComponentType.OpAmp) == 1, "Window output combination must use one physical op-amp stage.");
+        Require(graph.GetNetForPin("UOUT", "IN+")?.Name == "NCOMB_P" && graph.GetNetForPin("UOUT", "IN-")?.Name == "NCOMB_M" &&
+                graph.GetNetForPin("UOUT", "OUT")?.Name == "VOUT", "Window op-amp combiner connectivity is incomplete.");
+        Require(Math.Abs(graph.GetComponent("UOUT").Parameters.GetRequiredValue(ComponentParameterNames.OutputLowVoltage) - request.OutputLowVoltage) < 1e-12 &&
+                Math.Abs(graph.GetComponent("UOUT").Parameters.GetRequiredValue(ComponentParameterNames.OutputHighVoltage) - request.OutputHighVoltage) < 1e-12,
+            "Window op-amp output clamp does not match the requested VOL/VOH.");
+        Require(result.Verification.Count == 4 && result.Verification.All(v => v.Pass), "Window four-direction boundary verification failed.");
+        Require(request.OptimizeStandardValues
+                ? result.Resistors.All(c => StandardValueSeries.IsSeriesValue(c.SelectedOhm, request.ResistorSeries, 5e-3))
+                : result.Resistors.All(c => Math.Abs(c.SelectedOhm - c.ContinuousOhm) < 1e-9),
+            request.OptimizeStandardValues ? "Window selected a resistor outside its E-series." : "Window continuous-value mode rounded a resistor.");
+        var transfer = new ComparatorTransferAnalysisService().Analyze(result); Require(transfer.Points.Count == 401 && transfer.Markers.Count == 4, "Window transfer characteristic is incomplete.");
+        var schematic = new ComparatorSchematicLayoutService().Layout(graph);
+        Require(schematic.TextAnnotations.Count == 0, "Window schematic must not contain descriptive captions.");
+        var plusSource = graph.GetNetForPin("RPS", "1")!.Name == "NLOW" ? "ULOW" : "UHIGH";
+        Require(schematic.PlacedComponents.Single(item => item.Component.Reference == plusSource).Position.Y <
+                schematic.PlacedComponents.Single(item => item.Component.Reference != plusSource && item.Component.Reference is "ULOW" or "UHIGH").Position.Y,
+            "Window schematic did not place the UOUT positive-input source on the upper non-crossing branch.");
+        Require(schematic.PlacedComponents.Single(item => item.Component.Reference == "RTL").Position.X !=
+                schematic.PlacedComponents.Single(item => item.Component.Reference == "RTU").Position.X &&
+                schematic.PlacedComponents.Single(item => item.Component.Reference == "RBL").Position.X !=
+                schematic.PlacedComponents.Single(item => item.Component.Reference == "RBU").Position.X,
+            "Window lower and upper threshold divider resistors must use separate columns.");
+        var collisions=new ComponentCollisionDetector().Find(schematic);
+        Require(collisions.Count == 0, "Window schematic component labels/symbols collide: "+string.Join(", ",collisions.Select(pair=>$"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
+    }
+}
+
+static void TestComparatorValidation()
+{
+    var engine = new ComparatorDesignEngine();
+    foreach (var topology in Enum.GetValues<SchmittTopology>())
+    foreach (var optimize in new[] { false, true })
+    foreach (var threshold in new[] { 1.5, 2.0, 2.5 })
+    {
+        var zeroHysteresis = engine.Design(new ComparatorDesignRequest
+        {
+            Kind = ComparatorDesignerKind.SchmittTrigger, Topology = topology,
+            LowerThresholdVoltage = threshold, UpperThresholdVoltage = threshold,
+            OptimizeStandardValues = optimize, ResistorSeries = StandardComponentSeries.E96
+        });
+        Require(zeroHysteresis.Success, $"Equal VTL/VTH must be supported for {topology}, optimize={optimize}: {zeroHysteresis.Message}");
+        Require(zeroHysteresis.Resistors.Select(item => item.Reference).Order().SequenceEqual(new[] { "RVB", "RVT" }),
+            "Zero-hysteresis comparator must use only the finite rail-divider resistors.");
+        Require(zeroHysteresis.Verification.Count == 2 && zeroHysteresis.Verification.All(metric => metric.Pass),
+            "Zero-hysteresis Final CircuitGraph verification failed.");
+        var zeroGraph = zeroHysteresis.CircuitGraph!;
+        Require(!zeroGraph.Components.Any(component => component.Reference == "RFB"),
+            "Zero-hysteresis comparator must not contain a feedback resistor.");
+        _ = new ComparatorSchematicLayoutService().Layout(zeroGraph);
+        var zeroAnalysis = new ComparatorTransferAnalysisService().Analyze(zeroHysteresis);
+        Require(zeroAnalysis.Markers.Count == 2 && Nearly(zeroAnalysis.Markers[0], zeroAnalysis.Markers[1], 1e-12),
+            "Zero-hysteresis analysis did not retain the coincident switching point.");
+        var zeroReport = new ComparatorDesignReportBuilder().BuildHtml(zeroHysteresis);
+        Require(zeroReport.Contains("Independent CircuitGraph Verification", StringComparison.Ordinal),
+            "Zero-hysteresis report omitted independent verification.");
+        var zeroSpice = new ComparatorSpiceExportService().Export(zeroHysteresis);
+        Require(zeroSpice.Contains("RVT ", StringComparison.OrdinalIgnoreCase) && !zeroSpice.Contains("RFB ", StringComparison.OrdinalIgnoreCase),
+            "Zero-hysteresis SPICE netlist does not match the no-feedback CircuitGraph.");
+    }
+    Require(!engine.Design(new ComparatorDesignRequest
+    {
+        Kind = ComparatorDesignerKind.WindowComparator, LowerThresholdVoltage = 2, UpperThresholdVoltage = 2
+    }).Success, "A zero-width Window Comparator must remain invalid.");
+    Require(!engine.Design(new ComparatorDesignRequest { LowerThresholdVoltage = 3, UpperThresholdVoltage = 2 }).Success, "Reversed thresholds must be rejected.");
+    Require(!engine.Design(new ComparatorDesignRequest { LowerThresholdVoltage = double.NaN }).Success, "NaN must be rejected without a crash.");
+    Require(!engine.Design(new ComparatorDesignRequest { UpperThresholdVoltage = double.PositiveInfinity }).Success, "Infinity must be rejected without a crash.");
+    Require(!engine.Design(new ComparatorDesignRequest { MinimumResistanceOhm = 10000, MaximumResistanceOhm = 1000 }).Success, "An illegal resistance range must be rejected.");
+    Require(!engine.Design(new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, LowerThresholdVoltage=2, UpperThresholdVoltage=3, LowerBoundaryHysteresisVoltage=1.2, UpperBoundaryHysteresisVoltage=1.2 }).Success, "Overlapping hysteretic boundaries must be rejected.");
+}
+
+static void TestComparatorManualRows()
+{
+    var service = new ComparatorManualTestRowService();
+    var headerColumns = ComparatorManualTestRowService.Header.Split('\t');
+    Require(headerColumns.Length == ComparatorManualTestRowService.ColumnCount, "Comparator batch header column count is inconsistent.");
+    var input = "1\tSchmitt_round_trip\tSchmittTrigger\tInverting\tInsideWindowHigh\t1.5\t3.5\t0\t0\t5\t0\t4.9\t0.1\tPushPull\t1\tE96\t1000\t1000000";
+    var parsed = service.Parse(input);
+    var result = new ComparatorDesignEngine().Design(parsed.Request);
+    Require(result.Success, result.Message);
+    var completed = service.Complete(parsed, result);
+    Require(completed.Split('\t', StringSplitOptions.None).Length == ComparatorManualTestRowService.ColumnCount,
+        "Comparator completed row does not contain 38 columns.");
+    var reparsed = service.Parse(completed);
+    Require(reparsed.Request == parsed.Request, "Comparator completed row did not round-trip to the same request.");
+
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            using var wizard = new ComparatorWizardControl(); wizard.CreateControl();
+            Require(typeof(ComparatorWizardControl).GetField("manualTests", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic) is null,
+                "Comparator wizard still exposes the internal 150-point batch button.");
+            using var dialog = new ComparatorManualTestRowDialog(); dialog.CreateControl();
+        }
+        catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+    if (failure is not null) throw new InvalidOperationException("Comparator batch UI smoke failed: " + failure.Message, failure);
+}
+
+static void TestComparatorGraphAndSpice()
+{
+    var result = new ComparatorDesignEngine().Design(new ComparatorDesignRequest { Kind=ComparatorDesignerKind.WindowComparator, LowerThresholdVoltage=1, UpperThresholdVoltage=4, LowerBoundaryHysteresisVoltage=.1, UpperBoundaryHysteresisVoltage=.1 });
+    Require(result.Success, result.Message);
+    var independent = new ComparatorCircuitVerifier().Verify(result); Require(independent.All(v => v.Pass), "Explicit verifier rerun failed.");
+    var report = new ComparatorDesignReportBuilder().BuildHtml(result);
+    Require(report.Contains("<table", StringComparison.OrdinalIgnoreCase) && report.Contains("Calculation Trace", StringComparison.Ordinal) &&
+            report.Contains("Circuit Summary", StringComparison.Ordinal) && !report.Contains("<pre", StringComparison.OrdinalIgnoreCase),
+        "Comparator report is not using the structured Compute/Filter report format.");
+    var netlist = new ComparatorSpiceExportService().Export(result);
+    Require(netlist.Contains("B_ULOW", StringComparison.OrdinalIgnoreCase) && netlist.Contains("B_UHIGH", StringComparison.OrdinalIgnoreCase) && netlist.Contains("B_UOUT", StringComparison.OrdinalIgnoreCase), "SPICE did not serialize comparators and the saturating op-amp combiner from CircuitGraph.");
+    Require(!netlist.Contains("B_G1", StringComparison.OrdinalIgnoreCase), "SPICE still contains the removed abstract LOGIC component.");
+    Require(netlist.Contains(".DC", StringComparison.OrdinalIgnoreCase) && netlist.Contains("V(VOUT)", StringComparison.OrdinalIgnoreCase), "Comparator SPICE DC analysis is missing.");
+
+    var schmitt = new ComparatorDesignEngine().Design(new ComparatorDesignRequest { Kind=ComparatorDesignerKind.SchmittTrigger, LowerThresholdVoltage=1.5, UpperThresholdVoltage=3.5 });
+    Require(schmitt.Success, schmitt.Message);
+    var schmittNetlist = new ComparatorSpiceExportService().Export(schmitt);
+    Require(!schmittNetlist.Contains("V_REF", StringComparison.OrdinalIgnoreCase), "Schmitt SPICE still contains an independent VREF source.");
+    Require(schmittNetlist.Contains("RVT ", StringComparison.OrdinalIgnoreCase) && schmittNetlist.Contains("RVB ", StringComparison.OrdinalIgnoreCase),
+        "Schmitt SPICE is missing the rail-derived VREF divider.");
+}
+
+static void TestComparatorUiStability()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            using var wizard = new ComparatorWizardControl(); wizard.CreateControl(); Require(wizard.RunDesign().Success, "Initial comparator design failed."); wizard.PerformLayout();
+            var status=(Label)typeof(ComparatorWizardControl).GetField("status",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var lower=(NumericUpDown)typeof(ComparatorWizardControl).GetField("lower",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var upper=(NumericUpDown)typeof(ComparatorWizardControl).GetField("upper",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            lower.Value=upper.Value=1.5m;
+            var zeroHysteresis=wizard.RunDesign();
+            Require(zeroHysteresis.Success && zeroHysteresis.Verification.All(metric=>metric.Pass),
+                "Comparator UI failed to render the VTL == VTH design: "+zeroHysteresis.Message);
+            Require(status.Text.Contains("noise margin",StringComparison.OrdinalIgnoreCase) && status.ForeColor==Color.DarkOrange,
+                "Comparator UI did not display the real zero-hysteresis warning in warning styling.");
+            lower.Value=1.5m;upper.Value=3.5m;Require(wizard.RunDesign().Success,"Comparator UI did not recover from the zero-hysteresis design.");
+            var tabs=(TabControl)typeof(ComparatorWizardControl).GetField("results",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            Require(!tabs.TabPages.Cast<TabPage>().Any(page=>page.Text=="Result Summary"), "Comparator UI still contains the removed Result Summary page.");
+            Require(string.IsNullOrEmpty(status.Text), "A successful design still displays redundant PASS: PASS status text.");
+            Require(status.AutoSize && !status.AutoEllipsis && status.Parent is TableLayoutPanel,
+                "Comparator validation message is not in its own auto-sized layout row.");
+            var optimize=(CheckBox)typeof(ComparatorWizardControl).GetField("optimize",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var series=(ComboBox)typeof(ComparatorWizardControl).GetField("series",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            optimize.Checked=false;
+            Require(!series.Enabled, "E-Series selector must be disabled when standard-value optimization is off.");
+            var continuous=wizard.RunDesign();
+            Require(continuous.Success && continuous.Resistors.All(item => Math.Abs(item.SelectedOhm-item.ContinuousOhm)<1e-9),
+                "Comparator UI did not pass continuous-value mode to synthesis.");
+            var before = Descendants(wizard).Select(c => (c.GetType(), c.Bounds)).ToArray();
+            for (var i = 0; i < 20; i++) Require(wizard.RunDesign().Success, "Repeated comparator design failed.");
+            wizard.PerformLayout(); var after = Descendants(wizard).Select(c => (c.GetType(), c.Bounds)).ToArray();
+            Require(before.Length == after.Length, $"Comparator repeated design changed control count: {before.Length} -> {after.Length}.");
+            var changed=before.Zip(after).Where(pair => pair.First.Item1 != pair.Second.Item1 || pair.First.Bounds != pair.Second.Bounds).Take(5).Select(pair=>$"{pair.First.Item1.Name} {pair.First.Bounds}->{pair.Second.Bounds}").ToArray();
+            Require(changed.Length==0, "Comparator repeated design changed control type, position, or size: "+string.Join("; ",changed));
+        }
+        catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+    if (failure is not null) throw new InvalidOperationException("Comparator repeated-Design UI regression failed: " + failure.Message, failure);
+    static IEnumerable<Control> Descendants(Control root) { foreach (Control child in root.Controls) { yield return child; foreach (var nested in Descendants(child)) yield return nested; } }
+}
 
 static void TestPrecisionAnalogAffineCircuitGraph()
 {
@@ -269,7 +534,7 @@ static void TestPrecisionAnalogExactE12GainThree()
 
 static void TestPrecisionAnalogEightInputs()
 {
-    var inputs = Enumerable.Range(1, 8).Select(index => new AnalogInputTerm($"U{index}", index % 2 == 0 ? -5 : 5)).ToArray();
+    var inputs = Enumerable.Range(1, 8).Select(index => new AnalogInputTerm($"U{index}", index % 2 == 0 ? -5 : 5, -.1, .1)).ToArray();
     var result = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
     {
         Inputs = inputs, MaximumFunctionErrorPercent = 1,
@@ -442,6 +707,8 @@ static void TestPrecisionAnalogWizardInitialization()
             using var tree = new TreeView();
             using var wizard = new PrecisionAnalogWizardControl();
             wizard.CreateControl();
+            Require(typeof(PrecisionAnalogWizardControl).GetField("manualTests",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic) is null,
+                "Precision Analog wizard still exposes the internal 500-point batch button.");
             var advancedPanel=(Control)typeof(PrecisionAnalogWizardControl).GetField("advancedPanel",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             Require(!advancedPanel.Visible,"Advanced electrical/component constraints must not occupy the primary specification surface by default.");
             using var host = new Form();
@@ -650,7 +917,8 @@ static void TestPrecisionAnalogHalfWave()
     Require(simplifiedUi.VerificationMetrics.All(metric=>metric.Name!="Output swing"),"Simplified rectifier UI must not report a hidden output-swing gate.");
     var clippedUi=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with
     {GainK=10,HalfWavePolarity=HalfWavePolarity.Positive,MinimumInputVoltage=-5,MaximumInputVoltage=5});
-    Require(clippedUi.Success,"Rectifier UI analysis clipping must not reject an otherwise valid topology.");
+    Require(!clippedUi.Success&&clippedUi.Capability.ReasonCode==AnalogCapabilityReasonCode.OperatingEnvelopeExceeded,
+        "Rectifier rail clipping must reject the declared operating envelope without hiding its analysis.");
     Require(clippedUi.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&clippedUi.Analysis.Points.Max(point=>point.Actual)<=15+1e-9,"Rectifier Analysis did not show the rail-clipped selected-value curve.");
     Require(clippedUi.Analysis.AnalysisType.Contains("Vin-Vout",StringComparison.OrdinalIgnoreCase)&&
             Nearly(clippedUi.Analysis.Points[0].Input,-5,1e-12)&&Nearly(clippedUi.Analysis.Points[^1].Input,5,1e-12),
@@ -897,18 +1165,21 @@ static void TestPrecisionAnalogV1CapabilityFailures()
     Require(!overflow.Success&&overflow.Capability.ReasonCode==AnalogCapabilityReasonCode.InvalidInput,"Antilog overflow guard did not fail explicitly.");
     var swing=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with
     {GainK=20,MinimumInputVoltage=-2,MaximumInputVoltage=2});
-    Require(swing.Success&&swing.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&
+    Require(!swing.Success&&swing.Capability.ReasonCode==AnalogCapabilityReasonCode.OperatingEnvelopeExceeded&&
+            swing.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&
             swing.Warnings.Any(warning=>warning.Contains("clipped",StringComparison.OrdinalIgnoreCase)),
-        "Output swing exceedance should remain a successful design and appear as clipped Analysis samples plus a warning.");
+        "Output swing exceedance must reject the declared envelope while retaining clipped Analysis and a warning.");
     var affineSwing=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with
     {Inputs=[new("U1",20,-2,2,0)]});
-    Require(affineSwing.Success&&affineSwing.Warnings.Any(warning=>warning.Contains("beyond",StringComparison.OrdinalIgnoreCase)),
-        "Linear/Affine output swing is still incorrectly treated as a synthesis failure.");
+    Require(!affineSwing.Success&&affineSwing.Capability.ReasonCode==AnalogCapabilityReasonCode.OperatingEnvelopeExceeded&&
+            affineSwing.Analysis!.Points.Any(point=>point.IsSupplyLimited),
+        "Linear/Affine output swing exceedance was not classified from the full input-corner envelope.");
     var junctionSwing=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.ExponentialAmplifier) with
     {MinimumInputVoltage=-.2,MaximumInputVoltage=.2,ReferenceVoltage=10,LogScaleVoltage=.1});
-    Require(junctionSwing.Success&&junctionSwing.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&
+    Require(!junctionSwing.Success&&junctionSwing.Capability.ReasonCode==AnalogCapabilityReasonCode.OperatingEnvelopeExceeded&&
+            junctionSwing.Analysis!.Points.Any(point=>point.IsSupplyLimited)&&
             junctionSwing.Warnings.Any(warning=>warning.Contains("clipped",StringComparison.OrdinalIgnoreCase)),
-        "Log/Antilog output swing is still incorrectly treated as a verification failure.");
+        "Log/Antilog output swing exceedance was not classified while retaining clipped analysis.");
     var slow=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.PracticalDifferentiator) with
     {DifferentiationConstantSecond=.001,LowerCornerHz=100,UpperCornerHz=10_000,MinimumInputVoltage=-.01,MaximumInputVoltage=.01,
      OpAmp=new(){UseIdealOpAmp=false,GainBandwidthHz=1_000,SlewRateVoltPerSecond=1_000_000}});
@@ -960,7 +1231,7 @@ static void TestPrecisionAnalogInvalidSpecificationMatrix()
         PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with {SupplyVccVoltage=double.NaN},
         PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with {Inputs=[new("U1",1),new("u1",2)]},
         PrecisionOperation(AnalogComputeOperationType.GeneralLinearCombination) with {Inputs=[new("U1",1,-1,1,2)]},
-        PrecisionOperation(AnalogComputeOperationType.VoltageRangeMapper) with {OutputLowVoltage=1,OutputHighVoltage=1},
+        PrecisionOperation(AnalogComputeOperationType.VoltageRangeMapper) with {InputLowVoltage=1,InputHighVoltage=1},
         PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with {GainK=double.PositiveInfinity},
         PrecisionOperation(AnalogComputeOperationType.PrecisionFullWaveRectifier) with {MinimumInputVoltage=1,MaximumInputVoltage=-1},
         PrecisionOperation(AnalogComputeOperationType.LogarithmicAmplifier) with {MinimumInputVoltage=0,MaximumInputVoltage=1},
@@ -975,6 +1246,10 @@ static void TestPrecisionAnalogInvalidSpecificationMatrix()
                 result.Capability.ReasonCode is AnalogCapabilityReasonCode.InvalidInput or AnalogCapabilityReasonCode.SupplyRailsInvalid,
             $"{request.Operation} invalid specification was not classified before synthesis.");
     }
+    var constantMapper=new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.VoltageRangeMapper) with
+        {InputLowVoltage=-1,InputHighVoltage=1,OutputLowVoltage=1,OutputHighVoltage=1});
+    Require(constantMapper.Success&&constantMapper.VerificationMetrics.All(metric=>metric.Pass),
+        "A finite input interval mapped to one constant output must remain a valid zero-slope affine mapping.");
 }
 
 static void TestPrecisionAnalogConstrainedPracticalMatrix()

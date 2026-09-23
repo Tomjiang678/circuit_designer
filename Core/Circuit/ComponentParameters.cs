@@ -18,8 +18,10 @@ public sealed class ComponentParameters
         {
             if (string.IsNullOrWhiteSpace(pair.Key))
                 throw new ArgumentException("Parameter names must not be empty.", nameof(values));
-            if (!double.IsFinite(pair.Value) || pair.Value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(values), pair.Value, $"Parameter '{pair.Key}' must be finite and greater than zero.");
+            // The parameter bag also carries signed voltages and zero-based enum values.
+            // Individual component factories/serializers enforce positivity where it is electrical.
+            if (!double.IsFinite(pair.Value))
+                throw new ArgumentOutOfRangeException(nameof(values), pair.Value, $"Parameter '{pair.Key}' must be finite.");
             if (!copy.TryAdd(pair.Key, pair.Value))
                 throw new ArgumentException($"Duplicate parameter '{pair.Key}'.", nameof(values));
         }

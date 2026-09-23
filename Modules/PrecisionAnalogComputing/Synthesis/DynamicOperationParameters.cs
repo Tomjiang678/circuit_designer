@@ -1,3 +1,4 @@
+using System.Numerics;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Synthesis;
@@ -9,6 +10,16 @@ internal sealed record DynamicOperationParameters(
     double SweepStartFrequencyHz,
     double SweepStopFrequencyHz)
 {
+    public static Complex DifferentiatorTransfer(double frequency, double kd, double firstCorner, double secondCorner)
+    {
+        var s = new Complex(0, 2 * Math.PI * frequency);
+        return -kd * s / ((Complex.One + s / (2*Math.PI*firstCorner)) *
+                          (Complex.One + s / (2*Math.PI*secondCorner)));
+    }
+
+    public static Complex IntegratorTransfer(double frequency,double ki,double leakCorner) =>
+        -ki/new Complex(2*Math.PI*leakCorner,2*Math.PI*frequency);
+
     public static DynamicOperationParameters Resolve(AnalogComputeDesignRequest request)
     {
         if (request.Operation == AnalogComputeOperationType.PracticalIntegrator)

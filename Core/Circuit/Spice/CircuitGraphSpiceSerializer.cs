@@ -76,8 +76,37 @@ public sealed class CircuitGraphSpiceSerializer
         ComponentType.Inductor => Passive(graph, component, "L", ComponentParameterNames.InductanceHenry),
         ComponentType.OpAmp => OpAmp(graph, component, options),
         ComponentType.Diode => Diode(graph, component, options),
+        ComponentType.Comparator => Comparator(graph, component),
+        ComponentType.LogicGate => LogicGate(graph, component),
         _ => throw new NotSupportedException($"No SPICE export mapping exists for {component.Type}.")
     };
+
+    private static string Comparator(CircuitGraph graph, CircuitComponent component)
+    {
+        var behavior = (ComparatorOutputBehavior)(int)component.Parameters.GetRequiredValue(ComponentParameterNames.OutputBehavior);
+        if (behavior == ComparatorOutputBehavior.OpenCollector)
+            throw new NotSupportedException("Open-collector comparator SPICE export requires an explicit pull-up/load model; the static CircuitGraph is retained but is not exported as push-pull.");
+        var high = component.Parameters.GetRequiredValue(ComponentParameterNames.OutputHighVoltage);
+        var low = component.Parameters.GetRequiredValue(ComponentParameterNames.OutputLowVoltage);
+        return $"{ElementName(component.Reference, "B")} {Net(graph, component, "OUT")} 0 V=IF(V({Net(graph, component, "IN+")})>V({Net(graph, component, "IN-")}),{SpiceText.Number(high)},{SpiceText.Number(low)})";
+    }
+
+    private static string LogicGate(CircuitGraph graph, CircuitComponent component)
+    {
+        var high = SpiceText.Number(component.Parameters.GetRequiredValue(ComponentParameterNames.OutputHighVoltage));
+        var low = SpiceText.Number(component.Parameters.GetRequiredValue(ComponentParameterNames.OutputLowVoltage));
+        var a = $"V({Net(graph, component, "A")})"; var b = $"V({Net(graph, component, "B")})";
+        var midpoint = SpiceText.Number((component.Parameters.GetRequiredValue(ComponentParameterNames.OutputHighVoltage) + component.Parameters.GetRequiredValue(ComponentParameterNames.OutputLowVoltage)) / 2);
+        var condition = (LogicGateFunction)(int)component.Parameters.GetRequiredValue(ComponentParameterNames.LogicFunction) switch
+        {
+            LogicGateFunction.And => $"({a}>{midpoint})&&({b}>{midpoint})",
+            LogicGateFunction.Or => $"({a}>{midpoint})||({b}>{midpoint})",
+            LogicGateFunction.NotAAndB => $"({a}<{midpoint})&&({b}>{midpoint})",
+            LogicGateFunction.AOrNotB => $"({a}>{midpoint})||({b}<{midpoint})",
+            _ => throw new NotSupportedException("Unsupported logic function.")
+        };
+        return $"{ElementName(component.Reference, "B")} {Net(graph, component, "OUT")} 0 V=IF({condition},{high},{low})";
+    }
 
     private static string Passive(CircuitGraph graph, CircuitComponent component, string prefix, string parameter)
     {
@@ -94,6 +123,9 @@ public sealed class CircuitGraphSpiceSerializer
 
     private static string OpAmp(CircuitGraph graph, CircuitComponent component, CircuitSpiceExportOptions options)
     {
+        if (component.Parameters.TryGetValue(ComponentParameterNames.OutputHighVoltage, out var high) &&
+            component.Parameters.TryGetValue(ComponentParameterNames.OutputLowVoltage, out var low))
+            return $"{ElementName(component.Reference, "B")} {Net(graph, component, "OUT")} 0 V=IF(V({Net(graph, component, "IN+")})>V({Net(graph, component, "IN-")}),{SpiceText.Number(high)},{SpiceText.Number(low)})";
         if (options.OpAmpMode == SpiceOpAmpExportMode.Unsupported)
             throw new NotSupportedException("The CircuitGraph contains an abstract op-amp, but no SPICE op-amp export strategy was selected.");
         if (options.OpAmpMode == SpiceOpAmpExportMode.FiniteGainVcvs)
@@ -166,7 +198,8 @@ public sealed class CircuitGraphSpiceSerializer
 
     private static int ComponentOrder(CircuitComponent component) => component.Type switch
     {
-        ComponentType.Resistor => 0, ComponentType.Capacitor => 1, ComponentType.Inductor => 2, ComponentType.Diode => 3, ComponentType.OpAmp => 4, _ => 9
+        ComponentType.Resistor => 0, ComponentType.Capacitor => 1, ComponentType.Inductor => 2, ComponentType.Diode => 3, ComponentType.OpAmp => 4,
+        ComponentType.Comparator => 5, ComponentType.LogicGate => 6, _ => 9
     };
 
     private sealed class NaturalReferenceComparer : IComparer<string>

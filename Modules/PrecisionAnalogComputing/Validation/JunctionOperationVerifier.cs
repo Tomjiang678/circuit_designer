@@ -74,8 +74,10 @@ internal sealed class JunctionOperationVerifier
         }
         var peak=points.Max(point=>Math.Abs(point.Target));var tolerance=Math.Max(1e-6,Math.Max(1,peak)*request.MaximumFunctionErrorPercent/100);
         metrics.Add(new("Maximum nonlinear transfer error",0,maximumError,maximumError,tolerance,maximumError<=tolerance,"V"));
+        metrics.Add(OperatingEnvelopeEvaluator.Metric(points.Select(point=>point.Target),
+            points.Select(point=>point.Theoretical ?? point.Actual),low,high));
         if(limitedCount>0)
-            warnings.Add($"{limitedCount} analysis samples exceed the available output swing and are shown clipped at the VCC/VEE limits; component/function verification uses the unclipped transfer.");
+            warnings.Add($"{limitedCount} analysis samples exceed the available output swing and are shown clipped; component/function verification uses the unclipped transfer, while capability rejects the declared envelope.");
         metrics.Add(new("Maximum junction current",request.MaximumJunctionCurrentAmpere,maxCurrent,maxCurrent-request.MaximumJunctionCurrentAmpere,0,maxCurrent<=request.MaximumJunctionCurrentAmpere,"A"));
         return(metrics,new("Nonlinear Vin-Vout transfer: Target / Theoretical / Selected",points,metrics),warnings);
     }

@@ -12,7 +12,7 @@ internal sealed record OperationSynthesisResult(
 
 internal static class AnalogSynthesisSupport
 {
-    public static IReadOnlyList<double> Candidates(double theoretical, bool resistor, ComponentSelectionConstraints constraints)
+    public static IReadOnlyList<double> Candidates(double theoretical, bool resistor, ComponentSelectionConstraints constraints, int radius = 3)
     {
         var minimum = resistor ? constraints.ResistorMinimumOhm : constraints.CapacitorMinimumFarad;
         var maximum = resistor ? constraints.ResistorMaximumOhm : constraints.CapacitorMaximumFarad;
@@ -20,7 +20,7 @@ internal static class AnalogSynthesisSupport
             throw new InvalidOperationException($"Theoretical {(resistor ? "resistance" : "capacitance")} {theoretical:G9} is outside [{minimum:G9}, {maximum:G9}].");
         if (!constraints.OptimizeStandardValues) return [theoretical];
         return AnalogPreferredValueSeries.Nearby(theoretical,
-            resistor ? constraints.ResistorSeries : constraints.CapacitorSeries, minimum, maximum, 3);
+            resistor ? constraints.ResistorSeries : constraints.CapacitorSeries, minimum, maximum, radius);
     }
 
     public static SelectedAnalogComponent Component(string reference, string role, string quantity,

@@ -28,6 +28,7 @@ public enum AnalogCapabilityReasonCode
     CircuitVerificationFailed,
     GbBandwidthInsufficient,
     SlewRateInsufficient,
+    OperatingEnvelopeExceeded,
     JunctionCurrentOutOfRange,
     TopologyCapabilityUnsupported,
     InternalError

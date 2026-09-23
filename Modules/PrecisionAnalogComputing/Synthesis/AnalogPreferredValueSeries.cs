@@ -38,6 +38,34 @@ internal static class AnalogPreferredValueSeries
         return Math.Abs(Math.Log(below / target)) <= Math.Abs(Math.Log(above / target)) ? below : above;
     }
 
+    /// <summary>
+    /// Returns every standard value that makes fixedFactor*value satisfy the
+    /// requested relative tolerance. If none can pass that scalar gate, a
+    /// bounded neighborhood around the continuous value is returned so the
+    /// topology optimizer can still report the best honest candidate.
+    /// </summary>
+    public static IReadOnlyList<double> ProductCandidates(double fixedFactor,double targetProduct,
+        IReadOnlyList<double> sortedValues,double relativeTolerance,int fallbackEachSide=6)
+    {
+        if(!(fixedFactor>0)||!(targetProduct>0)||!double.IsFinite(fixedFactor)||!double.IsFinite(targetProduct))return [];
+        var passing=sortedValues.Where(value=>Math.Abs(fixedFactor*value/targetProduct-1)<=relativeTolerance+1e-12).ToArray();
+        if(passing.Length>0)return passing;
+        return Nearby(targetProduct/fixedFactor,sortedValues,fallbackEachSide);
+    }
+
+    public static IReadOnlyList<double> Nearby(double target,IReadOnlyList<double> sortedValues,int eachSide)
+    {
+        if(sortedValues.Count==0)return [];
+        var low=0;var high=sortedValues.Count;
+        while(low<high)
+        {
+            var middle=low+(high-low)/2;
+            if(sortedValues[middle]<target)low=middle+1;else high=middle;
+        }
+        var start=Math.Max(0,low-eachSide);var end=Math.Min(sortedValues.Count-1,low+eachSide);
+        return sortedValues.Skip(start).Take(end-start+1).ToArray();
+    }
+
     public static IReadOnlyList<double> All(AnalogStandardSeries series, double minimum, double maximum) =>
         Generate(series, minimum, maximum).ToArray();
 

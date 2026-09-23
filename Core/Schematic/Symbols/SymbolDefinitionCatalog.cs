@@ -28,6 +28,20 @@ public static class SymbolDefinitionCatalog
                     new SymbolPinAnchor("OUT", new SchematicPoint(55, 0), SymbolPinDirection.Right),
                     new SymbolPinAnchor("V+", new SchematicPoint(0, -48), SymbolPinDirection.Up),
                     new SymbolPinAnchor("V-", new SchematicPoint(0, 48), SymbolPinDirection.Down)
+                ]),
+            [ComponentType.Comparator] = new SymbolDefinition(
+                ComponentType.Comparator, SymbolShape.ComparatorTriangle, new SchematicSize(110, 96),
+                [
+                    new("IN+", new(-55, -22), SymbolPinDirection.Left), new("IN-", new(-55, 22), SymbolPinDirection.Left),
+                    new("OUT", new(55, 0), SymbolPinDirection.Right), new("V+", new(0, -48), SymbolPinDirection.Up),
+                    new("V-", new(0, 48), SymbolPinDirection.Down)
+                ]),
+            [ComponentType.LogicGate] = new SymbolDefinition(
+                ComponentType.LogicGate, SymbolShape.LogicGate, new SchematicSize(90, 70),
+                [
+                    new("A", new(-45, -17), SymbolPinDirection.Left), new("B", new(-45, 17), SymbolPinDirection.Left),
+                    new("OUT", new(45, 0), SymbolPinDirection.Right), new("V+", new(0, -35), SymbolPinDirection.Up),
+                    new("V-", new(0, 35), SymbolPinDirection.Down)
                 ])
         };
 

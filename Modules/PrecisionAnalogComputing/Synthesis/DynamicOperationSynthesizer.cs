@@ -26,7 +26,7 @@ internal sealed class DynamicOperationSynthesizer
         var c0 = Math.Sqrt(feasibleCMinimum * feasibleCMaximum);
         var rin0 = 1 / (ki * c0);
         var rf0 = 1 / (2 * Math.PI * leak * c0);
-        var best = SelectIntegrator(ki, leak, c0, request.Components);
+        var best = SelectIntegrator(ki, leak, c0, request.Components,request.MaximumFunctionErrorPercent);
         var graph = BuildIntegrator(best.Rin, best.Rf, best.Cf);
         AnalogStandardSeries? seriesR = request.Components.OptimizeStandardValues ? request.Components.ResistorSeries : null;
         AnalogStandardSeries? seriesC = request.Components.OptimizeStandardValues ? request.Components.CapacitorSeries : null;
@@ -40,6 +40,8 @@ internal sealed class DynamicOperationSynthesizer
             new("Integration constant", "Ki=1/(Rin*Cf)", $"target {ki:G9} 1/s; selected {1/(best.Rin*best.Cf):G9} 1/s"),
             new("Leak corner", "fL=1/(2*pi*Rf*Cf)", $"target {leak:G9} Hz; selected {1/(2*Math.PI*best.Rf*best.Cf):G9} Hz"),
             new("DC gain", "-Rf/Rin", $"{-best.Rf/best.Rin:G9} V/V")
+            ,new("Standard-value optimization audit","Coupled Rin-Cf and Rf-Cf product search",
+                $"evaluated {best.Evaluated} candidates; scalar-feasible {best.ScalarFeasible}",request.Components.OptimizeStandardValues?"Strict selected E-series search.":"Optimize=false continuous component path.")
         ]);
     }
 
@@ -80,77 +82,130 @@ internal sealed class DynamicOperationSynthesizer
             new("Useful differentiation band", "0 < f <= fUseful; automatic limiting poles are 5*fUseful and 10*fUseful", $"fUseful={parameters.UsefulUpperFrequencyHz:G9} Hz"),
             new("Input limiting corner", "f1=1/(2*pi*Rin*Cin)", $"target {lower:G9} Hz; selected {1/(2*Math.PI*best.Rin*best.Cin):G9} Hz"),
             new("Feedback limiting corner", "f2=1/(2*pi*Rf*Cf)", $"target {upper:G9} Hz; selected {1/(2*Math.PI*best.Rf*best.Cf):G9} Hz")
+            ,new("Standard-value optimization audit","Coupled (Rin,Cin), (Rf,Cf), and Rf*Cin search",
+                $"evaluated {best.Evaluated} candidates; scalar-feasible {best.ScalarFeasible}",request.Components.OptimizeStandardValues?"Strict selected E-series search.":"Optimize=false continuous component path.")
         ]);
     }
 
-    private static (double Rin,double Rf,double Cf) SelectIntegrator(double ki,double leak,double continuousCf,ComponentSelectionConstraints constraints)
+    private static (double Rin,double Rf,double Cf,long Evaluated,long ScalarFeasible) SelectIntegrator(double ki,double leak,double continuousCf,ComponentSelectionConstraints constraints,double errorPercent)
     {
+        if(!constraints.OptimizeStandardValues)
+            return(1/(ki*continuousCf),1/(2*Math.PI*leak*continuousCf),continuousCf,1,1);
         var capacitorCandidates=constraints.OptimizeStandardValues
             ? AnalogPreferredValueSeries.All(constraints.CapacitorSeries,constraints.CapacitorMinimumFarad,constraints.CapacitorMaximumFarad)
             : [continuousCf];
+        var resistorCandidates=AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm);
+        var relativeTolerance=errorPercent/100;
         var best=(Rin:0d,Rf:0d,Cf:0d,Score:double.PositiveInfinity);
+        long evaluated=0,scalarFeasible=0;
         foreach(var cf in capacitorCandidates)
         {
             var rinTheory=1/(ki*cf);var rfTheory=1/(2*Math.PI*leak*cf);
             if(!InRange(rinTheory,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)||
                !InRange(rfTheory,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm))continue;
-            foreach(var rin in AnalogSynthesisSupport.Candidates(rinTheory,true,constraints))
-            foreach(var rf in AnalogSynthesisSupport.Candidates(rfTheory,true,constraints))
+            var rins=AnalogPreferredValueSeries.ProductCandidates(cf,1/ki,resistorCandidates,relativeTolerance);
+            var rfs=AnalogPreferredValueSeries.ProductCandidates(cf,1/(2*Math.PI*leak),resistorCandidates,relativeTolerance);
+            foreach(var rin in rins)
+            foreach(var rf in rfs)
             {
+                evaluated++;
                 var actualKi=1/(rin*cf);var actualLeak=1/(2*Math.PI*rf*cf);
-                var score=SqLog(actualKi/ki)+SqLog(actualLeak/leak)+1e-6*SqLog(rf/rin);
+                if(Math.Abs(actualKi/ki-1)<=relativeTolerance+1e-12&&Math.Abs(actualLeak/leak-1)<=relativeTolerance+1e-12)scalarFeasible++;
+                var score=IntegratorErrorScore(ki,leak,actualKi,actualLeak,errorPercent)+1e-9*SqLog(rf/rin);
                 if(score<best.Score)best=(rin,rf,cf,score);
             }
         }
         if(!(best.Rin>0))throw new InvalidOperationException("No coupled R/C standard-value set realizes the practical integrator inside the selected ranges.");
-        return(best.Rin,best.Rf,best.Cf);
+        return(best.Rin,best.Rf,best.Cf,evaluated,scalarFeasible);
     }
 
-    private static (double Rin,double Cin,double Rf,double Cf) SelectDifferentiator(double kd,double first,double second,double continuousCin,ComponentSelectionConstraints constraints,double errorPercent)
+    private static double IntegratorErrorScore(double ki,double leak,double actualKi,double actualLeak,double errorPercent)
     {
+        var relativeTolerance=errorPercent/100;
+        var score=Math.Max(Math.Abs(actualKi/ki-1),Math.Abs(actualLeak/leak-1))/relativeTolerance;
+        var start=Math.Max(.001,leak/10);var stop=leak*10_000;
+        var allowedDb=20*Math.Log10(1+relativeTolerance)+.015;
+        var allowedPhase=Math.Max(.5,errorPercent*.75);
+        for(var index=0;index<=12;index++)
+        {
+            var frequency=start*Math.Pow(stop/start,index/12d);
+            var target=DynamicOperationParameters.IntegratorTransfer(frequency,ki,leak);
+            var actual=DynamicOperationParameters.IntegratorTransfer(frequency,actualKi,actualLeak);
+            var magnitudeError=Math.Abs(20*Math.Log10(Math.Max(actual.Magnitude,1e-15))-20*Math.Log10(Math.Max(target.Magnitude,1e-15)));
+            var phaseError=PhaseDifference(Math.Atan2(actual.Imaginary,actual.Real)*180/Math.PI,
+                Math.Atan2(target.Imaginary,target.Real)*180/Math.PI);
+            score=Math.Max(score,Math.Max(magnitudeError/allowedDb,phaseError/allowedPhase));
+        }
+        return score;
+    }
+
+    private static (double Rin,double Cin,double Rf,double Cf,long Evaluated,long ScalarFeasible) SelectDifferentiator(double kd,double first,double second,double continuousCin,ComponentSelectionConstraints constraints,double errorPercent)
+    {
+        if(!constraints.OptimizeStandardValues)
+        {
+            var rf=kd/continuousCin;var rin=1/(2*Math.PI*first*continuousCin);var cf=1/(2*Math.PI*second*rf);
+            return(rin,continuousCin,rf,cf,1,1);
+        }
         var capacitorCandidates=constraints.OptimizeStandardValues
             ? AnalogPreferredValueSeries.All(constraints.CapacitorSeries,constraints.CapacitorMinimumFarad,constraints.CapacitorMaximumFarad)
             : [continuousCin];
+        var resistorCandidates=AnalogPreferredValueSeries.All(constraints.ResistorSeries,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm);
+        var relativeTolerance=errorPercent/100;
         var best=(Rin:0d,Cin:0d,Rf:0d,Cf:0d,Score:double.PositiveInfinity);
+        long evaluated=0,scalarFeasible=0;
         foreach(var cin in capacitorCandidates)
         {
             var rfTheory=kd/cin;var rinTheory=1/(2*Math.PI*first*cin);
             if(!InRange(rfTheory,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm)||
                !InRange(rinTheory,constraints.ResistorMinimumOhm,constraints.ResistorMaximumOhm))continue;
-            foreach(var rin in AnalogSynthesisSupport.Candidates(rinTheory,true,constraints))
-            foreach(var rf in AnalogSynthesisSupport.Candidates(rfTheory,true,constraints))
+            var rins=AnalogPreferredValueSeries.ProductCandidates(cin,1/(2*Math.PI*first),resistorCandidates,relativeTolerance);
+            var rfs=AnalogPreferredValueSeries.ProductCandidates(cin,kd,resistorCandidates,relativeTolerance);
+            foreach(var rin in rins)
+            foreach(var rf in rfs)
             {
                 var cfTheory=1/(2*Math.PI*second*rf);
                 if(!InRange(cfTheory,constraints.CapacitorMinimumFarad,constraints.CapacitorMaximumFarad))continue;
-                foreach(var cf in AnalogSynthesisSupport.Candidates(cfTheory,false,constraints))
+                var cfs=AnalogPreferredValueSeries.ProductCandidates(rf,1/(2*Math.PI*second),capacitorCandidates,relativeTolerance);
+                foreach(var cf in cfs)
                 {
+                    evaluated++;
                     var actualKd=rf*cin;var actualFirst=1/(2*Math.PI*rin*cin);var actualSecond=1/(2*Math.PI*rf*cf);
-                    var score = DifferentiatorErrorScore(actualKd/kd, actualFirst/first, actualSecond/second, errorPercent);
+                    if(Math.Abs(actualKd/kd-1)<=relativeTolerance+1e-12&&Math.Abs(actualFirst/first-1)<=relativeTolerance+1e-12&&Math.Abs(actualSecond/second-1)<=relativeTolerance+1e-12)scalarFeasible++;
+                    var score = DifferentiatorErrorScore(kd,first,second,actualKd,actualFirst,actualSecond,errorPercent);
                     if(score<best.Score)best=(rin,cin,rf,cf,score);
                 }
             }
         }
         if(!(best.Rin>0))throw new InvalidOperationException("No coupled R/C standard-value set realizes the bounded differentiator inside the selected ranges.");
-        return(best.Rin,best.Cin,best.Rf,best.Cf);
+        return(best.Rin,best.Cin,best.Rf,best.Cf,evaluated,scalarFeasible);
     }
 
-    private static double DifferentiatorErrorScore(double kdRatio, double firstRatio, double secondRatio, double errorPercent)
+    private static double DifferentiatorErrorScore(double kd,double first,double second,
+        double actualKd,double actualFirst,double actualSecond,double errorPercent)
     {
-        var kdLog = Math.Log(kdRatio);
-        var firstLog = Math.Log(firstRatio);
-        var secondLog = Math.Log(secondRatio);
-        // Each pole's log-magnitude contribution lies between zero and log(actual/target).
-        // Bound their combined error over the entire band, including accumulation in the tail.
-        var minimumLog = kdLog + Math.Min(0, firstLog) + Math.Min(0, secondLog);
-        var maximumLog = kdLog + Math.Max(0, firstLog) + Math.Max(0, secondLog);
-        var magnitudeBoundDb = 20 / Math.Log(10) * Math.Max(Math.Abs(minimumLog), Math.Abs(maximumLog));
-        // |d atan(f/fc) / d log(fc)| <= 1/2 for every frequency.
-        var phaseBoundDegrees = 90 / Math.PI * (Math.Abs(firstLog) + Math.Abs(secondLog));
-        var parameterError = Math.Max(Math.Abs(kdRatio - 1),
-            Math.Max(Math.Abs(firstRatio - 1), Math.Abs(secondRatio - 1)));
-        return Math.Max(parameterError / (errorPercent / 100),
-            Math.Max(magnitudeBoundDb / (20 * Math.Log10(1 + errorPercent / 100) + .015),
-                phaseBoundDegrees / Math.Max(.5, errorPercent * .75)));
+        var relativeTolerance=errorPercent/100;
+        var score=Math.Max(Math.Abs(actualKd/kd-1),
+            Math.Max(Math.Abs(actualFirst/first-1),Math.Abs(actualSecond/second-1)))/relativeTolerance;
+        var start=Math.Max(.001,first/500);var stop=second*10;
+        var allowedDb=20*Math.Log10(1+relativeTolerance)+.015;
+        var allowedPhase=Math.Max(.5,errorPercent*.75);
+        for(var index=0;index<=12;index++)
+        {
+            var frequency=start*Math.Pow(stop/start,index/12d);
+            var target=DynamicOperationParameters.DifferentiatorTransfer(frequency,kd,first,second);
+            var actual=DynamicOperationParameters.DifferentiatorTransfer(frequency,actualKd,actualFirst,actualSecond);
+            var magnitudeError=Math.Abs(20*Math.Log10(Math.Max(actual.Magnitude,1e-15))-20*Math.Log10(Math.Max(target.Magnitude,1e-15)));
+            var phaseError=PhaseDifference(Math.Atan2(actual.Imaginary,actual.Real)*180/Math.PI,
+                Math.Atan2(target.Imaginary,target.Real)*180/Math.PI);
+            score=Math.Max(score,Math.Max(magnitudeError/allowedDb,phaseError/allowedPhase));
+        }
+        return score;
+    }
+
+    private static double PhaseDifference(double first,double second)
+    {
+        var difference=Math.Abs(first-second)%360;
+        return difference>180?360-difference:difference;
     }
 
     private static CircuitGraph BuildIntegrator(double rinValue, double rfValue, double cfValue)

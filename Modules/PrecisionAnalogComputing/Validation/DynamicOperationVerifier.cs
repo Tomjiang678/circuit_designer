@@ -41,10 +41,10 @@ internal sealed class DynamicOperationVerifier
             targetFirst = parameters.FirstCornerHz;
             actualFirst = 1 / (2 * Math.PI * values["R2"] * values["C1"]);
             targetSecond = actualSecond = double.NaN;
-            target = frequency => -request.IntegrationConstantPerSecond /
-                new Complex(2 * Math.PI * request.LowerCornerHz, 2 * Math.PI * frequency);
-            continuous = frequency => -theory["R2"] / theory["R1"] /
-                (Complex.One + new Complex(0, 2 * Math.PI * frequency * theory["R2"] * theory["C1"]));
+            target = frequency => DynamicOperationParameters.IntegratorTransfer(frequency,
+                request.IntegrationConstantPerSecond,request.LowerCornerHz);
+            continuous = frequency => DynamicOperationParameters.IntegratorTransfer(frequency,
+                1/(theory["R1"]*theory["C1"]),1/(2*Math.PI*theory["R2"]*theory["C1"]));
             AddMetric(metrics, "Integration constant Ki", targetConstant, actualConstant, request.MaximumFunctionErrorPercent, "1/s");
             AddMetric(metrics, "Leak corner", targetFirst, actualFirst, request.MaximumFunctionErrorPercent, "Hz");
         }
@@ -56,9 +56,9 @@ internal sealed class DynamicOperationVerifier
             actualFirst = 1 / (2 * Math.PI * values["R1"] * values["C1"]);
             targetSecond = parameters.SecondCornerHz;
             actualSecond = 1 / (2 * Math.PI * values["R2"] * values["C2"]);
-            target = frequency => TransferDifferentiator(frequency, request.DifferentiationConstantSecond,
+            target = frequency => DynamicOperationParameters.DifferentiatorTransfer(frequency, request.DifferentiationConstantSecond,
                 parameters.FirstCornerHz, parameters.SecondCornerHz);
-            continuous = frequency => TransferDifferentiator(frequency, theory["R2"] * theory["C1"],
+            continuous = frequency => DynamicOperationParameters.DifferentiatorTransfer(frequency, theory["R2"] * theory["C1"],
                 1 / (2*Math.PI*theory["R1"]*theory["C1"]), 1 / (2*Math.PI*theory["R2"]*theory["C2"]));
             AddMetric(metrics, "Differentiation constant Kd", targetConstant, actualConstant, request.MaximumFunctionErrorPercent, "s");
             AddMetric(metrics, "Lower limiting corner", targetFirst, actualFirst, request.MaximumFunctionErrorPercent, "Hz");
@@ -99,23 +99,13 @@ internal sealed class DynamicOperationVerifier
         {
             var noiseGain = request.Operation == AnalogComputeOperationType.PracticalDifferentiator
                 ? 1 + values["R2"] / values["R1"] : 1 + values["R2"] / values["R1"];
-            var requiredGbw = parameters.SecondCornerHz * noiseGain * 10;
-            metrics.Add(new("Required GBW", requiredGbw, request.OpAmp.GainBandwidthHz,
-                request.OpAmp.GainBandwidthHz-requiredGbw, 0, request.OpAmp.GainBandwidthHz >= requiredGbw, "Hz"));
+            var requiredGbw = OpAmpFeasibilityEvaluator.RequiredGbw(parameters.SecondCornerHz, noiseGain);
             var requiredSlew = 2 * Math.PI * parameters.SecondCornerHz * Math.Min(peakOutput, swing);
-            metrics.Add(new("Required slew rate", requiredSlew, request.OpAmp.SlewRateVoltPerSecond,
-                request.OpAmp.SlewRateVoltPerSecond-requiredSlew, 0, request.OpAmp.SlewRateVoltPerSecond >= requiredSlew, "V/s"));
+            OpAmpFeasibilityEvaluator.AddMetrics(metrics, request, requiredGbw, requiredSlew);
         }
         else warnings.Add("Ideal op-amp AC verification; enter GBW and slew rate to enable practical dynamic checks.");
         var timeDomain=new DynamicTimeDomainAnalysisService().Analyze(request,components);
         return (metrics, new("Bode and time-domain: Continuous/Theoretical / Selected/Actual", points, metrics,timeDomain), warnings);
-    }
-
-    private static Complex TransferDifferentiator(double frequency, double kd, double firstCorner, double secondCorner)
-    {
-        var s = new Complex(0, 2 * Math.PI * frequency);
-        return -kd * s / ((Complex.One + s / (2*Math.PI*firstCorner)) *
-                          (Complex.One + s / (2*Math.PI*secondCorner)));
     }
 
     private static void AddMetric(List<VerificationMetric> metrics, string name, double target, double actual,

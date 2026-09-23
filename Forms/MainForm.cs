@@ -1,6 +1,7 @@
 using System.Drawing;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Controls;
+using CircuitModuleDesigner.Modules.Comparators.Controls;
 
 namespace CircuitModuleDesigner.Forms;
 
@@ -12,6 +13,7 @@ public sealed class MainForm : Form
     private Panel? designHost;
     private SplitContainer? mainSplit;
     private PrecisionAnalogWizardControl? precisionAnalogWizard;
+    private ComparatorWizardControl? comparatorWizard;
 
     public MainForm()
     {
@@ -96,7 +98,8 @@ public sealed class MainForm : Form
         var selection = categoryCombo.SelectedItem?.ToString();
         var isFilter = selection?.StartsWith("Filters", StringComparison.OrdinalIgnoreCase) == true;
         var isPrecisionAnalog = selection?.StartsWith("Precision Analog Computing", StringComparison.OrdinalIgnoreCase) == true;
-        navigationHint?.Visible = !isFilter && !isPrecisionAnalog;
+        var isComparator = selection?.StartsWith("Comparators & Threshold Control", StringComparison.OrdinalIgnoreCase) == true;
+        navigationHint?.Visible = !isFilter && !isPrecisionAnalog && !isComparator;
         if (designHost == null) return;
         designHost.SuspendLayout();
         try
@@ -108,6 +111,12 @@ public sealed class MainForm : Form
                 precisionAnalogWizard ??= new PrecisionAnalogWizardControl();
                 precisionAnalogWizard.AttachNavigation(navigationTree);
                 designHost.Controls.Add(precisionAnalogWizard);
+            }
+            else if (isComparator)
+            {
+                comparatorWizard ??= new ComparatorWizardControl();
+                comparatorWizard.AttachNavigation(navigationTree);
+                designHost.Controls.Add(comparatorWizard);
             }
             else { navigationTree.Nodes.Clear(); designHost.Controls.Add(CreateDefaultDesignArea()); }
         }
@@ -130,6 +139,8 @@ public sealed class MainForm : Form
             designHost.Controls.Remove(control);
             if (ReferenceEquals(control, precisionAnalogWizard))
                 precisionAnalogWizard.DetachNavigation();
+            else if (ReferenceEquals(control, comparatorWizard))
+                comparatorWizard.DetachNavigation();
             else
                 control.Dispose();
         }
@@ -142,6 +153,8 @@ public sealed class MainForm : Form
             Application.Idle -= PreloadPrecisionAnalogOnIdle;
             precisionAnalogWizard?.Dispose();
             precisionAnalogWizard = null;
+            comparatorWizard?.Dispose();
+            comparatorWizard = null;
         }
         base.Dispose(disposing);
     }
