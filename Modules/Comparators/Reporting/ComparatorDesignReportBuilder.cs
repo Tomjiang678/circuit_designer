@@ -13,8 +13,8 @@ public sealed class ComparatorDesignReportBuilder
     {
         var b = new StringBuilder(); var r = result.Request;
         b.AppendLine("COMPARATORS & THRESHOLD CONTROL DESIGN REPORT").AppendLine();
-        b.AppendLine($"Designer: {(r.Kind == ComparatorDesignerKind.SchmittTrigger ? "Schmitt Trigger" : "Window Comparator")}");
-        b.AppendLine($"Topology / output mode: {(r.Kind == ComparatorDesignerKind.SchmittTrigger ? r.Topology : r.OutputMode)}");
+        b.AppendLine($"Designer: {DesignerName(r.Kind)}");
+        b.AppendLine($"Topology / output mode: {ModeName(r)}");
         b.AppendLine($"Standard Value Optimization: {(r.OptimizeStandardValues ? "Enabled" : "Disabled")}");
         b.AppendLine($"Selected E-Series: {(r.OptimizeStandardValues ? r.ResistorSeries.ToString() : "Not applied")}");
         b.AppendLine($"Target Thresholds: {r.LowerThresholdVoltage:G8} V .. {r.UpperThresholdVoltage:G8} V");
@@ -22,11 +22,14 @@ public sealed class ComparatorDesignReportBuilder
         {
             b.AppendLine($"Actual Thresholds: {t.Lower:G8} V .. {t.Upper:G8} V");
             b.AppendLine($"Threshold Error: lower {t.Lower-r.LowerThresholdVoltage:+0.######;-0.######;0} V, upper {t.Upper-r.UpperThresholdVoltage:+0.######;-0.######;0} V");
-            b.AppendLine(r.Kind == ComparatorDesignerKind.SchmittTrigger ? $"Hysteresis: {t.Width:G8} V; center={t.Center:G8} V" : $"Window Width: {t.Width:G8} V");
+            b.AppendLine(r.Kind == ComparatorDesignerKind.WindowComparator ? $"Window Width: {t.Width:G8} V" : $"Hysteresis: {t.Width:G8} V; center={t.Center:G8} V");
         }
+        if(result.Oscillator is { } oscillator)
+            b.AppendLine($"Oscillation: target/actual frequency={oscillator.TargetFrequencyHz:G8}/{oscillator.ActualFrequencyHz:G8} Hz; target/actual duty={oscillator.TargetDutyCyclePercent:G6}/{oscillator.ActualDutyCyclePercent:G6} %");
         if (result.WindowThresholds is { } w) b.AppendLine($"Boundary switching: lower fall/rise={w.LowerFalling:G8}/{w.LowerRising:G8} V; upper fall/rise={w.UpperFalling:G8}/{w.UpperRising:G8} V");
         b.AppendLine().AppendLine("Selected Components"); foreach (var item in result.Resistors) b.AppendLine($"  {item.Reference}: continuous {EngineeringValueFormatter.Format(item.ContinuousOhm, "Ω")}, selected {EngineeringValueFormatter.Format(item.SelectedOhm, "Ω")}");
-        b.AppendLine().AppendLine("Independent CircuitGraph Verification"); foreach (var metric in result.Verification) b.AppendLine($"  {metric.Name}: target={metric.Target:G8} V, graph={metric.Actual:G8} V, error={metric.ErrorVoltage:G6} V");
+        foreach(var item in result.Capacitors)b.AppendLine($"  {item.Reference}: continuous {EngineeringValueFormatter.Format(item.ContinuousFarad,"F")}, selected {EngineeringValueFormatter.Format(item.SelectedFarad,"F")}");
+        b.AppendLine().AppendLine("Independent CircuitGraph Verification"); foreach (var metric in result.Verification) b.AppendLine($"  {metric.Name}: target={metric.Target:G8} {metric.Unit}, graph={metric.Actual:G8} {metric.Unit}, error={metric.ErrorVoltage:G6} {metric.Unit}");
         b.AppendLine().AppendLine("Calculation Trace"); foreach (var line in result.CalculationTrace) b.AppendLine("  " + line);
         if (result.Warnings.Count > 0) { b.AppendLine().AppendLine("Warnings"); foreach (var warning in result.Warnings) b.AppendLine("  " + warning); }
         return b.ToString();
@@ -47,8 +50,8 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
             .Append(" | Selected-value CircuitGraph verification</p>");
 
         html.Append("<h2>1. Design Definition</h2><table><thead><tr><th>Item</th><th>Value</th><th>Unit</th></tr></thead><tbody>")
-            .Append(Field("Designer", request.Kind == ComparatorDesignerKind.SchmittTrigger ? "Schmitt Trigger" : "Window Comparator"))
-            .Append(Field("Topology / output mode", request.Kind == ComparatorDesignerKind.SchmittTrigger ? request.Topology.ToString() : request.OutputMode.ToString()))
+            .Append(Field("Designer", DesignerName(request.Kind)))
+            .Append(Field("Topology / output mode", ModeName(request)))
             .Append(Field("Standard-value optimization", request.OptimizeStandardValues ? "Enabled" : "Disabled"))
             .Append(Field("Resistor series", request.OptimizeStandardValues ? request.ResistorSeries.ToString() : "Not applied"))
             .Append(Field("Supply high VCC", N(request.SupplyHighVoltage), "V"))
@@ -80,7 +83,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
         html.Append("<h2>2. Threshold Design</h2><table><thead><tr><th>Quantity</th><th>Target</th><th>Actual</th><th>Error</th><th>Unit</th></tr></thead><tbody>")
             .Append(ThresholdRow("Lower threshold", request.LowerThresholdVoltage, actual.Lower))
             .Append(ThresholdRow("Upper threshold", request.UpperThresholdVoltage, actual.Upper));
-        if (request.Kind == ComparatorDesignerKind.SchmittTrigger)
+        if (request.Kind != ComparatorDesignerKind.WindowComparator)
         {
             html.Append(ThresholdRow("Hysteresis", request.UpperThresholdVoltage - request.LowerThresholdVoltage, actual.Width))
                 .Append(ThresholdRow("Center threshold", (request.LowerThresholdVoltage + request.UpperThresholdVoltage) / 2, actual.Center));
@@ -90,6 +93,14 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
             html.Append(ThresholdRow("Window width", request.UpperThresholdVoltage - request.LowerThresholdVoltage, actual.Width));
         }
         html.Append("</tbody></table>");
+        if(result.Oscillator is { } oscillator)
+        {
+            html.Append("<h3>Oscillation</h3><table><thead><tr><th>Quantity</th><th>Target</th><th>Actual</th><th>Unit</th></tr></thead><tbody>")
+                .Append($"<tr><td>Frequency</td><td class=\"num\">{N(oscillator.TargetFrequencyHz)}</td><td class=\"num\">{N(oscillator.ActualFrequencyHz)}</td><td>Hz</td></tr>")
+                .Append($"<tr><td>Duty cycle</td><td class=\"num\">{N(oscillator.TargetDutyCyclePercent)}</td><td class=\"num\">{N(oscillator.ActualDutyCyclePercent)}</td><td>%</td></tr>")
+                .Append($"<tr><td>High time</td><td></td><td class=\"num\">{N(oscillator.HighTimeSeconds)}</td><td>s</td></tr>")
+                .Append($"<tr><td>Low time</td><td></td><td class=\"num\">{N(oscillator.LowTimeSeconds)}</td><td>s</td></tr></tbody></table>");
+        }
 
         if (result.WindowThresholds is not { } window) return;
         html.Append("<h3>Boundary Switching Thresholds</h3><table><thead><tr><th>Boundary</th><th>Falling sweep</th><th>Rising sweep</th><th>Unit</th></tr></thead><tbody>")
@@ -110,6 +121,14 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
                 .Append(E(result.Request.OptimizeStandardValues ? result.Request.ResistorSeries.ToString() : "Continuous")).Append("</td><td class=\"num\">")
                 .Append(N(relative)).Append(" %</td></tr>");
         }
+        foreach(var capacitor in result.Capacitors)
+        {
+            var relative=capacitor.ContinuousFarad==0?0:(capacitor.SelectedFarad-capacitor.ContinuousFarad)/capacitor.ContinuousFarad*100;
+            html.Append("<tr><td>").Append(E(capacitor.Reference)).Append("</td><td class=\"num\">")
+                .Append(E(EngineeringValueFormatter.Format(capacitor.ContinuousFarad,"F"))).Append("</td><td class=\"num\">")
+                .Append(E(EngineeringValueFormatter.Format(capacitor.SelectedFarad,"F"))).Append("</td><td>E24</td><td class=\"num\">")
+                .Append(N(relative)).Append(" %</td></tr>");
+        }
         html.Append("</tbody></table>");
     }
 
@@ -119,7 +138,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
         foreach (var metric in result.Verification)
             html.Append("<tr><td>").Append(E(metric.Name)).Append("</td><td class=\"num\">").Append(N(metric.Target))
                 .Append("</td><td class=\"num\">").Append(N(metric.Actual)).Append("</td><td class=\"num\">")
-                .Append(N(metric.ErrorVoltage)).Append("</td><td>V</td></tr>");
+                .Append(N(metric.ErrorVoltage)).Append("</td><td>").Append(E(metric.Unit)).Append("</td></tr>");
         html.Append("</tbody></table>");
     }
 
@@ -130,6 +149,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
             .Append(Row("Comparators", graph.Components.Count(component => component.Type == ComponentType.Comparator).ToString(CultureInfo.InvariantCulture)))
             .Append(Row("Output op-amp stages", graph.Components.Count(component => component.Type == ComponentType.OpAmp).ToString(CultureInfo.InvariantCulture)))
             .Append(Row("Resistors", graph.Components.Count(component => component.Type == ComponentType.Resistor).ToString(CultureInfo.InvariantCulture)))
+            .Append(Row("Capacitors", graph.Components.Count(component => component.Type == ComponentType.Capacitor).ToString(CultureInfo.InvariantCulture)))
             .Append(Row("Nets", graph.Nets.Count.ToString(CultureInfo.InvariantCulture)))
             .Append(Row("Output behavior", result.Request.OutputBehavior.ToString()))
             .Append("</tbody></table>");
@@ -167,4 +187,18 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
     private static string Row(string name, string value) => $"<tr><th>{E(name)}</th><td>{E(value)}</td></tr>";
     private static string N(double value) => value.ToString("G10", CultureInfo.InvariantCulture);
     private static string E(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
+    private static string DesignerName(ComparatorDesignerKind kind)=>kind switch
+    {
+        ComparatorDesignerKind.SchmittTrigger=>"Schmitt Trigger",
+        ComparatorDesignerKind.WindowComparator=>"Window Comparator",
+        ComparatorDesignerKind.RelaxationOscillator=>"Relaxation Oscillator",
+        _=>kind.ToString()
+    };
+    private static string ModeName(ComparatorDesignRequest request)=>request.Kind switch
+    {
+        ComparatorDesignerKind.SchmittTrigger=>request.Topology.ToString(),
+        ComparatorDesignerKind.WindowComparator=>request.OutputMode.ToString(),
+        ComparatorDesignerKind.RelaxationOscillator=>"Inverting Schmitt RC",
+        _=>string.Empty
+    };
 }

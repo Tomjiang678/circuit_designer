@@ -98,7 +98,7 @@ public sealed class ComparatorManualTestRowService
             failed.Length.ToString(CultureInfo.InvariantCulture),
             result.Verification.Count == 0 ? "NA" : result.Verification.Max(metric => Math.Abs(metric.ErrorVoltage)).ToString("G12", CultureInfo.InvariantCulture),
             Value(thresholds?.Lower), Value(thresholds?.Upper), Value(thresholds?.Width),
-            Value(result.CircuitGraph is not null && result.Request.Kind == ComparatorDesignerKind.SchmittTrigger ? result.BiasNodeVoltage : null),
+            Value(result.CircuitGraph is not null && result.Request.Kind != ComparatorDesignerKind.WindowComparator ? result.BiasNodeVoltage : null),
             Value(window?.LowerFalling), Value(window?.LowerRising), Value(window?.UpperFalling), Value(window?.UpperRising),
             Join(result.Verification.Select(metric => $"{metric.Name}:{metric.Actual:G9}/{metric.Target:G9};pass={metric.Pass}")),
             Join(result.Resistors.Select(item => $"{item.Reference}:{item.SelectedOhm:G9}ohm;continuous={item.ContinuousOhm:G9}")),

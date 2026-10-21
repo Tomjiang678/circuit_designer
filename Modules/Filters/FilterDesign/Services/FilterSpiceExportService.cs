@@ -15,11 +15,12 @@ public interface IFilterSpiceExportService
 public sealed class FilterSpiceExportService : IFilterSpiceExportService
 {
     private readonly ICircuitSpiceExporter exporter;
-    public FilterSpiceExportService(ICircuitSpiceExporter? exporter = null) => this.exporter = exporter ?? new CircuitSpiceExporter();
+    public FilterSpiceExportService(ICircuitSpiceExporter? exporter = null) => this.exporter = exporter ?? new LtspiceNetlistExporter();
 
     public string Export(FilterDesignResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
+        if (!result.IsImplemented) throw new InvalidOperationException("Only an implemented filter design can be exported.");
         var graph = result.CircuitGraph ?? throw new InvalidOperationException("The design result does not contain a CircuitGraph.");
         var request = result.DesignRequest ?? throw new InvalidOperationException("The design result does not contain its design request.");
         var analysis = new FilterAnalysisService().CreateOptions(request);

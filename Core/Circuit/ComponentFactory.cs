@@ -7,6 +7,8 @@ public static class ComponentFactory
     private static readonly string[] DiodePins = ["A", "K"];
     private static readonly string[] ComparatorPins = ["IN+", "IN-", "OUT", "V+", "V-"];
     private static readonly string[] LogicGatePins = ["A", "B", "OUT", "V+", "V-"];
+    private static readonly string[] MosfetPins = ["G", "D", "S"];
+    private static readonly string[] AnalogSwitchPins = ["A", "B", "CTRL"];
 
     public static CircuitComponent Resistor(string reference, double resistanceOhm) =>
         CreateSingleValueComponent(reference, ComponentType.Resistor, ComponentParameterNames.ResistanceOhm, resistanceOhm, TwoTerminalPins);
@@ -46,6 +48,18 @@ public static class ComponentFactory
                 new(ComponentParameterNames.OutputHighVoltage, outputHighVoltage),
                 new(ComponentParameterNames.OutputLowVoltage, outputLowVoltage)]), LogicGatePins)
         : throw new ArgumentOutOfRangeException(nameof(outputHighVoltage), "Logic output levels must be finite and ordered.");
+
+    public static CircuitComponent Mosfet(string reference) =>
+        new(reference, ComponentType.Mosfet, ComponentParameters.Empty, MosfetPins);
+
+    public static CircuitComponent AnalogSwitch(string reference) =>
+        new(reference, ComponentType.AnalogSwitch, ComponentParameters.Empty, AnalogSwitchPins);
+
+    public static CircuitComponent AnalogSwitch(string reference, double onResistanceOhm) =>
+        double.IsFinite(onResistanceOhm) && onResistanceOhm > 0
+            ? new(reference, ComponentType.AnalogSwitch,
+                new ComponentParameters([new(ComponentParameterNames.ResistanceOhm, onResistanceOhm)]), AnalogSwitchPins)
+            : throw new ArgumentOutOfRangeException(nameof(onResistanceOhm), "Switch on-resistance must be finite and positive.");
 
     private static CircuitComponent CreateSingleValueComponent(
         string reference,

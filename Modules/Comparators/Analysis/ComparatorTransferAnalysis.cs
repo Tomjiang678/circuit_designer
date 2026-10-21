@@ -11,6 +11,8 @@ public sealed class ComparatorTransferAnalysisService
     {
         if (!result.Success || result.ActualThresholds is null) throw new ArgumentException("A successful design is required.", nameof(result));
         var r = result.Request; var padding = Math.Max(.25, (r.UpperThresholdVoltage - r.LowerThresholdVoltage) * .35);
+        if(r.Kind==ComparatorDesignerKind.RelaxationOscillator)
+            throw new ArgumentException("Use RelaxationOscillatorAnalysisService for oscillator time-domain analysis.",nameof(result));
         var start = Math.Max(r.SupplyLowVoltage, r.LowerThresholdVoltage - padding); var stop = Math.Min(r.SupplyHighVoltage, r.UpperThresholdVoltage + padding);
         var points = new List<ComparatorTransferPoint>(pointCount);
         if (r.Kind == ComparatorDesignerKind.SchmittTrigger)

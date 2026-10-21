@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Reflection;
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
@@ -32,7 +31,7 @@ public sealed class FilterDesignReportBuilder
         var gain = BuildGain(result);
         var verification = BuildVerification(result, request);
         var circuitSummary = BuildCircuitSummary(result, request);
-        var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
+        var version = typeof(FilterDesignReportBuilder).Assembly.GetName().Version?.ToString() ?? "1.0.0";
         var snapshot = new FilterDesignSnapshot(
             "circuit-module-designer.filter-design/1",
             result.DesignedAtUtc,

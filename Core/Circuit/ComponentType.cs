@@ -8,5 +8,7 @@ public enum ComponentType
     OpAmp,
     Diode,
     Comparator,
-    LogicGate
+    LogicGate,
+    Mosfet,
+    AnalogSwitch
 }

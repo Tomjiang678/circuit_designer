@@ -58,6 +58,10 @@ public sealed class DynamicWaveformPlotControl : Control
         var actualX = left + 44 + e.Graphics.MeasureString("Theoretical", Font).Width;
         e.Graphics.DrawLine(actualPen, actualX, 12, actualX + 24, 12);
         e.Graphics.DrawString("Actual", Font, Brushes.Navy, actualX + 30, 5);
+        var frequencyText=Engineering(data.DemoFrequencyHz,"Hz");
+        var frequencySize=e.Graphics.MeasureString(frequencyText,Font);
+        e.Graphics.DrawString(frequencyText,Font,Brushes.DimGray,
+            Math.Max(left,ClientSize.Width-frequencySize.Width-12),-2);
     }
 
     private void Axes(Graphics graphics, RectangleF bounds, string label, double minimum, double maximum)
@@ -74,8 +78,11 @@ public sealed class DynamicWaveformPlotControl : Control
         {
             var x = bounds.Left + bounds.Width * index / 3;
             graphics.DrawLine(grid, x, bounds.Top, x, bounds.Bottom);
-            graphics.DrawString(index == 0 ? "0" : index == 1 ? "T" : $"{index}T",
-                Font, Brushes.DimGray, x - 6, bounds.Bottom + 3);
+            var text = index == 0 ? "0" : Engineering(index/analysis!.DemoFrequencyHz,"s");
+            var size = graphics.MeasureString(text, Font);
+            var labelX = Math.Clamp(x - size.Width / 2, 2, Math.Max(2, ClientSize.Width - size.Width - 2));
+            var labelY = Math.Clamp(bounds.Bottom + 3, 0, Math.Max(0, ClientSize.Height - size.Height - 2));
+            graphics.DrawString(text, Font, Brushes.DimGray, labelX, labelY);
         }
         graphics.DrawRectangle(Pens.DimGray, bounds.X, bounds.Y, bounds.Width, bounds.Height);
         graphics.DrawString(label, Font, Brushes.Black, bounds.Left + 5, bounds.Top + 3);
@@ -89,5 +96,21 @@ public sealed class DynamicWaveformPlotControl : Control
             bounds.Bottom - (float)((value.Y - minimum) / (maximum - minimum)) * bounds.Height)).ToArray();
         using var pen = new Pen(color, 2) { DashStyle = dash, LineJoin = LineJoin.Round };
         graphics.DrawLines(pen, points);
+    }
+
+    private static string Engineering(double value,string unit)
+    {
+        var absolute=Math.Abs(value);
+        var (scale,prefix)=absolute switch
+        {
+            >=1e9=>(1e9,"G"),
+            >=1e6=>(1e6,"M"),
+            >=1e3=>(1e3,"k"),
+            >=1=>(1d,""),
+            >=1e-3=>(1e-3,"m"),
+            >=1e-6=>(1e-6,"u"),
+            _=>(1e-9,"n")
+        };
+        return $"{value/scale:G4} {prefix}{unit}";
     }
 }

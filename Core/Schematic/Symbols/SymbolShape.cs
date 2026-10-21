@@ -8,7 +8,9 @@ public enum SymbolShape
     OpAmpTriangle,
     DiodeJunction,
     ComparatorTriangle,
-    LogicGate
+    LogicGate,
+    Mosfet,
+    AnalogSwitch
 }
 
 public enum SymbolPinDirection

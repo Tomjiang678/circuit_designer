@@ -16,13 +16,18 @@ public sealed class ComparatorDesignEngine
         if (errors.Count > 0) return Failed(request, string.Join(" ", errors));
         try
         {
-            var synthesized = request.Kind == ComparatorDesignerKind.SchmittTrigger
-                ? SynthesizeSchmitt(request) : SynthesizeWindow(request);
+            var synthesized = request.Kind switch
+            {
+                ComparatorDesignerKind.SchmittTrigger=>SynthesizeSchmitt(request),
+                ComparatorDesignerKind.WindowComparator=>SynthesizeWindow(request),
+                ComparatorDesignerKind.RelaxationOscillator=>new RelaxationOscillatorDesignEngine().Synthesize(request),
+                _=>throw new ArgumentOutOfRangeException(nameof(request.Kind))
+            };
             var verification = new ComparatorCircuitVerifier().Verify(synthesized);
             var hardFailure = verification.Any(metric => !metric.Pass);
             var warnings = synthesized.Warnings.ToList();
             var supplySpan = request.SupplyHighVoltage - request.SupplyLowVoltage;
-            if (verification.Any(metric => Math.Abs(metric.ErrorVoltage) > supplySpan * .01))
+            if (verification.Any(metric => metric.Unit=="V"&&Math.Abs(metric.ErrorVoltage) > supplySpan * .01))
                 warnings.Add("One or more selected-value threshold errors exceed 1% of the supply span.");
             if (request.Kind == ComparatorDesignerKind.SchmittTrigger &&
                 request.UpperThresholdVoltage - request.LowerThresholdVoltage < .01 * supplySpan)
@@ -32,16 +37,26 @@ public sealed class ComparatorDesignEngine
             if (request.Kind == ComparatorDesignerKind.WindowComparator &&
                 new[] { request.LowerBoundaryHysteresisVoltage, request.UpperBoundaryHysteresisVoltage }.Any(value => value > 0 && value < .01 * supplySpan))
                 warnings.Add("A nonzero boundary hysteresis is less than 1% of the supply span; check the available noise margin.");
+            if (request.Kind == ComparatorDesignerKind.RelaxationOscillator && request.OptimizeStandardValues)
+            {
+                var frequencyMetric = verification.FirstOrDefault(metric => metric.Name == "Frequency");
+                if (frequencyMetric is not null)
+                {
+                    var errorPercent = Math.Abs(frequencyMetric.ErrorVoltage / request.TargetFrequencyHz) * 100;
+                    if (errorPercent > 2)
+                        warnings.Add($"The selected {request.ResistorSeries} timing pair gives a {errorPercent:G3}% frequency error. E24/E48 tolerate a coarser standard-value grid; choose E96 or disable standard-value optimization for a 2% target.");
+                }
+            }
             var status = hardFailure ? ComparatorDesignStatus.Failed : warnings.Count > 0 ? ComparatorDesignStatus.Warning : ComparatorDesignStatus.Pass;
             return Copy(synthesized, status, hardFailure ? "Independent CircuitGraph threshold verification failed." : status == ComparatorDesignStatus.Pass ? "PASS" : "WARNING", verification, warnings);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException)
         {
-            return Failed(request, "Unable to synthesize this threshold network: " + exception.Message);
+            return Failed(request, "Unable to synthesize this comparator function: " + exception.Message);
         }
     }
 
-    private static ComparatorDesignResult SynthesizeSchmitt(ComparatorDesignRequest request)
+    internal static ComparatorDesignResult SynthesizeSchmitt(ComparatorDesignRequest request)
     {
         var span = request.OutputHighVoltage - request.OutputLowVoltage;
         var hysteresis = request.UpperThresholdVoltage - request.LowerThresholdVoltage;
@@ -307,8 +322,13 @@ public sealed class ComparatorDesignEngine
 
     private static IReadOnlyList<double> Nearby(double target, ComparatorDesignRequest request)
     {
-        if (target < request.MinimumResistanceOhm || target > request.MaximumResistanceOhm)
+        // Continuous synthesis can land a few ulps outside an inclusive range
+        // (for example exactly on the 10 kOhm minimum). Accept that numerical
+        // boundary and clamp it instead of reporting a false range failure.
+        var tolerance = 1e-9 * Math.Max(1d, Math.Max(Math.Abs(request.MinimumResistanceOhm), Math.Abs(request.MaximumResistanceOhm)));
+        if (target < request.MinimumResistanceOhm - tolerance || target > request.MaximumResistanceOhm + tolerance)
             throw new InvalidOperationException($"Continuous resistance {target:G6} ohm is outside {request.MinimumResistanceOhm:G6}..{request.MaximumResistanceOhm:G6} ohm.");
+        target = Math.Clamp(target, request.MinimumResistanceOhm, request.MaximumResistanceOhm);
         if (!request.OptimizeStandardValues) return [target];
         return StandardValueSeries.GetNearby(target, request.ResistorSeries, request.MinimumResistanceOhm, request.MaximumResistanceOhm, 4);
     }
@@ -409,7 +429,8 @@ public sealed class ComparatorDesignEngine
     private static ComparatorDesignResult Copy(ComparatorDesignResult r, ComparatorDesignStatus status, string message, IReadOnlyList<ComparatorVerificationMetric> verification, IReadOnlyList<string> warnings) => new()
     {
         Request = r.Request, Status = status, Message = message, CircuitGraph = r.CircuitGraph, ActualThresholds = r.ActualThresholds, WindowThresholds = r.WindowThresholds,
-        BiasNodeVoltage = r.BiasNodeVoltage, Resistors = r.Resistors, Verification = verification, CalculationTrace = r.CalculationTrace, Warnings = warnings
+        BiasNodeVoltage = r.BiasNodeVoltage, Resistors = r.Resistors, Capacitors=r.Capacitors,Oscillator=r.Oscillator,
+        Verification = verification, CalculationTrace = r.CalculationTrace, Warnings = warnings
     };
     private sealed record BoundaryCandidate(double Falling, double Rising, double Score, IReadOnlyList<ComparatorSelectedResistor> Resistors);
 }

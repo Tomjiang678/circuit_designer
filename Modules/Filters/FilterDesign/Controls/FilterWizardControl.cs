@@ -1,12 +1,15 @@
 using System.Diagnostics;
+using System.Text;
 using CircuitModuleDesigner.Controls;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Design;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Engines;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Reports;
+using CircuitModuleDesigner.Services;
 
 namespace CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
 
-public sealed class FilterWizardControl : UserControl
+public sealed class FilterWizardControl : UserControl, IDesignModuleHost
 {
     private readonly TreeView navigation;
     private readonly FilterDesignState state = new();
@@ -35,6 +38,42 @@ public sealed class FilterWizardControl : UserControl
     private FilterDesignOutputControl? outputControl;
 
     public FilterDesignState State => state;
+
+    public string ModuleTitle => "Filters";
+    public bool HasDesign => lastResult is { IsImplemented: true };
+
+    public string BuildDesignJson()
+    {
+        if (lastResult is not { IsImplemented: true } result) return string.Empty;
+        var report = new FilterDesignReportService().Build(result);
+        return new JsonFilterDesignSnapshotExporter().Export(report.Snapshot);
+    }
+
+    public string BuildDesignSummary()
+    {
+        if (lastResult is not { IsImplemented: true } result) return string.Empty;
+        var summary = new StringBuilder()
+            .AppendLine($"Filter design: {result.Status}")
+            .AppendLine($"Message: {result.Message}")
+            .AppendLine($"Order: required {result.RequiredOrder}, prototype {result.PrototypeOrder}, realized {result.RealizedOrder}")
+            .AppendLine($"Sections: {result.Sections.Count}")
+            .AppendLine($"Approximation: {result.ApproximationDescription}");
+        if (result.Warnings.Count > 0)
+        {
+            summary.AppendLine("Warnings:");
+            foreach (var warning in result.Warnings) summary.AppendLine("  - " + warning);
+        }
+        return summary.ToString();
+    }
+
+    public string? BuildNetlist() =>
+        lastResult is { IsImplemented: true } result && !string.IsNullOrWhiteSpace(result.SpiceNetlist)
+            ? result.SpiceNetlist
+            : null;
+
+    public void Calculate() => ExecuteDesign();
+
+    public void DetachNavigation() => navigation.AfterSelect -= NavigationAfterSelect;
 
     public FilterWizardControl(TreeView navigation)
     {
@@ -123,7 +162,7 @@ public sealed class FilterWizardControl : UserControl
     protected override void Dispose(bool disposing)
     {
         if (disposing)
-            navigation.AfterSelect -= NavigationAfterSelect;
+            DetachNavigation();
         base.Dispose(disposing);
     }
 

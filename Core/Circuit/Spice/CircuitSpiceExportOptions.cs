@@ -26,6 +26,14 @@ public sealed record SpiceDiodeModelDefinition(
     double EmissionCoefficient = 1,
     double? SeriesResistanceOhm = null);
 
+/// <summary>
+/// Two-terminal behavioral ideal-diode approximation used when the verified model
+/// is an ideal conducting/blocking state rather than a Shockley junction.
+/// </summary>
+public sealed record SpiceIdealDiodeDefinition(
+    double OnResistanceOhm = 1e-3,
+    double OffResistanceOhm = 1e12);
+
 public sealed record SpiceLibraryReference(string Path, string? EntryName = null);
 
 /// <summary>
@@ -75,6 +83,7 @@ public sealed class CircuitSpiceExportOptions
     public SpiceOpAmpExportMode OpAmpMode { get; init; } = SpiceOpAmpExportMode.FiniteGainVcvs;
     public SpiceOpAmpSubcircuit? OpAmpSubcircuit { get; init; }
     public SpiceDiodeModelDefinition? DiodeModel { get; init; }
+    public SpiceIdealDiodeDefinition? IdealDiodeModel { get; init; }
     public double? TemperatureCelsius { get; init; }
     public double? SourceResistanceOhm { get; init; }
     public double? LoadResistanceOhm { get; init; }

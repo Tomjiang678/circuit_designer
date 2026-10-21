@@ -42,6 +42,20 @@ public static class SymbolDefinitionCatalog
                     new("A", new(-45, -17), SymbolPinDirection.Left), new("B", new(-45, 17), SymbolPinDirection.Left),
                     new("OUT", new(45, 0), SymbolPinDirection.Right), new("V+", new(0, -35), SymbolPinDirection.Up),
                     new("V-", new(0, 35), SymbolPinDirection.Down)
+                ]),
+            [ComponentType.Mosfet] = new SymbolDefinition(
+                ComponentType.Mosfet, SymbolShape.Mosfet, new SchematicSize(90, 90),
+                [
+                    new("G",new(-45,0),SymbolPinDirection.Left),
+                    new("D",new(18,-45),SymbolPinDirection.Up),
+                    new("S",new(18,45),SymbolPinDirection.Down)
+                ]),
+            [ComponentType.AnalogSwitch] = new SymbolDefinition(
+                ComponentType.AnalogSwitch, SymbolShape.AnalogSwitch, new SchematicSize(90, 45),
+                [
+                    new("A",new(-45,0),SymbolPinDirection.Left),
+                    new("B",new(45,0),SymbolPinDirection.Right),
+                    new("CTRL",new(0,22.5),SymbolPinDirection.Down)
                 ])
         };
 

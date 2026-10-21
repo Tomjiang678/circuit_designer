@@ -16,10 +16,10 @@ public sealed class PrecisionAnalogSpiceExportService
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!result.Success) throw new InvalidOperationException("Only a successful verified design can be exported.");
-        if (result.Request.Operation is AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier)
-            throw new NotSupportedException("SPICE export is unavailable for precision rectifiers because v1 verification uses ideal-switch diode states; exporting a Shockley model would not reproduce the verified transfer.");
         var graph = result.CircuitGraph ?? throw new InvalidOperationException("The design result has no CircuitGraph.");
         var request = result.Request;
+        if (request.Inputs.Count == 0) throw new InvalidOperationException("The design has no input term to drive in SPICE.");
+        var idealRectifier = request.Operation is AnalogComputeOperationType.PrecisionHalfWaveRectifier or AnalogComputeOperationType.PrecisionFullWaveRectifier;
         var graphNets = graph.Nets.Select(net => net.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sources = new List<SpiceIndependentSource>
         {
@@ -32,6 +32,8 @@ public sealed class PrecisionAnalogSpiceExportService
         {
             var input = request.Inputs[index];
             var node = graphNets.Contains(input.Name) ? input.Name : index == 0 && graphNets.Contains("VIN") ? "VIN" : input.Name;
+            if (!graphNets.Contains(node))
+                throw new InvalidOperationException($"Input '{input.Name}' does not identify a net in the generated CircuitGraph; the SPICE source would otherwise drive a floating node.");
             var sourceName = "V_" + input.Name;
             inputSourceNames.Add(sourceName);
             var ac = IsDynamic(request.Operation) && index == 0 ? 1d : (double?)null;
@@ -52,6 +54,16 @@ public sealed class PrecisionAnalogSpiceExportService
         }
 
         var hasDiodes = graph.Components.Any(component => component.Type == ComponentType.Diode);
+        var comments = new List<string>();
+        if (idealRectifier)
+        {
+            comments.Add("Precision rectifier diodes are exported as behavioral ideal switches to match Final CircuitGraph independent verification.");
+            comments.Add("The exported ideal-switch model intentionally excludes forward drop, reverse recovery, capacitance, leakage, and temperature effects.");
+        }
+        if (request.Inputs.Count > 1)
+            comments.Add(IsDynamic(request.Operation)
+                ? "Only the first input carries the AC stimulus; the other inputs are held at their nominal DC voltage. Use an explicit source/sweep setup for multi-input AC coverage."
+                : "The DC sweep drives the first input only; the other inputs are held at their nominal DC voltage. Use nested sweeps or .STEP for multidimensional coverage.");
         var options = new CircuitSpiceExportOptions($"Circuit Module Designer - Precision Analog {request.Operation}")
         {
             Dialect = SpiceNetlistDialect.Ltspice,
@@ -60,9 +72,10 @@ public sealed class PrecisionAnalogSpiceExportService
             OutputExpressions = [IsDynamic(request.Operation) ? "VM(VOUT) VP(VOUT)" : "V(VOUT)"],
             HighImpedanceOutputLoadOhm = 1e9,
             OpAmpOpenLoopGain = 1e9,
-            DiodeModel = hasDiodes ? new SpiceDiodeModelDefinition("CMD_DIODE", request.Junction.SaturationCurrentAmpere, request.Junction.EmissionCoefficient) : null,
-            TemperatureCelsius = hasDiodes ? request.Junction.TemperatureCelsius : null,
-            AdditionalComments = []
+            DiodeModel = hasDiodes && !idealRectifier ? new SpiceDiodeModelDefinition("CMD_DIODE", request.Junction.SaturationCurrentAmpere, request.Junction.EmissionCoefficient) : null,
+            IdealDiodeModel = hasDiodes && idealRectifier ? new SpiceIdealDiodeDefinition() : null,
+            TemperatureCelsius = hasDiodes && !idealRectifier ? request.Junction.TemperatureCelsius : null,
+            AdditionalComments = comments
         };
         return exporter.Export(graph, options);
     }

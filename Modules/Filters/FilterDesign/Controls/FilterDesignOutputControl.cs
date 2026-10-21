@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Net;
 using System.Text;
 using CircuitModuleDesigner.Controls;
 using CircuitModuleDesigner.Core.Circuit;
+using CircuitModuleDesigner.Core.Circuit.Spice;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Models;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Reports;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Services;
@@ -66,7 +68,7 @@ public sealed class FilterDesignOutputControl : UserControl
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(5, 4, 5, 4) };
         var save = new Button { Text = "Save CIR...", AutoSize = true, MinimumSize = new Size(95, 26) }; var copy = new Button { Text = "Copy Netlist", AutoSize = true, MinimumSize = new Size(100, 26) };
         save.Click += (_, _) => SaveCurrentCir(); copy.Click += (_, _) => { if (netlist.TextLength > 0) Clipboard.SetText(netlist.Text); }; toolbar.Controls.Add(save); toolbar.Controls.Add(copy);
-        toolbar.Controls.Add(new Label { AutoSize = true, Margin = new Padding(12, 6, 0, 0), ForeColor = Color.DimGray, Text = "Generic SPICE text netlist; usable as LTspice/Multisim .cir or .net." });
+        toolbar.Controls.Add(new Label { AutoSize = true, Margin = new Padding(12, 6, 0, 0), ForeColor = Color.DimGray, Text = "Choose .cir for LTspice (no .PRINT) or .net for Multisim/Berkeley (.PRINT included)." });
         layout.Controls.Add(toolbar, 0, 0); layout.Controls.Add(netlist, 0, 1); spicePage.Controls.Add(layout);
     }
 
@@ -80,9 +82,14 @@ public sealed class FilterDesignOutputControl : UserControl
 
     private void SaveCurrentCir()
     {
-        using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|SPICE Netlist (*.net)|*.net|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(currentResult) };
+        using var dialog = new SaveFileDialog { Filter = "LTspice netlist (*.cir)|*.cir|Multisim/Berkeley netlist (*.net)|*.net|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(currentResult) };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
-        try { new FilterSpiceExportService().Save(currentResult, dialog.FileName); } catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        try
+        {
+            ICircuitSpiceExporter? exporter = dialog.FilterIndex == 2 ? new MultisimNetlistExporter() : null;
+            new FilterSpiceExportService(exporter).Save(currentResult, dialog.FileName);
+        }
+        catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private void EnsureReportPreview()
@@ -93,11 +100,23 @@ public sealed class FilterDesignOutputControl : UserControl
         {
             reportBrowser ??= new WebBrowser { Dock = DockStyle.Fill, AllowWebBrowserDrop = false, IsWebBrowserContextMenuEnabled = true, ScriptErrorsSuppressed = true, WebBrowserShortcutsEnabled = true };
             if (reportBrowser.Parent is null) reportHost.Controls.Add(reportBrowser);
-            var watch = Stopwatch.StartNew(); var report = new FilterDesignReportService().Build(currentResult); reportBrowser.DocumentText = new HtmlFilterReportExporter().Export(report); watch.Stop();
-            UiPerformanceTrace.Stage("Filter", "RenderReport", watch.Elapsed); reportDirty = false;
+            try
+            {
+                var watch = Stopwatch.StartNew(); var report = new FilterDesignReportService().Build(currentResult); reportBrowser.DocumentText = new HtmlFilterReportExporter().Export(report); watch.Stop();
+                UiPerformanceTrace.Stage("Filter", "RenderReport", watch.Elapsed);
+            }
+            catch (Exception exception)
+            {
+                reportBrowser.DocumentText = ReportErrorHtml(exception.Message);
+            }
+            reportDirty = false;
         }
         finally { reportHost.ResumeLayout(false); }
     }
+
+    private static string ReportErrorHtml(string message) =>
+        "<html><body style=\"font:13px 'Segoe UI',Arial,sans-serif;color:#7a1f1f;margin:18px\">" +
+        "<h3>Design report unavailable</h3><p>" + WebUtility.HtmlEncode(message) + "</p></body></html>";
 
     private static void ExportReport(Control owner, FilterDesignResult result, FilterDesignReportService service, bool json)
     {

@@ -2,7 +2,7 @@
   "version": 3,
   "targets": {
     "net10.0-windows7.0": {
-      "CircuitModuleDesigner/1.0.0": {
+      "CircuitModuleDesigner/0.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "compile": {
@@ -18,7 +18,7 @@
     }
   },
   "libraries": {
-    "CircuitModuleDesigner/1.0.0": {
+    "CircuitModuleDesigner/0.0.0": {
       "type": "project",
       "path": "../../CircuitModuleDesigner.csproj",
       "msbuildProject": "../../CircuitModuleDesigner.csproj"
@@ -26,11 +26,11 @@
   },
   "projectFileDependencyGroups": {
     "net10.0-windows7.0": [
-      "CircuitModuleDesigner >= 1.0.0"
+      "CircuitModuleDesigner >= 0.0.0"
     ]
   },
   "packageFolders": {
-    "C:\\Users\\CodexSandboxOffline\\.nuget\\packages\\": {},
+    "C:\\Users\\Lenovo\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
@@ -39,7 +39,7 @@
       "projectUniqueName": "D:\\jzh_doc\\circuit designer\\Tests\\CircuitModuleDesigner.CoreTests\\CircuitModuleDesigner.CoreTests.csproj",
       "projectName": "CircuitModuleDesigner.CoreTests",
       "projectPath": "D:\\jzh_doc\\circuit designer\\Tests\\CircuitModuleDesigner.CoreTests\\CircuitModuleDesigner.CoreTests.csproj",
-      "packagesPath": "C:\\Users\\CodexSandboxOffline\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\Lenovo\\.nuget\\packages\\",
       "outputPath": "D:\\jzh_doc\\circuit designer\\Tests\\CircuitModuleDesigner.CoreTests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [

@@ -15,6 +15,8 @@ public sealed class FilterSchematicControl : UserControl
     private double minimumY;
     private bool showComponentValues = true;
     private bool avoidWireLabelCollisions = true;
+    private bool showCursorCoordinates;
+    private Point? cursorPoint;
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public SchematicDocument? Document
@@ -42,6 +44,27 @@ public sealed class FilterSchematicControl : UserControl
     {
         get => avoidWireLabelCollisions;
         set { avoidWireLabelCollisions = value; Invalidate(); }
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowCursorCoordinates
+    {
+        get => showCursorCoordinates;
+        set { showCursorCoordinates = value; cursorPoint = null; Invalidate(); }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!showCursorCoordinates) return;
+        cursorPoint = e.Location; Invalidate();
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (!showCursorCoordinates) return;
+        cursorPoint = null; Invalidate();
     }
 
     public FilterSchematicControl()
@@ -110,7 +133,25 @@ public sealed class FilterSchematicControl : UserControl
         }
         foreach (var placed in document.PlacedComponents) DrawComponent(e.Graphics, placed, occupiedLabels);
         foreach (var label in document.NetLabels) DrawNetLabel(e.Graphics, label, occupiedLabels);
+        if (showCursorCoordinates && cursorPoint is { } pointer)
+        {
+            var x = (pointer.X - CanvasMargin - AutoScrollPosition.X) / Math.Max(1e-9, zoom) + minimumX;
+            var y = (pointer.Y - CanvasMargin - AutoScrollPosition.Y) / Math.Max(1e-9, zoom) + minimumY;
+            DrawCursorReadout(e.Graphics, pointer, x, y);
+        }
+    }
 
+    private static void DrawCursorReadout(Graphics graphics, Point cursor, double x, double y)
+    {
+        var text = $"X {x:0}   Y {y:0}";
+        using var font = new Font("Segoe UI", 8f);
+        var size = graphics.MeasureString(text, font);
+        var left = Math.Min(cursor.X + 14f, Math.Max(4f, graphics.VisibleClipBounds.Width - size.Width - 8));
+        var top = Math.Min(cursor.Y + 14f, Math.Max(4f, graphics.VisibleClipBounds.Height - size.Height - 8));
+        using var background = new SolidBrush(Color.FromArgb(220, 30, 30, 30));
+        using var foreground = new SolidBrush(Color.White);
+        graphics.FillRectangle(background, left - 3, top - 2, size.Width + 6, size.Height + 4);
+        graphics.DrawString(text, font, foreground, left, top);
     }
 
     private void DrawComponent(Graphics graphics, PlacedComponent placed, List<RectangleF> occupiedLabels)
@@ -169,6 +210,26 @@ public sealed class FilterSchematicControl : UserControl
                 graphics.DrawPolygon(pen, [new PointF(-15, -14), new PointF(-15, 14), new PointF(12, 0)]);
                 graphics.DrawLine(pen, 12, -14, 12, 14);
                 graphics.DrawLine(pen, 12, 0, 40, 0);
+                break;
+            case SymbolShape.Mosfet:
+                graphics.DrawLine(pen,-45,0,-12,0);
+                graphics.DrawLine(pen,-12,-25,-12,25);
+                graphics.DrawLine(pen,8,-28,8,28);
+                graphics.DrawLine(pen,8,-18,18,-18);
+                graphics.DrawLine(pen,18,-45,18,-18);
+                graphics.DrawLine(pen,8,18,18,18);
+                graphics.DrawLine(pen,18,18,18,45);
+                graphics.DrawLine(pen,2,8,13,8);
+                graphics.DrawLine(pen,13,8,8,4);
+                graphics.DrawLine(pen,13,8,8,12);
+                break;
+            case SymbolShape.AnalogSwitch:
+                graphics.DrawLine(pen,-45,0,-14,0);
+                graphics.DrawLine(pen,14,0,45,0);
+                graphics.DrawLine(pen,-14,0,13,-13);
+                graphics.DrawEllipse(pen,-17,-3,6,6);
+                graphics.DrawEllipse(pen,11,-3,6,6);
+                graphics.DrawLine(pen,0,22,0,10);
                 break;
         }
     }

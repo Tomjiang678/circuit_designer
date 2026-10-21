@@ -12,11 +12,12 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("CircuitModuleDesigner")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+39679613a51057f4b07bea712746162ae1597914")]
-[assembly: System.Reflection.AssemblyProductAttribute("CircuitModuleDesigner")]
+[assembly: System.Reflection.AssemblyDescriptionAttribute("Analog circuit module designer.")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("0.0.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.0+0cf565eb1922c79160b500c84b5cce9f80195d95")]
+[assembly: System.Reflection.AssemblyProductAttribute("Circuit Module Designer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CircuitModuleDesigner")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("0.0.0.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 

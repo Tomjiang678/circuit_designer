@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using CircuitModuleDesigner.Core.Reporting;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Reporting;
@@ -35,7 +35,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
             .Append("</td><td class=\"num\">").Append(N(metric.Error)).Append("</td><td class=\"num\">").Append(N(metric.Tolerance)).Append("</td><td class=\"").Append(metric.Pass ? "pass\">PASS" : "fail\">FAIL").Append("</td></tr>");
         html.Append("</tbody></table>");
         foreach(var warning in result.Warnings)html.Append("<p class=\"warning\">").Append(E(warning)).Append("</p>");
-        html.Append("<h2>4. JSON Snapshot</h2><details><summary>Show JSON</summary><pre>").Append(E(ExportJson(result))).Append("</pre></details></body></html>");
+        html.Append("<h2>4. JSON Snapshot</h2><p class=\"note\">The snapshot below is the same payload returned by the JSON export.</p><pre>").Append(E(ExportJson(result))).Append("</pre></body></html>");
         return html.ToString();
     }
 
@@ -62,11 +62,7 @@ body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24p
                 Nets = result.CircuitGraph.Nets.Select(net => new { net.Name, Pins = net.Pins.Select(pin => pin.Id) })
             }
         };
-        return JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
-        });
+        return JsonSerializer.Serialize(snapshot, ReportJson.Default);
     }
 
     public void SaveHtml(AnalogComputeDesignResult result, string fileName) => Save(fileName, ExportHtml(result));

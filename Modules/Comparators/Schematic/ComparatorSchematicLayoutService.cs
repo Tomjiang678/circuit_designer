@@ -9,9 +9,78 @@ public sealed class ComparatorSchematicLayoutService
     public SchematicDocument Layout(CircuitGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        if(graph.Components.Any(component=>component.Reference.Equals("CT",StringComparison.OrdinalIgnoreCase)))
+            return LayoutOscillator(graph);
         return graph.Components.Any(component => component.Reference.Equals("UOUT", StringComparison.OrdinalIgnoreCase))
             ? LayoutWindow(graph)
             : LayoutSchmitt(graph);
+    }
+
+    private static SchematicDocument LayoutOscillator(CircuitGraph graph)
+    {
+        var document=new SchematicDocument(graph);
+        var placed=new Dictionary<string,PlacedComponent>(StringComparer.OrdinalIgnoreCase);
+        var lowRail=graph.Nets.Any(net=>net.Name=="VEE")?"VEE":"GND";
+        Put("U1",760,350);
+        Put("RFB",670,105,ComponentOrientation.Left);
+        Put("RREF",475,325);
+        Put("RVT",245,105,ComponentOrientation.Down);
+        Put("RVB",245,285,ComponentOrientation.Down);
+        Put("RT",670,540,ComponentOrientation.Left);
+        Put("CT",440,500,ComponentOrientation.Down);
+
+        var dividerTop=Pin("RVT","2");
+        var dividerBottom=Pin("RVB","1");
+        var dividerNode=new SchematicPoint(dividerTop.X,(dividerTop.Y+dividerBottom.Y)/2);
+        Wire("NBIAS",dividerTop,dividerBottom);
+        Wire("NBIAS",dividerNode,new(395,dividerNode.Y),new(395,Pin("RREF","1").Y),Pin("RREF","1"));
+        document.AddJunction(new("NBIAS",dividerNode));
+
+        var plus=Pin("U1","IN+");
+        var thresholdBranch=new SchematicPoint(610,plus.Y);
+        Wire("NTH",Pin("RREF","2"),plus);
+        Wire("NTH",thresholdBranch,new(thresholdBranch.X,Pin("RFB","2").Y),Pin("RFB","2"));
+        document.AddJunction(new("NTH",thresholdBranch));
+
+        var minus=Pin("U1","IN-");
+        var capacitorTop=Pin("CT","1");
+        var timingNode=new SchematicPoint(capacitorTop.X,minus.Y);
+        Wire("NCAP",capacitorTop,timingNode,minus);
+        Wire("NCAP",timingNode,new(Pin("RT","2").X,timingNode.Y),Pin("RT","2"));
+        document.AddJunction(new("NCAP",timingNode));
+
+        var output=Pin("U1","OUT");
+        var outputBranch=new SchematicPoint(900,output.Y);
+        Wire("VOUT",output,new(980,output.Y));
+        Wire("VOUT",Pin("RFB","1"),new(outputBranch.X,Pin("RFB","1").Y),outputBranch);
+        Wire("VOUT",Pin("RT","1"),new(outputBranch.X,Pin("RT","1").Y),outputBranch);
+        document.AddJunction(new("VOUT",outputBranch));
+        Label("VOUT",new(980,output.Y));
+
+        SupplyStub("U1","V+","VCC",55);
+        SupplyStub("U1","V-",lowRail,55);
+        SupplyStub("RVT","1","VCC",42);
+        SupplyStub("RVB","2",lowRail,42);
+        SupplyStub("CT","2",lowRail,42);
+        return document;
+
+        void Put(string reference,double x,double y,ComponentOrientation orientation=ComponentOrientation.Right)
+        {
+            var item=new PlacedComponent(graph.GetComponent(reference),new(x,y),orientation);
+            placed.Add(reference,item);document.AddPlacedComponent(item);
+        }
+        SchematicPoint Pin(string reference,string pin)=>SchematicGeometry.GetWorldPin(placed[reference],pin);
+        void Wire(string net,params SchematicPoint[] points)=>document.AddWire(new(net,points));
+        void Label(string net,SchematicPoint point)=>document.AddNetLabel(new(net,net,point));
+        void SupplyStub(string reference,string pin,string net,double length)
+        {
+            var start=Pin(reference,pin);
+            var direction=SchematicGeometry.GetWorldPinDirection(placed[reference],pin);
+            var end=direction==SymbolPinDirection.Up
+                ?new SchematicPoint(start.X,start.Y-length)
+                :new SchematicPoint(start.X,start.Y+length);
+            Wire(net,start,end);Label(net,end);
+        }
     }
 
     private static SchematicDocument LayoutSchmitt(CircuitGraph graph)

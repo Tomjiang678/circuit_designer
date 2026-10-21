@@ -6,25 +6,38 @@ namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Analysis;
 public sealed class DynamicTimeDomainAnalysisService
 {
     public DynamicTimeDomainAnalysisResult Analyze(AnalogComputeDesignRequest request,IReadOnlyList<SelectedAnalogComponent> components)
+        =>Analyze(request,components,null);
+
+    public DynamicTimeDomainAnalysisResult AnalyzeAtFrequency(AnalogComputeDesignRequest request,
+        IReadOnlyList<SelectedAnalogComponent> components,double frequencyHz)
+    {
+        if(!double.IsFinite(frequencyHz)||frequencyHz<=0)
+            throw new ArgumentOutOfRangeException(nameof(frequencyHz),"Frequency must be finite and positive.");
+        return Analyze(request,components,frequencyHz);
+    }
+
+    private static DynamicTimeDomainAnalysisResult Analyze(AnalogComputeDesignRequest request,
+        IReadOnlyList<SelectedAnalogComponent> components,double? frequencyHz)
     {
         var values=components.ToDictionary(component=>component.Reference,component=>component.SelectedValue);
         return request.Operation switch
         {
-            AnalogComputeOperationType.PracticalIntegrator=>Integrator(request,values),
-            AnalogComputeOperationType.PracticalDifferentiator=>Differentiator(request,values),
+            AnalogComputeOperationType.PracticalIntegrator=>Integrator(request,values,frequencyHz),
+            AnalogComputeOperationType.PracticalDifferentiator=>Differentiator(request,values,frequencyHz),
             _=>throw new ArgumentException("Time-domain dynamic analysis supports only Integrator and Differentiator.",nameof(request))
         };
     }
 
-    private static DynamicTimeDomainAnalysisResult Integrator(AnalogComputeDesignRequest request,IReadOnlyDictionary<string,double> values)
+    private static DynamicTimeDomainAnalysisResult Integrator(AnalogComputeDesignRequest request,
+        IReadOnlyDictionary<string,double> values,double? requestedFrequency)
     {
         var parameters=DynamicOperationParameters.Resolve(request);
         var actualKi=1/(values["R1"]*values["C1"]);
         var tau=values["R2"]*values["C1"];
         var dcGain=values["R2"]/values["R1"];
-        var frequency=Math.Sqrt(parameters.FirstCornerHz*parameters.SecondCornerHz);
-        frequency=Math.Max(parameters.FirstCornerHz*5,Math.Min(frequency,parameters.SecondCornerHz/5));
-        frequency=LimitFrequencyForOpAmp(request,frequency);
+        var frequency=requestedFrequency??Math.Max(parameters.FirstCornerHz*5,
+            Math.Min(Math.Sqrt(parameters.FirstCornerHz*parameters.SecondCornerHz),parameters.SecondCornerHz/5));
+        if(requestedFrequency is null)frequency=LimitFrequencyForOpAmp(request,frequency);
         var swing=AvailableSwing(request);
         var amplitude=Math.Min(1d,.8*swing*frequency/request.IntegrationConstantPerSecond);
         if(!request.OpAmp.UseIdealOpAmp&&double.IsFinite(request.OpAmp.SlewRateVoltPerSecond))
@@ -45,11 +58,12 @@ public sealed class DynamicTimeDomainAnalysisService
         return Result("Square Wave","Triangle Wave",frequency,amplitude,points);
     }
 
-    private static DynamicTimeDomainAnalysisResult Differentiator(AnalogComputeDesignRequest request,IReadOnlyDictionary<string,double> values)
+    private static DynamicTimeDomainAnalysisResult Differentiator(AnalogComputeDesignRequest request,
+        IReadOnlyDictionary<string,double> values,double? requestedFrequency)
     {
         var parameters=DynamicOperationParameters.Resolve(request);
-        var frequency=Math.Max(.001,parameters.UsefulUpperFrequencyHz/5);
-        frequency=LimitFrequencyForOpAmp(request,frequency);
+        var frequency=requestedFrequency??Math.Max(.001,parameters.UsefulUpperFrequencyHz/5);
+        if(requestedFrequency is null)frequency=LimitFrequencyForOpAmp(request,frequency);
         var actualKd=values["R2"]*values["C1"];
         var tau1=values["R1"]*values["C1"];
         var tau2=values["R2"]*values["C2"];

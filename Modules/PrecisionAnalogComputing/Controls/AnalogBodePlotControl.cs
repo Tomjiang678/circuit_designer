@@ -93,13 +93,35 @@ public sealed class AnalogBodePlotControl:Control
     {
         using var pen=new Pen(Color.SeaGreen,1){DashStyle=DashStyle.Dot};
         foreach(var marker in markers.Where(marker=>marker.FrequencyHz>=current.Points[0].Input&&marker.FrequencyHz<=current.Points[^1].Input))
-        {var x=X(marker.FrequencyHz,bounds,current);graphics.DrawLine(pen,x,bounds.Top,x,bounds.Bottom);graphics.DrawString(marker.Label,Font,Brushes.SeaGreen,x+3,bounds.Top+3);}
+        {
+            var x=X(marker.FrequencyHz,bounds,current);graphics.DrawLine(pen,x,bounds.Top,x,bounds.Bottom);
+            var size=graphics.MeasureString(marker.Label,Font);
+            var labelX=Math.Clamp(x+3,2,Math.Max(2,ClientSize.Width-size.Width-2));
+            graphics.DrawString(marker.Label,Font,Brushes.SeaGreen,labelX,bounds.Top+3);
+        }
     }
     private void DrawAxes(Graphics g,RectangleF bounds,string label,double min,double max,AnalogAnalysisResult current)
     {
-        using var grid=new Pen(Color.Gainsboro);for(var i=0;i<=5;i++){var y=bounds.Top+bounds.Height*i/5;g.DrawLine(grid,bounds.Left,y,bounds.Right,y);g.DrawString((max-(max-min)*i/5).ToString("G4"),Font,Brushes.DimGray,5,y-7);}
+        using var grid=new Pen(Color.Gainsboro);for(var i=0;i<=5;i++)
+        {
+            var y=bounds.Top+bounds.Height*i/5;g.DrawLine(grid,bounds.Left,y,bounds.Right,y);
+            var tick=(max-(max-min)*i/5).ToString("G4");var size=g.MeasureString(tick,Font);
+            var tickX=Math.Max(2,bounds.Left-size.Width-7);var tickY=Math.Clamp(y-size.Height/2,0,Math.Max(0,ClientSize.Height-size.Height));
+            g.DrawString(tick,Font,Brushes.DimGray,tickX,tickY);
+        }
         g.DrawRectangle(Pens.DimGray,bounds.X,bounds.Y,bounds.Width,bounds.Height);g.DrawString(label,Font,Brushes.Black,5,bounds.Top-22);
-        for(var i=0;i<=4;i++){var fraction=i/4d;var f=current.Points[0].Input*Math.Pow(current.Points[^1].Input/current.Points[0].Input,fraction);var x=bounds.Left+bounds.Width*(float)fraction;g.DrawLine(grid,x,bounds.Top,x,bounds.Bottom);g.DrawString(f.ToString("G4"),Font,Brushes.DimGray,x-12,bounds.Bottom+3);}
+        for(var i=0;i<=4;i++)
+        {
+            var fraction=i/4d;var f=current.Points[0].Input*Math.Pow(current.Points[^1].Input/current.Points[0].Input,fraction);var x=bounds.Left+bounds.Width*(float)fraction;g.DrawLine(grid,x,bounds.Top,x,bounds.Bottom);
+            DrawCenteredClamped(g,f.ToString("G4"),x,bounds.Bottom+3,Brushes.DimGray);
+        }
+    }
+    private void DrawCenteredClamped(Graphics graphics,string text,float centerX,float y,Brush brush)
+    {
+        var size=graphics.MeasureString(text,Font);
+        var x=Math.Clamp(centerX-size.Width/2,2,Math.Max(2,ClientSize.Width-size.Width-2));
+        var clampedY=Math.Clamp(y,0,Math.Max(0,ClientSize.Height-size.Height-2));
+        graphics.DrawString(text,Font,brush,x,clampedY);
     }
     private static void Draw(Graphics g,RectangleF bounds,IEnumerable<(double F,double Y)> values,double min,double max,Color color,DashStyle dash)
     {

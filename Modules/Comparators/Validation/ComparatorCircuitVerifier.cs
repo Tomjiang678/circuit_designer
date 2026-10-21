@@ -1,5 +1,6 @@
 using CircuitModuleDesigner.Core.Circuit;
 using CircuitModuleDesigner.Modules.Comparators.Models;
+using CircuitModuleDesigner.Modules.Filters.FilterDesign.Enums;
 
 namespace CircuitModuleDesigner.Modules.Comparators.Validation;
 
@@ -24,6 +25,33 @@ public sealed class ComparatorCircuitVerifier
             var high = SolveComparatorThreshold(graph, "U1", request, request.Topology == SchmittTopology.Inverting ? request.OutputHighVoltage : request.OutputLowVoltage);
             return [Metric("VTL", request.LowerThresholdVoltage, low, tolerance), Metric("VTH", request.UpperThresholdVoltage, high, tolerance)];
         }
+        if(request.Kind==ComparatorDesignerKind.RelaxationOscillator)
+        {
+            var low=SolveComparatorThreshold(graph,"U1",request,request.OutputLowVoltage);
+            var high=SolveComparatorThreshold(graph,"U1",request,request.OutputHighVoltage);
+            var resistance=graph.GetComponent("RT").Parameters.GetRequiredValue(ComponentParameterNames.ResistanceOhm);
+            var capacitance=graph.GetComponent("CT").Parameters.GetRequiredValue(ComponentParameterNames.CapacitanceFarad);
+            var highFactor=Math.Log((request.OutputHighVoltage-low)/(request.OutputHighVoltage-high));
+            var lowFactor=Math.Log((high-request.OutputLowVoltage)/(low-request.OutputLowVoltage));
+            var period=resistance*capacitance*(highFactor+lowFactor);
+            var frequency=1/period;
+            var duty=100*highFactor/(highFactor+lowFactor);
+            var frequencyTolerance = request.OptimizeStandardValues
+                ? request.ResistorSeries switch
+                {
+                    StandardComponentSeries.E24 => .05,
+                    StandardComponentSeries.E48 => .03,
+                    _ => .02
+                }
+                : .02;
+            return
+            [
+                Metric("VTL",request.LowerThresholdVoltage,low,tolerance),
+                Metric("VTH",request.UpperThresholdVoltage,high,tolerance),
+                Metric("Frequency",request.TargetFrequencyHz,frequency,Math.Max(1e-9,request.TargetFrequencyHz*frequencyTolerance),"Hz"),
+                Metric("Duty cycle",request.DutyCyclePercent,duty,1,"%")
+            ];
+        }
         var targetLowerFalling = request.LowerThresholdVoltage - request.LowerBoundaryHysteresisVoltage / 2;
         var targetLowerRising = request.LowerThresholdVoltage + request.LowerBoundaryHysteresisVoltage / 2;
         var targetUpperFalling = request.UpperThresholdVoltage - request.UpperBoundaryHysteresisVoltage / 2;
@@ -40,7 +68,7 @@ public sealed class ComparatorCircuitVerifier
     private static double SolveComparatorThreshold(CircuitGraph graph, string reference, ComparatorDesignRequest request, double outputState)
     {
         var comparator = graph.GetComponent(reference); var plusNet = graph.GetNetForPin(comparator.Reference, "IN+")!; var minusNet = graph.GetNetForPin(comparator.Reference, "IN-")!;
-        if (minusNet.Name.Equals("VIN", StringComparison.OrdinalIgnoreCase))
+        if (minusNet.Name.Equals("VIN", StringComparison.OrdinalIgnoreCase)||minusNet.Name.Equals("NCAP",StringComparison.OrdinalIgnoreCase))
             return ResistorBranches(graph, plusNet).Any(branch => branch.Other.Name.Equals("NBIAS", StringComparison.OrdinalIgnoreCase))
                 ? InvertingRailReferencedThreshold(graph, plusNet, request, outputState)
                 : WeightedNodeVoltage(graph, plusNet, request, outputState);
@@ -140,6 +168,6 @@ public sealed class ComparatorCircuitVerifier
         _ => throw new InvalidOperationException($"Net {net} is not an independent threshold-network voltage.")
     };
 
-    private static ComparatorVerificationMetric Metric(string name, double target, double actual, double tolerance) =>
-        new(name, target, actual, actual - target, Math.Abs(actual - target) <= tolerance);
+    private static ComparatorVerificationMetric Metric(string name,double target,double actual,double tolerance,string unit="V") =>
+        new(name,target,actual,actual-target,Math.Abs(actual-target)<=tolerance,unit);
 }

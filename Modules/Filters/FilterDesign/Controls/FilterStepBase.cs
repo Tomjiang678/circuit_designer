@@ -76,7 +76,7 @@ public abstract class FilterStepBase : UserControl
             Maximum = (decimal)max,
             DecimalPlaces = decimals,
             Increment = decimals == 0 ? 1M : 0.1M,
-            Width = 132,
+            Width = 150,
             ThousandsSeparator = true
         };
         number.Value = (decimal)Math.Clamp(value, min, max);

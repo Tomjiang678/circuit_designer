@@ -40,9 +40,26 @@ using CircuitModuleDesigner.Modules.Comparators.Services;
 using CircuitModuleDesigner.Modules.Comparators.Controls;
 using CircuitModuleDesigner.Modules.Comparators.Schematic;
 using CircuitModuleDesigner.Modules.Comparators.Reporting;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Analysis;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Engines;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Enums;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Models;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Reporting;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Schematic;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Services;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Synthesis;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Topology;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Validation;
+using CircuitModuleDesigner.Models;
+using CircuitModuleDesigner.Services;
 using AnalogComponentSelectionConstraints = CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Models.ComponentSelectionConstraints;
 using ComponentSelectionConstraints = CircuitModuleDesigner.Modules.Filters.FilterDesign.Models.ComponentSelectionConstraints;
 
+if (args is ["--run-signal-matrix", var signalMatrixPath])
+{
+    WriteSignalAttenuationMatrix(signalMatrixPath);
+    return;
+}
 if (args is ["--run-filter-rows", var inputPath, var outputPath])
 {
     var service = new FilterManualTestRowService();
@@ -135,7 +152,7 @@ var tests = new (string Name, Action Run)[]
     ,("RC AC analysis known point", TestRcAcAnalysisKnownPoint)
     ,("Designed filter actual analysis", TestDesignedFilterActualAnalysis)
     ,("Passive LC insertion-gain analysis", TestPassiveLcInsertionGainAnalysis)
-    ,("Multisim CIR export", TestMultisimCirExport)
+    ,("Filter CIR export (LTspice + Multisim)", TestFilterCirExport)
     ,("LTspice common serializer golden syntax", TestLtspiceCommonSerializer)
     ,("LTspice op-amp subcircuit strategy", TestLtspiceOpAmpSubcircuit)
     ,("SPICE directive profiles", TestSpiceDirectiveProfiles)
@@ -173,7 +190,7 @@ var tests = new (string Name, Action Run)[]
     ,("Precision analog eight-input synthesis", TestPrecisionAnalogEightInputs)
     ,("Precision analog interactive multi-input sweep", TestPrecisionAnalogInteractiveSweep)
     ,("Precision analog rail-limited multi-stage sweep", TestPrecisionAnalogRailLimitedSweep)
-    ,("Precision analog Multisim CIR export", TestPrecisionAnalogCirExport)
+    ,("Precision analog CIR export", TestPrecisionAnalogCirExport)
     ,("Precision analog nonlinear and AC CIR export", TestPrecisionAnalogExtendedCirExport)
     ,("Precision analog range mapper", TestPrecisionAnalogRangeMapper)
     ,("Precision analog supply capability", TestPrecisionAnalogSupplyCapability)
@@ -197,8 +214,17 @@ var tests = new (string Name, Action Run)[]
     ,("Comparator window mode and hysteresis matrix", TestComparatorWindowMatrix)
     ,("Comparator invalid inputs and boundary conditions", TestComparatorValidation)
     ,("Comparator CircuitGraph verification and SPICE", TestComparatorGraphAndSpice)
+    ,("Comparator relaxation oscillator end-to-end", TestComparatorRelaxationOscillator)
+    ,("Comparator relaxation oscillator 100-point matrix", TestRelaxationOscillator100PointMatrix)
     ,("Comparator UI result pages remain stable", TestComparatorUiStability)
     ,("Comparator 150-row format and batch dialog", TestComparatorManualRows)
+    ,("Signal attenuation resistive pads", TestSignalAttenuationResistivePads)
+    ,("Signal attenuation LC matching networks", TestSignalAttenuationLcMatching)
+    ,("Signal attenuation engine and standard values", TestSignalAttenuationEngine)
+    ,("Signal attenuation reports schematic and SPICE", TestSignalAttenuationReports)
+    ,("Signal attenuation 300-point matrix", TestSignalAttenuation300PointMatrix)
+    ,("Design document save/open round-trip", TestDesignDocument)
+    ,("App settings persistence", TestAppSettingsStore)
 };
 
 var failures = new List<string>();
@@ -214,7 +240,7 @@ if (failures.Count > 0)
     Environment.ExitCode = 1;
     return;
 }
-Console.WriteLine($"All {tests.Length} filter design tests passed.");
+Console.WriteLine($"All {tests.Length} circuit-design tests passed.");
 
 static void TestButterworthOrder() => Equal(8, new ButterworthOrderCalculator().CalculateMinimumOrder(1, 40, 2));
 static void TestChebyshevOrder() => Equal(5, new ChebyshevOrderCalculator().CalculateMinimumOrder(1, 40, 2));
@@ -416,7 +442,31 @@ static void TestComparatorGraphAndSpice()
     var netlist = new ComparatorSpiceExportService().Export(result);
     Require(netlist.Contains("B_ULOW", StringComparison.OrdinalIgnoreCase) && netlist.Contains("B_UHIGH", StringComparison.OrdinalIgnoreCase) && netlist.Contains("B_UOUT", StringComparison.OrdinalIgnoreCase), "SPICE did not serialize comparators and the saturating op-amp combiner from CircuitGraph.");
     Require(!netlist.Contains("B_G1", StringComparison.OrdinalIgnoreCase), "SPICE still contains the removed abstract LOGIC component.");
-    Require(netlist.Contains(".DC", StringComparison.OrdinalIgnoreCase) && netlist.Contains("V(VOUT)", StringComparison.OrdinalIgnoreCase), "Comparator SPICE DC analysis is missing.");
+    Require(netlist.Contains(".DC", StringComparison.OrdinalIgnoreCase) && netlist.Contains("VOUT", StringComparison.OrdinalIgnoreCase) && !HasDirective(netlist, ".PRINT"), "Comparator SPICE DC analysis or the VOUT node is missing, or the LTspice profile emitted .PRINT.\n"+netlist);
+
+    var reportService = new ComparatorDesignReportService();
+    var exportedHtml = reportService.ExportHtml(result);
+    var exportedJson = reportService.ExportJson(result);
+    Require(exportedHtml.Contains("Comparator Design Report", StringComparison.Ordinal) && exportedHtml.Contains("Independent CircuitGraph Verification", StringComparison.Ordinal),
+        "Comparator HTML report export is incomplete.");
+    Require(exportedJson.Contains("CircuitModuleDesigner.ComparatorDesign.v1", StringComparison.Ordinal) && exportedJson.Contains("\"Circuit\"", StringComparison.Ordinal) && exportedJson.Contains("\"Verification\"", StringComparison.Ordinal),
+        "Comparator JSON report snapshot is incomplete.");
+
+    var exportRoot = Path.Combine(Path.GetTempPath(), "cmd-comparator-export-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(exportRoot);
+    try
+    {
+        var cirPath = Path.Combine(exportRoot, "window.cir");
+        var htmlPath = Path.Combine(exportRoot, "window.html");
+        var jsonPath = Path.Combine(exportRoot, "window.json");
+        new ComparatorSpiceExportService().Save(result, cirPath);
+        reportService.SaveHtml(result, htmlPath);
+        reportService.SaveJson(result, jsonPath);
+        Require(File.ReadAllText(cirPath).Contains("B_ULOW", StringComparison.OrdinalIgnoreCase), "Saved comparator CIR is incomplete.");
+        Require(File.ReadAllText(htmlPath).Contains("<!DOCTYPE html>", StringComparison.OrdinalIgnoreCase), "Saved comparator HTML report is incomplete.");
+        Require(File.ReadAllText(jsonPath).Contains("ComparatorDesign.v1", StringComparison.Ordinal), "Saved comparator JSON report is incomplete.");
+    }
+    finally { Directory.Delete(exportRoot, true); }
 
     var schmitt = new ComparatorDesignEngine().Design(new ComparatorDesignRequest { Kind=ComparatorDesignerKind.SchmittTrigger, LowerThresholdVoltage=1.5, UpperThresholdVoltage=3.5 });
     Require(schmitt.Success, schmitt.Message);
@@ -424,6 +474,105 @@ static void TestComparatorGraphAndSpice()
     Require(!schmittNetlist.Contains("V_REF", StringComparison.OrdinalIgnoreCase), "Schmitt SPICE still contains an independent VREF source.");
     Require(schmittNetlist.Contains("RVT ", StringComparison.OrdinalIgnoreCase) && schmittNetlist.Contains("RVB ", StringComparison.OrdinalIgnoreCase),
         "Schmitt SPICE is missing the rail-derived VREF divider.");
+}
+
+static void TestComparatorRelaxationOscillator()
+{
+    var engine=new ComparatorDesignEngine();
+    foreach(var frequency in new[]{1d,1_000d,1_000_000d})
+    foreach(var duty in new[]{20d,50d,80d})
+    {
+        var result=engine.Design(new ComparatorDesignRequest
+        {
+            Kind=ComparatorDesignerKind.RelaxationOscillator,TargetFrequencyHz=frequency,DutyCyclePercent=duty,
+            SupplyHighVoltage=5,SupplyLowVoltage=0,OutputHighVoltage=4.9,OutputLowVoltage=.1
+        });
+        Require(result.Success,$"Oscillator f={frequency:G6}, duty={duty:G4}% failed: {result.Message}");
+        Require(result.Oscillator is not null&&result.ActualThresholds is not null,"Oscillator performance/threshold result is missing.");
+        var oscillator=result.Oscillator!;
+        Require(result.Verification.All(metric=>metric.Pass),"Oscillator independent verification failed.");
+        Require(result.CircuitGraph!.Components.Any(component=>component.Reference=="RT"&&component.Type==ComponentType.Resistor)&&
+                result.CircuitGraph.Components.Any(component=>component.Reference=="CT"&&component.Type==ComponentType.Capacitor),
+            "Oscillator CircuitGraph is missing its timing pair.");
+        Require(Math.Abs(oscillator.ActualFrequencyHz/frequency-1)<.02,"Oscillator selected-value frequency error exceeds 2%.");
+        Require(Math.Abs(oscillator.ActualDutyCyclePercent-duty)<=1,"Oscillator selected-value duty error exceeds one percentage point.");
+        var time=new RelaxationOscillatorAnalysisService().Analyze(result);
+        Require(time.Points.Count>900&&time.Points.Min(point=>point.CapacitorVoltage)>=result.Request.OutputLowVoltage-1e-9&&
+                time.Points.Max(point=>point.CapacitorVoltage)<=result.Request.OutputHighVoltage+1e-9,
+            "Oscillator time-domain waveform is missing or outside the output envelope.");
+        var schematic=new ComparatorSchematicLayoutService().Layout(result.CircuitGraph);
+        Require(schematic.PlacedComponents.Count==result.CircuitGraph.Components.Count,"Oscillator schematic omitted a component.");
+        var collisions=new ComponentCollisionDetector().Find(schematic);
+        Require(collisions.Count==0,"Oscillator schematic component labels/symbols collide: "+
+            string.Join(", ",collisions.Select(pair=>$"{pair.First.Component.Reference}/{pair.Second.Component.Reference}")));
+        var netlist=new ComparatorSpiceExportService().Export(result);
+        Require(netlist.Contains(".TRAN",StringComparison.OrdinalIgnoreCase)&&netlist.Contains("V(NCAP)",StringComparison.OrdinalIgnoreCase)&&
+                !netlist.Contains("V_INPUT",StringComparison.OrdinalIgnoreCase),"Oscillator SPICE export is not transient/self-oscillating.");
+    }
+    Require(!engine.Design(new ComparatorDesignRequest{Kind=ComparatorDesignerKind.RelaxationOscillator,DutyCyclePercent=10}).Success,
+        "Oscillator accepted a duty cycle outside the supported 20%..80% range.");
+}
+
+static void TestRelaxationOscillator100PointMatrix()
+{
+    var frequencies = new[] { 10d, 25, 50, 100, 250, 500, 1_000, 5_000, 20_000, 100_000 };
+    var supplies = new (double Vee, double Vcc, double Vol, double Voh)[]
+    {
+        (0, 3.3, 0.1, 3.2), (0, 5, 0.1, 4.9), (0, 9, 0.2, 8.7), (0, 12, 0.2, 11.8), (0, 15, 0.5, 14.5),
+        (-5, 5, -4.8, 4.8), (-12, 12, -11.5, 11.5), (-15, 15, -14, 14), (0, 2.5, 0.1, 2.4), (-2.5, 2.5, -2.3, 2.3)
+    };
+    var duties = new[] { 20d, 25, 30, 40, 50, 60, 70, 75, 80, 45 };
+    var ranges = new (double Min, double Max)[] { (1_000, 1_000_000), (100, 1_000_000), (1_000, 100_000), (10_000, 1_000_000), (100, 100_000), (4_700, 470_000), (1_000, 470_000), (10_000, 470_000), (100, 1_000_000), (2_200, 2_200_000) };
+    var series = new[] { StandardComponentSeries.E96, StandardComponentSeries.E48, StandardComponentSeries.E24 };
+    var failures = new List<string>();
+    var identities = new HashSet<string>(StringComparer.Ordinal);
+    for (var index = 0; index < 100; index++)
+    {
+        var supply = supplies[(index / 10) % supplies.Length];
+        var request = new ComparatorDesignRequest
+        {
+            Kind = ComparatorDesignerKind.RelaxationOscillator,
+            Topology = SchmittTopology.Inverting,
+            OutputBehavior = ComparatorOutputBehavior.PushPull,
+            SupplyLowVoltage = supply.Vee, SupplyHighVoltage = supply.Vcc,
+            OutputLowVoltage = supply.Vol, OutputHighVoltage = supply.Voh,
+            TargetFrequencyHz = frequencies[index % frequencies.Length],
+            DutyCyclePercent = duties[(index / 10) % duties.Length],
+            MinimumResistanceOhm = ranges[index % ranges.Length].Min,
+            MaximumResistanceOhm = ranges[index % ranges.Length].Max,
+            ResistorSeries = series[index % series.Length],
+            OptimizeStandardValues = index % 2 == 0
+        };
+        identities.Add($"{request.SupplyLowVoltage}/{request.SupplyHighVoltage}/{request.TargetFrequencyHz}/{request.DutyCyclePercent}/{request.MinimumResistanceOhm}/{request.MaximumResistanceOhm}/{request.ResistorSeries}/{request.OptimizeStandardValues}");
+        var result = new ComparatorDesignEngine().Design(request);
+        var frequencyTolerance = request.OptimizeStandardValues
+            ? request.ResistorSeries switch
+            {
+                StandardComponentSeries.E24 => .05,
+                StandardComponentSeries.E48 => .03,
+                _ => .02
+            }
+            : .02;
+        if (!result.Success) { failures.Add($"#{index + 1} status={result.Status}: {result.Message}"); continue; }
+        if (result.Oscillator is not { } oscillator) { failures.Add($"#{index + 1} has no oscillator performance result."); continue; }
+        if (result.Verification.Count != 4 || result.Verification.Any(metric => !metric.Pass))
+        {
+            failures.Add($"#{index + 1} verification failed: " + string.Join("; ", result.Verification.Where(metric => !metric.Pass).Select(metric => $"{metric.Name}={metric.Actual:G8}/{metric.Target:G8}")));
+            continue;
+        }
+        if (Math.Abs(oscillator.ActualFrequencyHz / request.TargetFrequencyHz - 1) > frequencyTolerance + 1e-9)
+            failures.Add($"#{index + 1} frequency error {100 * (oscillator.ActualFrequencyHz / request.TargetFrequencyHz - 1):G6}% exceeds {100 * frequencyTolerance:G4}%.");
+        if (Math.Abs(oscillator.ActualDutyCyclePercent - request.DutyCyclePercent) > 1 + 1e-9)
+            failures.Add($"#{index + 1} duty error {oscillator.ActualDutyCyclePercent - request.DutyCyclePercent:G6} points exceeds 1 point.");
+        if (result.Status == ComparatorDesignStatus.Warning && result.Warnings.Count == 0)
+            failures.Add($"#{index + 1} is Warning without an explanatory warning.");
+        if (result.CircuitGraph is null ||
+            !result.CircuitGraph.Components.Any(component => component.Reference == "RT" && component.Type == ComponentType.Resistor) ||
+            !result.CircuitGraph.Components.Any(component => component.Reference == "CT" && component.Type == ComponentType.Capacitor))
+            failures.Add($"#{index + 1} CircuitGraph has no RT/CT timing pair.");
+    }
+    Require(identities.Count == 100, $"Oscillator matrix contains duplicate points ({identities.Count}/100 unique).");
+    Require(failures.Count == 0, "Relaxation oscillator 100-point matrix failed:\n" + string.Join("\n", failures));
 }
 
 static void TestComparatorUiStability()
@@ -434,6 +583,9 @@ static void TestComparatorUiStability()
         try
         {
             using var wizard = new ComparatorWizardControl(); wizard.CreateControl(); Require(wizard.RunDesign().Success, "Initial comparator design failed."); wizard.PerformLayout();
+            var buttonTexts = Descendants(wizard).OfType<Button>().Select(button => button.Text).ToArray();
+            Require(buttonTexts.Contains("Save CIR...") && buttonTexts.Contains("Copy Netlist") && buttonTexts.Contains("Export HTML Report...") && buttonTexts.Contains("Export JSON Snapshot..."),
+                "Comparator result pages do not expose the expected netlist/report export actions.");
             var status=(Label)typeof(ComparatorWizardControl).GetField("status",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             var lower=(NumericUpDown)typeof(ComparatorWizardControl).GetField("lower",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             var upper=(NumericUpDown)typeof(ComparatorWizardControl).GetField("upper",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
@@ -462,6 +614,23 @@ static void TestComparatorUiStability()
             Require(before.Length == after.Length, $"Comparator repeated design changed control count: {before.Length} -> {after.Length}.");
             var changed=before.Zip(after).Where(pair => pair.First.Item1 != pair.Second.Item1 || pair.First.Bounds != pair.Second.Bounds).Take(5).Select(pair=>$"{pair.First.Item1.Name} {pair.First.Bounds}->{pair.Second.Bounds}").ToArray();
             Require(changed.Length==0, "Comparator repeated design changed control type, position, or size: "+string.Join("; ",changed));
+            var tree=new TreeView();tree.CreateControl();wizard.AttachNavigation(tree);
+            var transferPlot=(ComparatorTransferPlotControl)typeof(ComparatorWizardControl).GetField("analysis",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var oscillatorPlot=(RelaxationOscillatorPlotControl)typeof(ComparatorWizardControl).GetField("oscillatorAnalysis",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var originalPages=tabs.TabPages.Cast<TabPage>().ToArray();
+            var originalPageRoots=originalPages.SelectMany(page=>page.Controls.Cast<Control>()).ToArray();
+            for(var index=0;index<12;index++)
+            {
+                tree.SelectedNode=tree.Nodes[0].Nodes[2];
+                var oscillator=wizard.RunDesign();
+                Require(oscillator.Success&&oscillatorPlot.Analysis is not null&&transferPlot.Analysis is null,"Comparator UI failed to render the relaxation oscillator.");
+                tree.SelectedNode=tree.Nodes[0].Nodes[0];
+                Require(wizard.RunDesign().Success&&transferPlot.Analysis is not null&&oscillatorPlot.Analysis is null,"Comparator UI failed to restore the Schmitt analysis view.");
+            }
+            Require(originalPages.SequenceEqual(tabs.TabPages.Cast<TabPage>())&&
+                    originalPageRoots.SequenceEqual(tabs.TabPages.Cast<TabPage>().SelectMany(page=>page.Controls.Cast<Control>()))&&
+                    ReferenceEquals(transferPlot.Parent,oscillatorPlot.Parent),
+                "Comparator module switching rebuilt one or more result-page controls.");
         }
         catch (Exception exception) { failure = exception; }
     });
@@ -587,22 +756,51 @@ static void TestPrecisionAnalogCirExport()
     });
     Require(result.Success, result.Capability.Message);
     var cir = new PrecisionAnalogSpiceExportService().Export(result);
-    foreach (var token in new[] { "V_VCC VCC 0 DC", "V_VEE VEE 0 DC", "V_U1 U1 0 DC", "V_U2 U2 0 DC", "E_U1", ".DC V_U1", ".PRINT DC V(VOUT)", ".END" })
+    foreach (var token in new[] { "V_VCC VCC 0 DC", "V_VEE VEE 0 DC", "V_U1 U1 0 DC", "V_U2 U2 0 DC", "E_U1", ".DC V_U1", ".END" })
         Require(cir.Contains(token, StringComparison.Ordinal), $"Precision Analog CIR export omitted {token}.");
+    Require(!HasDirective(cir, ".PRINT"),
+        "The LTspice precision netlist must not emit the unsupported .PRINT directive.");
 }
 
 static void TestPrecisionAnalogExtendedCirExport()
 {
-    var halfWave = new PrecisionAnalogDesignEngine().Design(new AnalogComputeDesignRequest
+    var rectifierRequests = new[]
     {
-        Operation = AnalogComputeOperationType.PrecisionHalfWaveRectifier, GainK = 1,
-        MinimumInputVoltage = -2, MaximumInputVoltage = 2, MaximumFunctionErrorPercent = 5
-    });
-    Require(halfWave.Success, halfWave.Capability.Message);
-    var rectifierExportRejected=false;
-    try { _=new PrecisionAnalogSpiceExportService().Export(halfWave); }
-    catch(NotSupportedException exception) { rectifierExportRejected=exception.Message.Contains("ideal-switch",StringComparison.OrdinalIgnoreCase); }
-    Require(rectifierExportRejected,"Ideal-switch rectifier verification must not silently export a different Shockley-diode circuit.");
+        PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with { GainK=1, HalfWavePolarity=HalfWavePolarity.Positive },
+        PrecisionOperation(AnalogComputeOperationType.PrecisionHalfWaveRectifier) with { GainK=1, HalfWavePolarity=HalfWavePolarity.Negative },
+        PrecisionOperation(AnalogComputeOperationType.PrecisionFullWaveRectifier) with { GainK=1, OutputPolarity=RectifierOutputPolarity.Positive },
+        PrecisionOperation(AnalogComputeOperationType.PrecisionFullWaveRectifier) with { GainK=1, OutputPolarity=RectifierOutputPolarity.Negative }
+    };
+    foreach (var request in rectifierRequests)
+    {
+        var rectifier = new PrecisionAnalogDesignEngine().Design(request);
+        Require(rectifier.Success, $"{request.Operation} export fixture failed: {rectifier.Capability.Message}");
+        var netlist = new PrecisionAnalogSpiceExportService().Export(rectifier);
+        Require(netlist.Contains("B_D1 ",StringComparison.Ordinal) && netlist.Contains("B_D2 ",StringComparison.Ordinal) &&
+                netlist.Contains("I=IF(V(",StringComparison.Ordinal) && netlist.Contains("behavioral ideal-switch",StringComparison.OrdinalIgnoreCase),
+            $"{request.Operation} did not export both ideal-switch diode branches.\n{netlist}");
+        Require(!netlist.Contains(".MODEL CMD_DIODE D(",StringComparison.OrdinalIgnoreCase) &&
+                netlist.Contains(".DC V_VIN",StringComparison.Ordinal) && !HasDirective(netlist, ".PRINT"),
+            $"{request.Operation} exported the wrong diode model or analysis profile.\n{netlist}");
+        foreach (var component in rectifier.CircuitGraph!.Components)
+        {
+            var expectedPrefix = component.Type switch
+            {
+                ComponentType.Resistor => component.Reference + " ",
+                ComponentType.Diode => "B_" + component.Reference + " ",
+                ComponentType.OpAmp => "E_" + component.Reference + " ",
+                _ => string.Empty
+            };
+            if (expectedPrefix.Length > 0)
+                Require(netlist.Contains(expectedPrefix,StringComparison.Ordinal),$"Rectifier export omitted {component.Reference}.\n{netlist}");
+        }
+    }
+
+    var saveFixture = new PrecisionAnalogDesignEngine().Design(rectifierRequests[0]);
+    var savePath = Path.Combine(Path.GetTempPath(), "cmd-precision-half-wave-export.cir");
+    new PrecisionAnalogSpiceExportService().Save(saveFixture, savePath);
+    try { Require(File.ReadAllText(savePath).Contains("B_D1 ",StringComparison.Ordinal),"Saved precision-rectifier CIR does not contain the ideal diode network."); }
+    finally { File.Delete(savePath); }
 
     var antilog = new PrecisionAnalogDesignEngine().Design(PrecisionOperation(AnalogComputeOperationType.ExponentialAmplifier) with
     {MinimumInputVoltage=-.2,MaximumInputVoltage=.2,ReferenceVoltage=1,LogScaleVoltage=.1});
@@ -779,8 +977,12 @@ static void TestPrecisionAnalogUiResultPageStability()
             var show=typeof(PrecisionAnalogWizardControl).GetMethod("ShowResult",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
             var tabs=(TabControl)typeof(PrecisionAnalogWizardControl).GetField("results",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             var analysisHost=(Panel)typeof(PrecisionAnalogWizardControl).GetField("analysisHost",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
+            var spiceView=(RichTextBox)typeof(PrecisionAnalogWizardControl).GetField("spiceView",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(wizard)!;
             var original=tabs.TabPages.Cast<TabPage>().ToArray();
             show.Invoke(wizard,[result]);wizard.PerformLayout();
+            Require(spiceView.Text.Contains("B_D1 ",StringComparison.Ordinal)&&spiceView.Text.Contains("B_D2 ",StringComparison.Ordinal)&&
+                    !spiceView.Text.Contains("SPICE export unavailable",StringComparison.OrdinalIgnoreCase),
+                "Precision rectifier UI still reports netlist export as unavailable.");
             var rectifierPlot=analysisHost.Controls[0];var rectifierBounds=rectifierPlot.Bounds;
             for(var index=0;index<20;index++){show.Invoke(wizard,[result]);wizard.PerformLayout();}
             Require(tabs.TabPages.Count==5,"Repeated Design changed the result tab count.");
@@ -2586,7 +2788,7 @@ static void TestPassiveLcInsertionGainAnalysis()
     Require(notch.MagnitudeDb < -80, $"Ideal LC band-stop transmission zero is unexpectedly shallow ({notch.MagnitudeDb:0.###} dB).");
 }
 
-static void TestMultisimCirExport()
+static void TestFilterCirExport()
 {
     var active=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,4_000,manualOrder:2));
     Require(active.IsImplemented,active.Message);var netlist=new FilterSpiceExportService().Export(active);
@@ -2595,6 +2797,9 @@ static void TestMultisimCirExport()
     Require(netlist.Contains("E_U1",StringComparison.Ordinal),"Abstract op-amp was not exported as a VCVS.");
     Require(netlist.Contains(".AC DEC 40",StringComparison.Ordinal)&&netlist.TrimEnd().EndsWith(".END",StringComparison.Ordinal),"CIR analysis/end directives are missing.");
     Require(!netlist.Contains(" VCC ",StringComparison.Ordinal)&&!netlist.Contains(" VEE ",StringComparison.Ordinal),"Abstract VCVS export must not leave floating supply nets.");
+    Require(!HasDirective(netlist, ".PRINT"),"The default filter netlist must stay LTspice-compatible (no .PRINT directive).");
+    var multisimNetlist=new FilterSpiceExportService(new MultisimNetlistExporter()).Export(active);
+    Require(multisimNetlist.Contains(".PRINT AC VM(VOUT)",StringComparison.Ordinal) && multisimNetlist.Contains(".PRINT AC VP(VOUT)",StringComparison.Ordinal),"The Multisim/Berkeley filter profile lost its .PRINT magnitude/phase output directives.\n"+multisimNetlist);
     var passive=new FilterDesignEngine().Design(Request(FilterMode.Passive,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.Lc,1_000,2_000,manualOrder:3));
     Require(passive.IsImplemented,passive.Message);var lcNetlist=passive.SpiceNetlist;
     Require(lcNetlist.Contains("V_INPUT VSRC 0",StringComparison.Ordinal)&&lcNetlist.Contains("R_SOURCE VSRC VIN",StringComparison.Ordinal)&&lcNetlist.Contains("R_LOAD VOUT 0",StringComparison.Ordinal),"LC CIR must include its VSRC/Rs/VIN/VOUT/RL boundary.");
@@ -2631,6 +2836,8 @@ static void TestLtspiceCommonSerializer()
         ".MODEL CMD_DIODE D(IS=1e-12 N=1.1e+0)", ".AC DEC 40 1e+1 1e+6", ".END"
     }) Require(netlist.Contains(expected, StringComparison.Ordinal), $"LTspice netlist omitted or changed '{expected}'.\n{netlist}");
     Require(!netlist.Contains("GND", StringComparison.Ordinal), "SPICE ground was not normalized to node 0.");
+    Require(!HasDirective(netlist, ".PRINT"),
+        "The LTspice serializer emitted a .PRINT directive, which LTspice does not support.\n" + netlist);
 }
 
 static void TestLtspiceOpAmpSubcircuit()
@@ -2659,10 +2866,21 @@ static void TestSpiceDirectiveProfiles()
         Sources = [new("V1", SpiceSourceKind.Voltage, "VIN", "0")],
         Analyses = [new SpiceTransientAnalysis(1e-6, 1e-3, 0, 5e-6)], OutputExpressions = ["V(VIN)"],
         Parameters = new Dictionary<string, double> { ["GAIN"] = 1.25 },
-        LibraryIncludes = ["models/common.lib"], Libraries = [new("vendor.lib", "OPAMP_ENTRY")]
+        LibraryIncludes = ["C:\\models\\common.lib"], Libraries = [new("vendor.lib", "OPAMP_ENTRY")]
     });
-    foreach (var expected in new[] { ".INCLUDE \"models/common.lib\"", ".LIB \"vendor.lib\" OPAMP_ENTRY", ".PARAM GAIN=1.25e+0", ".TRAN 1e-6 1e-3 0 5e-6", ".PRINT TRAN V(VIN)" })
+    foreach (var expected in new[] { ".INCLUDE \"C:/models/common.lib\"", ".LIB \"vendor.lib\" OPAMP_ENTRY", ".PARAM GAIN=1.25e+0", ".TRAN 1e-6 1e-3 0 5e-6" })
         Require(transient.Contains(expected, StringComparison.Ordinal), $"SPICE directive profile omitted '{expected}'.");
+    Require(!HasDirective(transient, ".PRINT") &&
+            transient.Contains("LTspice does not support .PRINT", StringComparison.Ordinal),
+        "The LTspice profile must omit .PRINT and explain the waveform-viewer alternative.");
+
+    var multisimTransient = new MultisimNetlistExporter().Export(graph, new CircuitSpiceExportOptions("Transient directives")
+    {
+        Sources = [new("V1", SpiceSourceKind.Voltage, "VIN", "0")],
+        Analyses = [new SpiceTransientAnalysis(1e-6, 1e-3, 0, 5e-6)], OutputExpressions = ["V(VIN)"]
+    });
+    Require(multisimTransient.Contains(".PRINT TRAN V(VIN)", StringComparison.Ordinal),
+        "The Berkeley/Multisim profile must keep .PRINT for batch text output.");
 
     var operatingPoint = new LtspiceNetlistExporter().Export(graph, new CircuitSpiceExportOptions("Operating point")
     {
@@ -3415,8 +3633,561 @@ static bool HasDanglingNonPinEndpoint(SchematicDocument document, string netName
     return false;
 }
 
+static void WriteSignalAttenuationMatrix(string outputPath)
+{
+    var engine = new AttenuationMatchingDesignEngine();
+    var rows = new List<string>();
+    var accepted = 0;
+    void Record(int index, string mode, AttenuationMatchingDesignRequest request)
+    {
+        var result = engine.Design(request);
+        var candidate = result.SelectedCandidate;
+        var ok = result.Success && candidate is { Status: not DesignStatus.Failed };
+        if (ok) accepted++;
+        rows.Add(string.Join(",", new[]
+        {
+            (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), mode,
+            request.Source.ResistanceOhm.ToString("G9", System.Globalization.CultureInfo.InvariantCulture),
+            request.Load.ResistanceOhm.ToString("G9", System.Globalization.CultureInfo.InvariantCulture),
+            request.DesignFrequencyHz.ToString("G9", System.Globalization.CultureInfo.InvariantCulture),
+            request.Attenuation.TargetAttenuationDb.ToString("G6", System.Globalization.CultureInfo.InvariantCulture),
+            candidate?.TopologyName ?? "", result.Status.ToString(),
+            candidate?.Metrics.AttenuationDb.ToString("G9", System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            candidate?.Metrics.InputReturnLossDb.ToString("G9", System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            candidate?.Metrics.OutputReturnLossDb.ToString("G9", System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            candidate?.Sweep.BandwidthHz?.ToString("G9", System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            candidate?.Components.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            ok ? "yes" : "no", Escape(result.Message)
+        }));
+    }
+    var ports = new[] { 50d, 75, 100, 150, 200 };
+    for (var index = 0; index < 100; index++)
+    {
+        var port = ports[index % ports.Length];
+        Record(index, "attenuation", new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.Attenuation,
+            Source = new("Source", port, 0, PortImpedanceType.PureResistance), Load = new("Load", port, 0, PortImpedanceType.PureResistance),
+            DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, SweepPoints = 41,
+            Attenuation = new(1 + index % 20, .5, 20, 20),
+            Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+            Topology = new(TopologySelectionMode.Manual, index % 2 == 0 ? TopologyFamily.TPads : TopologyFamily.PiPads)
+        });
+    }
+    var pairs = new (double Source, double Load, double Frequency)[]
+    {
+        (50, 200, 10e6), (200, 50, 10e6), (75, 50, 10e6), (50, 75, 10e6), (50, 1000, 100e6), (100, 50, 10e6)
+    };
+    for (var index = 0; index < 100; index++)
+    {
+        var pair = pairs[index % pairs.Length];
+        Record(index + 100, "l-match", new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.ImpedanceMatching,
+            Source = new("Source", pair.Source, 0, PortImpedanceType.PureResistance), Load = new("Load", pair.Load, 0, PortImpedanceType.PureResistance),
+            DesignFrequencyHz = pair.Frequency, StartFrequencyHz = pair.Frequency / 10, StopFrequencyHz = pair.Frequency * 10, SweepPoints = 41,
+            Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 3 },
+            Topology = new(TopologySelectionMode.Manual, TopologyFamily.LMatching)
+        });
+    }
+    for (var index = 0; index < 100; index++)
+    {
+        var pair = pairs[(index + 2) % pairs.Length];
+        Record(index + 200, "pi-t-match", new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.ImpedanceMatching,
+            Source = new("Source", pair.Source, 0, PortImpedanceType.PureResistance), Load = new("Load", pair.Load, 0, PortImpedanceType.PureResistance),
+            DesignFrequencyHz = pair.Frequency, StartFrequencyHz = pair.Frequency / 10, StopFrequencyHz = pair.Frequency * 10, SweepPoints = 41,
+            Matching = new(20, 20, 2), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+            Topology = new(TopologySelectionMode.Manual, index % 2 == 0 ? TopologyFamily.PiMatching : TopologyFamily.TMatching,
+                index % 4 < 2 ? MatchingResponse.LowPass : MatchingResponse.HighPass, 1.5 + (index % 5) * .25)
+        });
+    }
+    File.WriteAllLines(outputPath, new[]
+    {
+        "index,mode,source_ohm,load_ohm,design_hz,target_attenuation_db,topology,status,actual_attenuation_db,input_return_loss_db,output_return_loss_db,bandwidth_hz,component_count,accepted,message"
+    }.Concat(rows), new System.Text.UTF8Encoding(false));
+    Console.WriteLine($"signal matching matrix: {rows.Count} points, {accepted} accepted -> {outputPath}");
+    static string Escape(string value) => value.Contains(',') || value.Contains('"') || value.Contains('\n') ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
+}
+static bool HasDirective(string netlist,string directive) =>
+    netlist.Split('\n').Any(line=>line.TrimStart().StartsWith(directive,StringComparison.OrdinalIgnoreCase));
+
 static bool NearlyPoint(SchematicPoint first, SchematicPoint second) =>
     Nearly(first.X, second.X, .01) && Nearly(first.Y, second.Y, .01);
 
 static double OverlapLength(double a1,double a2,double b1,double b2)=>
     Math.Max(0,Math.Min(Math.Max(a1,a2),Math.Max(b1,b2))-Math.Max(Math.Min(a1,a2),Math.Min(b1,b2)));
+
+static void TestSignalAttenuationResistivePads()
+{
+    var synth = new ResistiveAttenuatorSynthesizer();
+    var analyzer = new TwoPortNetworkAnalyzer();
+    static AttenuationMatchingDesignRequest Request(double source, double load, double db) => new()
+    {
+        Mode = DesignMode.Attenuation,
+        Source = new("Source", source, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", load, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Attenuation = new(db, .5, 20, 20)
+    };
+    void Check(double source, double load, double db, TopologyFamily family)
+    {
+        var request = Request(source, load, db);
+        var attempt = synth.Synthesize(request, family);
+        Require(attempt.Feasible && attempt.Topology is not null, $"{family} {source}->{load} {db} dB failed: {attempt.Reason}");
+        var graph = NetworkTopologyBuilder.Build(attempt.Topology!);
+        var metrics = analyzer.Analyze(graph, request, request.DesignFrequencyHz).Metrics;
+        Require(Math.Abs(metrics.AttenuationDb - db) <= request.Attenuation.AllowedAttenuationErrorDb + 1e-9,
+            $"{family} actual attenuation {metrics.AttenuationDb:G8} does not meet {db}±.5 dB.");
+        Require(metrics.InputReturnLossDb >= 20 && metrics.OutputReturnLossDb >= 20,
+            $"{family} does not match both ports: RLIn={metrics.InputReturnLossDb:G6}, RLOut={metrics.OutputReturnLossDb:G6}.");
+        Require(metrics.IsPassive && metrics.MaximumResistorDissipationWatt < 1,
+            $"{family} violates passive power/dissipation expectations.");
+    }
+    Check(50, 50, 3, TopologyFamily.TPads);
+    Check(50, 50, 6, TopologyFamily.TPads);
+    Check(50, 50, 10, TopologyFamily.PiPads);
+    Check(75, 75, 20, TopologyFamily.PiPads);
+    Check(75, 50, 6, TopologyFamily.TPads);
+    Check(50, 75, 6, TopologyFamily.PiPads);
+    var lPad = synth.Synthesize(Request(75, 50, 6), TopologyFamily.LPads);
+    Require(lPad.Feasible && lPad.Topology is not null, "75Ω→50Ω L-pad should be feasible at its fixed minimum loss near 6 dB.");
+    var lMetrics = analyzer.Analyze(NetworkTopologyBuilder.Build(lPad.Topology!), Request(75, 50, 6), 10e6).Metrics;
+    Require(Math.Abs(lMetrics.AttenuationDb - 6) <= .5, "L-pad fixed attenuation is outside the 6 dB ±0.5 dB window.");
+    Require(lMetrics.InputReturnLossDb > 20 && lMetrics.OutputReturnLossDb > 20, "L-pad did not match both ports.");
+    var bypass = synth.Synthesize(Request(50, 50, 0), TopologyFamily.TPads);
+    Require(bypass.Feasible && bypass.Topology is not null, "0 dB bypass should be a supported boundary case for equal ports.");
+    var bypassMetrics = analyzer.Analyze(NetworkTopologyBuilder.Build(bypass.Topology!), Request(50, 50, 0), 10e6).Metrics;
+    Require(bypassMetrics.AttenuationDb < .01 && bypassMetrics.InputReturnLossDb > 40, "Bypass is not a near-ideal matched link.");
+    Require(!synth.Synthesize(Request(75, 50, 0), TopologyFamily.TPads).Feasible,
+        "A 0 dB unequal-port bypass must be rejected; a direct link cannot match both ports.");
+    var high = synth.Synthesize(Request(50, 50, 60), TopologyFamily.TPads);
+    Require(high.Feasible && high.Topology is not null, "A 60 dB matched T-pad should be synthesizable with default ranges.");
+    Require(analyzer.Analyze(NetworkTopologyBuilder.Build(high.Topology!), Request(50, 50, 60), 10e6).Metrics.AttenuationDb > 59,
+        "60 dB pad did not produce the requested attenuation.");    Require(!synth.Synthesize(Request(50, 25, 6), TopologyFamily.TPads).Feasible,
+        "50Ω→25Ω at 6 dB is below the minimum realizable matched T-pad loss and must be rejected.");
+    Require(!synth.Synthesize(Request(50, 25, 6), TopologyFamily.PiPads).Feasible,
+        "50Ω→25Ω at 6 dB is below the minimum realizable matched Pi-pad loss and must be rejected.");
+}
+
+static void TestSignalAttenuationLcMatching()
+{
+    var synth = new LMatchingSynthesizer();
+    var analyzer = new TwoPortNetworkAnalyzer();
+    AttenuationMatchingDesignRequest Request(double source, double load, double frequency = 10e6) => new()
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", source, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", load, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = frequency, StartFrequencyHz = frequency / 10, StopFrequencyHz = frequency * 10,
+        Matching = new(20, 20, 1)
+    };
+    void Check(double source, double load, LNetworkVariant variant, double frequency = 10e6)
+    {
+        var request = Request(source, load, frequency);
+        var attempt = synth.Synthesize(request, variant);
+        Require(attempt.Feasible && attempt.Topology is not null, $"{variant} {source}->{load} failed: {attempt.Reason}");
+        var graph = NetworkTopologyBuilder.Build(attempt.Topology!);
+        var metrics = analyzer.Analyze(graph, request, frequency).Metrics;
+        Require(metrics.InputReturnLossDb > 40 && metrics.OutputReturnLossDb > 40,
+            $"{variant} did not conjugately match both ports: {metrics.InputReturnLossDb:G6}/{metrics.OutputReturnLossDb:G6} dB.");
+        Require(metrics.AttenuationDb < .01 && metrics.IsPassive, $"{variant} is not a lossless passive match.");
+    }
+    Check(50, 200, LNetworkVariant.SeriesL_ShuntC);
+    Check(200, 50, LNetworkVariant.ShuntC_SeriesL);
+    Check(50, 1_000, LNetworkVariant.SeriesL_ShuntC, 100e6);
+    Check(75, 50, LNetworkVariant.ShuntC_SeriesL);
+    Check(50, 75, LNetworkVariant.SeriesL_ShuntC);
+    var highFrequency = synth.Synthesize(Request(50, 1_000, 100e6), LNetworkVariant.SeriesL_ShuntC);
+    var highGraph = NetworkTopologyBuilder.Build(highFrequency.Topology!);
+    var inductor = highGraph.Components.Single(component => component.Type == ComponentType.Inductor).Parameters.GetRequiredValue(ComponentParameterNames.InductanceHenry);
+    var capacitor = highGraph.Components.Single(component => component.Type == ComponentType.Capacitor).Parameters.GetRequiredValue(ComponentParameterNames.CapacitanceFarad);
+    Require(Math.Abs(inductor / 346.87016e-9 - 1) < .02, $"50Ω→1kΩ 100MHz series L is {inductor:G8} H, expected about 346.87 nH.");
+    Require(Math.Abs(capacitor / 6.9374e-12 - 1) < .02, $"50Ω→1kΩ 100MHz shunt C is {capacitor:G8} F, expected about 6.94 pF.");
+
+    var pi = new PiMatchingSynthesizer().Synthesize(Request(50, 200), MatchingResponse.LowPass);
+    var tee = new TMatchingSynthesizer().Synthesize(Request(50, 200), MatchingResponse.HighPass);
+    Require(pi.Feasible && tee.Feasible, "Pi/T matching candidates should be synthesizable for 50Ω→200Ω.");
+    Require(analyzer.Analyze(NetworkTopologyBuilder.Build(pi.Topology!), Request(50, 200), 10e6).Metrics.InputReturnLossDb > 30, "Pi match failed input verification.");
+    Require(analyzer.Analyze(NetworkTopologyBuilder.Build(tee.Topology!), Request(50, 200), 10e6).Metrics.OutputReturnLossDb > 30, "T match failed output verification.");
+
+    var complexRequest = new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 20, PortImpedanceType.Custom, 10e6),
+        Load = new("Load", 100, -30, PortImpedanceType.Custom, 10e6),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(15, 15, 2), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 4 }
+    };
+    var complex = new AttenuationMatchingDesignEngine().Design(complexRequest);
+    Require(complex.Candidates.Count > 0, "Complex R+jX matching should produce at least one physically solved candidate.");
+    Require(complex.SelectedCandidate is not null && complex.SelectedCandidate.Metrics.InputReturnLossDb >= 15,
+        $"Complex-port matching did not meet input return loss: {complex.Message}");
+
+    AttenuationMatchingDesignRequest QRequest(double q) => new()
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 1 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching, MatchingResponse.LowPass, q)
+    };
+    var lowQ = new AttenuationMatchingDesignEngine().Design(QRequest(1.5));
+    var highQ = new AttenuationMatchingDesignEngine().Design(QRequest(5));
+    var lowQCandidate = lowQ.SelectedCandidate;
+    var highQCandidate = highQ.SelectedCandidate;
+    Require(lowQCandidate is not null && highQCandidate is not null,
+        "Pi/T design Q test did not produce candidates.");
+    var lowValues = lowQCandidate!.Components.Select(component => component.SelectedValue).ToArray();
+    var highValues = highQCandidate!.Components.Select(component => component.SelectedValue).ToArray();
+    Require(lowValues.Length == highValues.Length && lowValues.Zip(highValues).Any(pair => Math.Abs(pair.First - pair.Second) > Math.Max(Math.Abs(pair.First), Math.Abs(pair.Second)) * 1e-3),
+        "Changing Design Q did not change any Pi matching component value.");
+    var mixedPi = new AttenuationMatchingDesignEngine().Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching, MatchingResponse.Mixed, 1.7, true)
+    });
+    Require(mixedPi.SelectedCandidate is { } mixedCandidate && mixedCandidate.Components.Count == 4 &&
+            mixedCandidate.Metrics.InputReturnLossDb >= 20 && mixedCandidate.Metrics.OutputReturnLossDb >= 20,
+        $"Mixed Pi matching did not produce a verified four-element network: {mixedPi.Message}");
+
+    var mixedT = new AttenuationMatchingDesignEngine().Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.TMatching, MatchingResponse.Mixed, 1.7, true)
+    });
+    Require(mixedT.SelectedCandidate is { } mixedTCandidate && mixedTCandidate.Components.Count == 4 &&
+            mixedTCandidate.Metrics.InputReturnLossDb >= 20 && mixedTCandidate.Metrics.OutputReturnLossDb >= 20,
+        $"Mixed T matching did not produce a verified four-element network: {mixedT.Message}");
+    var lossy = new AttenuationMatchingDesignEngine().Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(15, 15, 2), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2, CapacitorEsrOhm = .2, InductorQ = 50 }
+    });
+    Require(lossy.SelectedCandidate is { } lossyCandidate && lossyCandidate.Graph.Components.Any(component => component.Reference.StartsWith("R_PAR_", StringComparison.OrdinalIgnoreCase)),
+        "Enabled ESR/inductor-Q parasitics did not enter the final CircuitGraph.");
+    var noSolution = new AttenuationMatchingDesignEngine().Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 50, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.LMatching)
+    });
+    Require(!noSolution.Success && noSolution.Message.Contains("direct connection", StringComparison.OrdinalIgnoreCase),
+        "An equal-resistance source/load was incorrectly reported as a successful matching design.");
+}
+
+static void TestSignalAttenuationEngine()
+{
+    var engine = new AttenuationMatchingDesignEngine();
+    var e96 = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 50, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Attenuation = new(6, .5, 20, 20),
+        Components = new() { ValueMode = ComponentValueMode.E96, MaximumCandidateCount = 4 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.TPads)
+    });
+    Require(e96.Success, e96.Message);
+    var selected = e96.SelectedCandidate!;
+    Require(selected.Status == DesignStatus.Supported && selected.IsStandardValueDesign, "E96 pad was not a supported standard-value design.");
+    Require(Math.Abs(selected.Metrics.AttenuationDb - 6) <= .5, "E96 pad attenuation missed the target.");
+    foreach (var component in selected.Components.Where(component => component.Type == ComponentType.Resistor))
+        Require(StandardValueSeries.IsSeriesValue(component.SelectedValue, StandardComponentSeries.E96), $"Component {component.Reference} is not an E96 value.");
+
+    var unequal = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation,
+        Source = new("Source", 75, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 50, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Attenuation = new(6, .5, 20, 20), Components = new() { ValueMode = ComponentValueMode.E96, MaximumCandidateCount = 4 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.TPads)
+    });
+    Require(unequal.Success, unequal.Message);
+    Require(unequal.SelectedCandidate!.Metrics.InputReturnLossDb >= 20 && unequal.SelectedCandidate.Metrics.OutputReturnLossDb >= 20,
+        "Unequal-impedance E96 pad does not meet both return-loss requirements.");
+
+    var bandwidth = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance), Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1, 1e6), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 3 }
+    });
+    var bandwidthCandidate = bandwidth.SelectedCandidate;
+    Require(bandwidth.Success && bandwidthCandidate is not null && bandwidthCandidate.Sweep.BandwidthHz >= 1e6,
+        $"Matching bandwidth requirement was not met by the verified L network: {bandwidth.Message}");
+    Require(bandwidthCandidate is not null && bandwidthCandidate.Metrics.MaximumResistorDissipationWatt >= 0, "Power metric is missing.");
+    var defaultRequest = new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation, DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Attenuation = new(6, .5, 20, 20), Components = new() { ValueMode = ComponentValueMode.Continuous }
+    };
+    var defaultResult = engine.Design(defaultRequest);
+    Require(defaultResult.Success && defaultResult.Request.Load.ResistanceOhm == 75,
+        $"The default 50 Ω source / 75 Ω load attenuation design failed: {defaultResult.Message}");
+    var invalid = engine.Design(new AttenuationMatchingDesignRequest { DesignFrequencyHz = double.NaN });
+    Require(invalid.Status == DesignStatus.Failed && invalid.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error), "NaN design frequency was accepted.");
+}
+
+static void TestSignalAttenuationReports()
+{
+    var engine = new AttenuationMatchingDesignEngine();
+    var result = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 4 }
+    });
+    Require(result.Success, result.Message);
+    var candidate = result.SelectedCandidate!;
+    var service = new AttenuationMatchingSpiceExportService();
+    var design = service.ExportDesign(candidate, result.Request);
+    var testbench = service.ExportTestbench(candidate, result.Request);
+    Require(!design.Contains("V_SRC", StringComparison.OrdinalIgnoreCase) && !design.Contains("R_LOAD", StringComparison.OrdinalIgnoreCase), "Design netlist contains source/load testbench elements.");
+    Require(testbench.Contains("V_SRC", StringComparison.OrdinalIgnoreCase) && testbench.Contains("R_LOAD", StringComparison.OrdinalIgnoreCase), "Testbench netlist is missing source/load.");
+    Require(testbench.Contains(".AC", StringComparison.OrdinalIgnoreCase) && testbench.TrimEnd().EndsWith(".END", StringComparison.OrdinalIgnoreCase), "Testbench analysis/end directive is missing.");
+    Require(!HasDirective(testbench, ".PRINT"), "LTspice testbench emitted unsupported .PRINT.");
+    var html = new AttenuationMatchingDesignReportService().ExportHtml(result);
+    Require(html.Contains("Circuit Schematic", StringComparison.Ordinal) && html.Contains("<svg", StringComparison.OrdinalIgnoreCase) &&
+            html.Contains("SPICE Netlist", StringComparison.Ordinal) && html.Contains("Independent Verification", StringComparison.Ordinal),
+        "HTML report is missing required sections/schematic.");
+    var json = new AttenuationMatchingDesignReportService().ExportJson(result);
+    using var document = System.Text.Json.JsonDocument.Parse(json);
+    Require(document.RootElement.TryGetProperty("schema", out _) && document.RootElement.TryGetProperty("selected", out _), "JSON report is missing schema/selected data.");
+    var schematic = new AttenuationMatchingLayoutService().Layout(candidate);
+    Require(schematic.PlacedComponents.Count == candidate.Graph.Components.Count, "Schematic omitted a component.");
+    Require(AttenuationMatchingLayoutService.ValidateLayout(schematic).Count == 0, "Schematic layout has invalid components/wires.");
+    var svg = new AttenuationMatchingSchematicSvgBuilder().Build(candidate);
+    Require(svg.Contains("<svg", StringComparison.OrdinalIgnoreCase) && svg.Contains("<polyline", StringComparison.OrdinalIgnoreCase), "Schematic SVG is missing connectivity.");
+
+    var s1pPath = Path.Combine(Path.GetTempPath(), "cmd-s1p-" + Guid.NewGuid().ToString("N") + ".s1p");
+    var s2pPath = Path.Combine(Path.GetTempPath(), "cmd-s2p-" + Guid.NewGuid().ToString("N") + ".s2p");
+    try
+    {
+        File.WriteAllText(s1pPath, "! synthetic one-port\n# MHz S RI R 50\n10 0.6 0\n20 0.0 0\n");
+        var s1p = TouchstoneImporter.Parse(File.ReadAllText(s1pPath), s1pPath);
+        Require(s1p.PortCount == 1 && s1p.Points.Count == 2, "S1P parsing did not produce two one-port points.");
+        var loadImport = TouchstoneImporter.Import(s1pPath, false, 10e6);
+        Require(Math.Abs(loadImport.Impedance.Real - 200) < 1e-6 && Math.Abs(loadImport.Impedance.Imaginary) < 1e-6,
+            $"S1P 0.6+j0 should map to 200 Ω, got {loadImport.Impedance}.");
+
+        File.WriteAllText(s2pPath, "# MHz S MA R 50\n10 0.6 0 0 0 0 0 0.5 0\n20 0.0 0 0 0 0 0 0.0 0\n");
+        var sourceImport = TouchstoneImporter.Import(s2pPath, true, 10e6);
+        Require(sourceImport.PortCount == 2 && sourceImport.PortIndex == 1 && Math.Abs(sourceImport.Impedance.Real - 150) < 1e-6,
+            "S2P source import did not use S22 to produce 150 Ω.");
+        var outOfRange = false;
+        try { _ = TouchstoneImporter.Import(s1pPath, false, 100e6); } catch (InvalidDataException) { outOfRange = true; }
+        Require(outOfRange, "Touchstone import extrapolated outside the measured range.");
+    }
+    finally
+    {
+        if (File.Exists(s1pPath)) File.Delete(s1pPath);
+        if (File.Exists(s2pPath)) File.Delete(s2pPath);
+    }
+    var snapshot = new AttenuationMatchingDesignSnapshotService().Build(result);
+    var host = new SignalAttenuationTestHost(result, snapshot);
+    var savedAt = new DateTimeOffset(2026, 10, 20, 12, 34, 56, TimeSpan.Zero);
+    var designDocument = DesignDocumentService.Create(host, "Signal Attenuation & Impedance Matching", savedAt);
+    Require(designDocument.Module == "Signal Attenuation & Impedance Matching" &&
+            designDocument.Category == "Signal Attenuation & Impedance Matching" &&
+            designDocument.Summary.Contains("Selected", StringComparison.Ordinal) &&
+            designDocument.Netlist is not null && designDocument.Netlist.Contains(".END", StringComparison.OrdinalIgnoreCase),
+        "The signal matching design document is missing summary/netlist/module metadata.");
+    var documentService = new DesignDocumentService();
+    var restoredDocument = documentService.Deserialize(documentService.Serialize(designDocument));
+    Require(restoredDocument.SavedAtUtc == savedAt && restoredDocument.SnapshotJson == snapshot &&
+            restoredDocument.Netlist == designDocument.Netlist,
+        "The signal matching .cmddesign document did not round-trip.");
+}
+
+static void TestSignalAttenuation300PointMatrix()
+{
+    var engine = new AttenuationMatchingDesignEngine();
+    var failures = new List<string>();
+    var ports = new[] { 50d, 75, 100, 150, 200 };
+    for (var index = 0; index < 100; index++)
+    {
+        var port = ports[index % ports.Length];
+        var target = 1 + (index % 20);
+        var request = new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.Attenuation,
+            Source = new("Source", port, 0, PortImpedanceType.PureResistance),
+            Load = new("Load", port, 0, PortImpedanceType.PureResistance),
+            DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, SweepPoints = 41,
+            Attenuation = new(target, .5, 20, 20),
+            Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+            Topology = new(TopologySelectionMode.Manual, index % 2 == 0 ? TopologyFamily.TPads : TopologyFamily.PiPads)
+        };
+        var result = engine.Design(request);
+        if (!result.Success || result.SelectedCandidate is not { } candidate || Math.Abs(candidate.Metrics.AttenuationDb - target) > .5 ||
+            candidate.Metrics.InputReturnLossDb < 20 || candidate.Metrics.OutputReturnLossDb < 20 || !candidate.Metrics.IsPassive)
+            failures.Add($"attenuation #{index + 1} port={port} target={target} status={result.Status}: {result.Message}");
+    }
+
+    var matchingPairs = new (double Source, double Load, double Frequency)[]
+    {
+        (50, 200, 10e6), (200, 50, 10e6), (75, 50, 10e6), (50, 75, 10e6), (50, 1000, 100e6), (100, 50, 10e6)
+    };
+    for (var index = 0; index < 100; index++)
+    {
+        var pair = matchingPairs[index % matchingPairs.Length];
+        var request = new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.ImpedanceMatching,
+            Source = new("Source", pair.Source, 0, PortImpedanceType.PureResistance),
+            Load = new("Load", pair.Load, 0, PortImpedanceType.PureResistance),
+            DesignFrequencyHz = pair.Frequency, StartFrequencyHz = pair.Frequency / 10, StopFrequencyHz = pair.Frequency * 10, SweepPoints = 41,
+            Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 3 },
+            Topology = new(TopologySelectionMode.Manual, TopologyFamily.LMatching)
+        };
+        var result = engine.Design(request);
+        if (!result.Success || result.SelectedCandidate is not { } candidate || candidate.Metrics.InputReturnLossDb < 20 ||
+            candidate.Metrics.OutputReturnLossDb < 20 || !candidate.Metrics.IsPassive)
+            failures.Add($"L matching #{index + 1} {pair.Source}->{pair.Load} @{pair.Frequency:G6} status={result.Status}: {result.Message}");
+    }
+
+    for (var index = 0; index < 100; index++)
+    {
+        var pair = matchingPairs[(index + 2) % matchingPairs.Length];
+        var family = index % 2 == 0 ? TopologyFamily.PiMatching : TopologyFamily.TMatching;
+        var response = index % 4 < 2 ? MatchingResponse.LowPass : MatchingResponse.HighPass;
+        var request = new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.ImpedanceMatching,
+            Source = new("Source", pair.Source, 0, PortImpedanceType.PureResistance),
+            Load = new("Load", pair.Load, 0, PortImpedanceType.PureResistance),
+            DesignFrequencyHz = pair.Frequency, StartFrequencyHz = pair.Frequency / 10, StopFrequencyHz = pair.Frequency * 10, SweepPoints = 41,
+            Matching = new(20, 20, 2), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+            Topology = new(TopologySelectionMode.Manual, family, response, 1.5 + (index % 5) * .25)
+        };
+        var result = engine.Design(request);
+        if (!result.Success || result.SelectedCandidate is not { } candidate || candidate.Metrics.InputReturnLossDb < 20 ||
+            candidate.Metrics.OutputReturnLossDb < 20 || !candidate.Metrics.IsPassive)
+            failures.Add($"Pi/T matching #{index + 1} {pair.Source}->{pair.Load} {family}/{response} status={result.Status}: {result.Message}");
+    }
+    Require(failures.Count == 0, "Signal attenuation 300-point matrix failures:\n" + string.Join("\n", failures.Take(20)));
+}
+static void TestDesignDocument()
+{
+    var host = new FakeDesignModuleHost();
+    var savedAt = new DateTimeOffset(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
+    var document = DesignDocumentService.Create(host, "Filters", savedAt);
+    Require(document.Schema == DesignDocument.CurrentSchema && document.Module == "Fake module" && document.Category == "Filters",
+        "The design document metadata is wrong.");
+    Require(document.SnapshotJson.Contains("\"answer\"", StringComparison.Ordinal), "The design document lost the module snapshot.");
+    Require(document.Summary.Contains("Fake summary", StringComparison.Ordinal) && document.Netlist == "* fake netlist",
+        "The design document lost its summary or netlist.");
+
+    var service = new DesignDocumentService();
+    var restored = service.Deserialize(service.Serialize(document));
+    Require(restored.SavedAtUtc == savedAt && restored.SnapshotJson == document.SnapshotJson && restored.Netlist == document.Netlist,
+        "The design document did not round-trip.");
+    Require(DesignDocumentService.Pretty("{\"a\":1}").Contains("\"a\": 1", StringComparison.Ordinal), "Snapshot pretty-printing failed.");
+
+    var rejected = false;
+    try { service.Deserialize("{not json"); } catch (InvalidDataException) { rejected = true; }
+    Require(rejected, "Invalid JSON was accepted as a design document.");
+    rejected = false;
+    try { service.Deserialize("{\"schema\":\"other\",\"snapshotJson\":\"{}\"}"); } catch (InvalidDataException) { rejected = true; }
+    Require(rejected, "An unsupported design schema was accepted.");
+    rejected = false;
+    try { service.Deserialize("{\"schema\":\"CircuitModuleDesigner.Design.v1\",\"module\":\"Fake\",\"snapshotJson\":\"not json\"}"); } catch (InvalidDataException) { rejected = true; }
+    Require(rejected, "An invalid module snapshot was accepted.");
+
+    host.HasDesign = false;
+    rejected = false;
+    try { DesignDocumentService.Create(host, "Filters"); } catch (InvalidOperationException) { rejected = true; }
+    Require(rejected, "A module without a generated design was allowed to save.");
+}
+
+static void TestAppSettingsStore()
+{
+    var path = Path.Combine(Path.GetTempPath(), "cmd-settings-" + Guid.NewGuid().ToString("N") + ".json");
+    try
+    {
+        var store = new AppSettingsStore(path);
+        var settings = new AppSettings
+        {
+            ConfirmOnExit = false,
+            ShowNavigationPane = false,
+            ShowStatusBar = false,
+            RememberWindowBounds = false,
+            ReopenLastCategory = false,
+            WindowWidth = 1111,
+            WindowHeight = 777,
+            LastCategory = "Filters"
+        };
+        store.Save(settings);
+        var loaded = store.Load();
+        Require(!loaded.ConfirmOnExit && !loaded.ShowNavigationPane && !loaded.ShowStatusBar &&
+                !loaded.RememberWindowBounds && !loaded.ReopenLastCategory &&
+                loaded.WindowWidth == 1111 && loaded.WindowHeight == 777 && loaded.LastCategory == "Filters",
+            "Application settings did not round-trip.");
+
+        File.WriteAllText(path, "not json");
+        var fallback = store.Load();
+        Require(fallback.ConfirmOnExit && fallback.ShowNavigationPane && fallback.ShowStatusBar,
+            "Corrupt settings did not fall back to defaults.");
+    }
+    finally
+    {
+        if (File.Exists(path)) File.Delete(path);
+    }
+}
+
+sealed class FakeDesignModuleHost : IDesignModuleHost
+{
+    public string ModuleTitle => "Fake module";
+    public bool HasDesign { get; set; } = true;
+    public bool Calculated { get; private set; }
+    public bool Detached { get; private set; }
+    public string BuildDesignJson() => HasDesign ? "{\"answer\":42}" : string.Empty;
+    public string BuildDesignSummary() => HasDesign ? "Fake summary" : string.Empty;
+    public string? BuildNetlist() => HasDesign ? "* fake netlist" : null;
+    public void Calculate() => Calculated = true;
+    public void DetachNavigation() => Detached = true;
+}
+
+sealed class SignalAttenuationTestHost : IDesignModuleHost
+{
+    private readonly AttenuationMatchingDesignResult result;
+    private readonly string snapshot;
+
+    public SignalAttenuationTestHost(AttenuationMatchingDesignResult result, string snapshot)
+    {
+        this.result = result;
+        this.snapshot = snapshot;
+    }
+
+    public string ModuleTitle => "Signal Attenuation & Impedance Matching";
+    public bool HasDesign => result.Success;
+    public string BuildDesignJson() => snapshot;
+    public string BuildDesignSummary() => result.Message;
+    public string? BuildNetlist() => result.SelectedCandidate is { } candidate
+        ? new AttenuationMatchingSpiceExportService().ExportDesign(candidate, result.Request)
+        : null;
+    public void Calculate() { }
+    public void DetachNavigation() { }
+}

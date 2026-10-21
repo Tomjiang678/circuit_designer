@@ -8,10 +8,11 @@ using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Analysis;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Reporting;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Schematic;
 using CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Services;
+using CircuitModuleDesigner.Services;
 
 namespace CircuitModuleDesigner.Modules.PrecisionAnalogComputing.Controls;
 
-public sealed class PrecisionAnalogWizardControl : UserControl
+public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHost
 {
     private readonly PrecisionAnalogDesignEngine engine = new();
     private TreeView? navigationTree;
@@ -63,7 +64,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl
     private readonly Button design = new() { Text = "Design Circuit", AutoSize = true, Padding = new Padding(12, 3, 12, 3) };
     private readonly Label status = new() { AutoSize = false, AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(12, 2, 0, 0) };
     private readonly Button advancedToggle = new() { Text = "Advanced ▸", AutoSize = true, FlatStyle = FlatStyle.System };
-    private readonly TableLayoutPanel advancedPanel = new() { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Visible = false, Margin = Padding.Empty };
+    private readonly TableLayoutPanel advancedPanel = new() { Dock = DockStyle.Top, AutoSize = true, AutoScroll = true, MaximumSize = new Size(0, 330), ColumnCount = 1, Visible = false, Margin = Padding.Empty };
     private readonly TabControl results = new() { Dock = DockStyle.Fill };
     private readonly TabPage schematicResultPage = new("Schematic") { BackColor = SystemColors.Window };
     private readonly TabPage analysisResultPage = new("Analysis") { BackColor = SystemColors.Window };
@@ -133,6 +134,34 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         navigationRoot = null;
     }
 
+    public string ModuleTitle => "Precision Analog Computing";
+    public bool HasDesign => renderedResult is { Success: true };
+
+    public string BuildDesignJson() =>
+        renderedResult is { Success: true } result
+            ? new PrecisionAnalogDesignReportService().ExportJson(result)
+            : string.Empty;
+
+    public string BuildDesignSummary() =>
+        renderedResult is { Success: true } result
+            ? new PrecisionAnalogDesignReportBuilder().BuildText(result)
+            : string.Empty;
+
+    public string? BuildNetlist()
+    {
+        if (renderedResult is not { Success: true } result) return null;
+        try
+        {
+            return new PrecisionAnalogSpiceExportService().Export(result);
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    public void Calculate() => DesignClicked(null, EventArgs.Empty);
+
     private void BuildInterface()
     {
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(6, 0, 0, 0) };
@@ -143,11 +172,14 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         InitializeOperationFields(); operationGroup.Controls.Add(operationFields); operationGroup.Controls.Add(operationFormula); operationPanel.Controls.Add(operationGroup);
         content.Controls.Add(linearPanel); content.Controls.Add(mapperPanel); content.Controls.Add(operationPanel);
         advancedPanel.Controls.Add(BuildElectricalRow(),0,0);advancedPanel.Controls.Add(BuildComponentRow(),0,1);
-        content.Controls.Add(advancedToggle);content.Controls.Add(advancedPanel);
+        advancedPanel.RowStyles.Clear();
+        advancedPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        advancedPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var action = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1 };
         action.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         action.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        action.Controls.Add(design, 0, 0); action.Controls.Add(status, 1, 0); content.Controls.Add(action);
+        action.Controls.Add(design, 0, 0); action.Controls.Add(status, 1, 0);
+        content.Controls.Add(action); content.Controls.Add(advancedToggle); content.Controls.Add(advancedPanel);
         parameters.Controls.Add(content); root.Controls.Add(parameters, 0, 0);
         InitializeResultPages();
         root.Controls.Add(results, 0, 1); Controls.Add(root);
@@ -297,28 +329,62 @@ public sealed class PrecisionAnalogWizardControl : UserControl
 
     private Control BuildElectricalRow()
     {
-        var group = new GroupBox { Text = "Electrical / Practical Constraints", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 15, 8, 5) };
-        var row = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-        AddField(row, "VCC (V):", vcc); AddField(row, "VEE (V):", vee); AddField(row, "Allowed Error (%):", errorPercent);
-        idealOpAmp.Margin = new Padding(12, 6, 0, 0); row.Controls.Add(idealOpAmp);
-        AddField(row, "GBW (Hz):", gbw); AddField(row, "Slew (V/s):", slewRate);
-        row.Controls.Add(new Label { Text = "GND = 0 V; requested reference voltages are synthesized from the supply rails.", AutoSize = true, Margin = new Padding(14, 7, 0, 0), ForeColor = Color.DimGray });
-        group.Controls.Add(row); return group;
+        var group = new GroupBox { Text = "Electrical / Practical Constraints", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, Padding = new Padding(8, 15, 8, 5) };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 8, RowCount = 3, Margin = Padding.Empty };
+        for (var column = 0; column < 8; column++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (var rowIndex = 0; rowIndex < 3; rowIndex++) grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        void AddPair(int column, int rowIndex, string title, Control field)
+        {
+            grid.Controls.Add(Label(title, 7), column, rowIndex);
+            grid.Controls.Add(field, column + 1, rowIndex);
+        }
+        AddPair(0, 0, "VCC (V):", vcc);
+        AddPair(2, 0, "VEE (V):", vee);
+        AddPair(4, 0, "Allowed Error (%):", errorPercent);
+        idealOpAmp.Margin = new Padding(12, 6, 0, 0);
+        grid.Controls.Add(idealOpAmp, 6, 0);
+        grid.SetColumnSpan(idealOpAmp, 2);
+        AddPair(0, 1, "GBW (Hz):", gbw);
+        AddPair(2, 1, "Slew (V/s):", slewRate);
+        var note = new Label
+        {
+            Text = "GND = 0 V; requested reference voltages are synthesized from the supply rails.",
+            AutoSize = true,
+            MaximumSize = new Size(1050, 0),
+            Margin = new Padding(14, 7, 0, 0),
+            ForeColor = Color.DimGray
+        };
+        grid.Controls.Add(note, 0, 2);
+        grid.SetColumnSpan(note, 8);
+        group.Controls.Add(grid);
+        return group;
     }
 
     private Control BuildComponentRow()
     {
-        var group = new GroupBox { Text = "Component Constraints", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 15, 8, 5) };
-        var row = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
+        var group = new GroupBox { Text = "Component Constraints", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, Padding = new Padding(8, 15, 8, 5) };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 6, RowCount = 3, Margin = Padding.Empty };
+        for (var column = 0; column < 6; column++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (var rowIndex = 0; rowIndex < 3; rowIndex++) grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        void AddPair(int column, int rowIndex, string title, Control field)
+        {
+            grid.Controls.Add(Label(title, 7), column, rowIndex);
+            grid.Controls.Add(field, column + 1, rowIndex);
+        }
         // These fixed choices need no CurrencyManager: binding before parenting resets selection.
         resistorSeries.DropDownStyle = ComboBoxStyle.DropDownList; resistorSeries.Items.AddRange(Enum.GetValues<AnalogStandardSeries>().Cast<object>().ToArray()); resistorSeries.Width = 110; resistorSeries.SelectedItem = AnalogStandardSeries.E96;
         capacitorSeries.DropDownStyle = ComboBoxStyle.DropDownList; capacitorSeries.Items.AddRange(Enum.GetValues<AnalogStandardSeries>().Cast<object>().ToArray()); capacitorSeries.Width = 110; capacitorSeries.SelectedItem = AnalogStandardSeries.E96;
-        row.Controls.Add(Label("R Series:", 7)); row.Controls.Add(resistorSeries);
-        AddField(row, "R Min:", resistorMinimum); AddField(row, "R Max:", resistorMaximum);
-        row.Controls.Add(Label("C Series:", 7)); row.Controls.Add(capacitorSeries);
-        AddField(row, "C Min:", capacitorMinimum); AddField(row, "C Max:", capacitorMaximum);
-        optimize.Margin = new Padding(12, 6, 0, 0); biasCompensation.Margin = new Padding(12, 6, 0, 0); row.Controls.Add(optimize); row.Controls.Add(biasCompensation);
-        group.Controls.Add(row); return group;
+        AddPair(0, 0, "R Series:", resistorSeries);
+        AddPair(2, 0, "R Min:", resistorMinimum);
+        AddPair(4, 0, "R Max:", resistorMaximum);
+        AddPair(0, 1, "C Series:", capacitorSeries);
+        AddPair(2, 1, "C Min:", capacitorMinimum);
+        AddPair(4, 1, "C Max:", capacitorMaximum);
+        optimize.Margin = new Padding(12, 6, 0, 0); biasCompensation.Margin = new Padding(12, 6, 0, 0);
+        grid.Controls.Add(optimize, 0, 2); grid.SetColumnSpan(optimize, 2);
+        grid.Controls.Add(biasCompensation, 2, 2); grid.SetColumnSpan(biasCompensation, 2);
+        group.Controls.Add(grid);
+        return group;
     }
 
     private async void DesignClicked(object? sender, EventArgs e)
@@ -587,7 +653,16 @@ public sealed class PrecisionAnalogWizardControl : UserControl
                 UiControlHost.ReplaceSingleChild(reportPreviewHost, reportBrowser);
             }
             var watch = Stopwatch.StartNew();
-            reportBrowser.DocumentText = new PrecisionAnalogDesignReportService().ExportHtml(result);
+            try
+            {
+                reportBrowser.DocumentText = new PrecisionAnalogDesignReportService().ExportHtml(result);
+            }
+            catch (Exception exception)
+            {
+                reportBrowser.DocumentText =
+                    "<html><body style=\"font:13px 'Segoe UI',Arial,sans-serif;color:#7a1f1f;margin:18px\">" +
+                    "<h3>Design report unavailable</h3><p>" + System.Net.WebUtility.HtmlEncode(exception.Message) + "</p></body></html>";
+            }
             watch.Stop();
             UiPerformanceTrace.Stage("Precision Analog", "RenderReport", watch.Elapsed);
             reportNeedsRefresh = false;
@@ -597,23 +672,31 @@ public sealed class PrecisionAnalogWizardControl : UserControl
 
     private void ExportCurrentCir()
     {
-        if (renderedResult is not { Success: true } result) return;
+        if (!EnsureExportableDesign()) return;
+        var result = renderedResult!;
         using var dialog = new SaveFileDialog { Filter = "SPICE Circuit (*.cir)|*.cir|SPICE Netlist (*.net)|*.net|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = $"precision-{result.Request.Operation}.cir" };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
         try { new PrecisionAnalogSpiceExportService().Save(result, dialog.FileName); }
         catch (Exception exception) { MessageBox.Show(this, exception.Message, "CIR Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
+    private bool EnsureExportableDesign()
+    {
+        if (renderedResult is { Success: true }) return true;
+        MessageBox.Show(this, "Generate and verify a design before exporting its netlist or report.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return false;
+    }
+
     private static string BuildSpicePreview(AnalogComputeDesignResult result)
     {
         try { return new PrecisionAnalogSpiceExportService().Export(result); }
-        catch(NotSupportedException exception) { return "* SPICE export unavailable: " + exception.Message; }
+        catch(Exception exception) { return "* SPICE export unavailable: " + exception.Message; }
     }
 
     private void ExportCurrentReport(bool json)
     {
-        if (renderedResult is not { Success: true } result) return;
-        ExportReport(this, result, new PrecisionAnalogDesignReportService(), json);
+        if (!EnsureExportableDesign()) return;
+        ExportReport(this, renderedResult!, new PrecisionAnalogDesignReportService(), json);
     }
 
     private void OperationChanged()
@@ -731,19 +814,21 @@ public sealed class PrecisionAnalogWizardControl : UserControl
         Value = value,
         DecimalPlaces = decimals,
         Increment = 1m,
-        Width = 125,
+        Width = 150,
         ThousandsSeparator = true
     };
     private static ComboBox Choice<T>(IEnumerable<T> values) where T : struct, Enum
     {
-        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 125 };
-        box.Items.AddRange(values.Cast<object>().ToArray()); box.SelectedIndex = 0; return box;
+        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+        box.Items.AddRange(values.Cast<object>().ToArray()); box.SelectedIndex = 0;
+        UiFieldMetrics.FitCombo(box, 130, 240);
+        return box;
     }
     private static Label Label(string text, int top) => new() { Text = text, AutoSize = true, Margin = new Padding(5, top, 4, 0) };
     private static void AddField(Control row, string title, Control field) { row.Controls.Add(Label(title, 7)); row.Controls.Add(field); }
     private sealed class ResistanceInput : UserControl
     {
-        private readonly NumericUpDown number = new CompactNumericUpDown { DecimalPlaces = 6, Minimum = .000001m, Maximum = 1_000_000_000m, Increment = 1m, Width = 135, ThousandsSeparator = true };
+        private readonly NumericUpDown number = new CompactNumericUpDown { DecimalPlaces = 6, Minimum = .000001m, Maximum = 1_000_000_000m, Increment = 1m, Width = 150, ThousandsSeparator = true };
         private readonly ComboBox unit = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 82 };
         public double ValueOhm => (double)number.Value * ((ResistanceUnit)unit.SelectedItem!).Factor;
 
@@ -763,7 +848,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl
 
     private sealed class CapacitanceInput : UserControl
     {
-        private readonly NumericUpDown number = new CompactNumericUpDown { DecimalPlaces = 6, Minimum = .000001m, Maximum = 1_000_000_000m, Increment = 1m, Width = 120, ThousandsSeparator = true };
+        private readonly NumericUpDown number = new CompactNumericUpDown { DecimalPlaces = 6, Minimum = .000001m, Maximum = 1_000_000_000m, Increment = 1m, Width = 140, ThousandsSeparator = true };
         private readonly ComboBox unit = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 70 };
         public double ValueFarad => (double)number.Value * ((CapacitanceUnit)unit.SelectedItem!).Factor;
         public CapacitanceInput(double valueFarad)

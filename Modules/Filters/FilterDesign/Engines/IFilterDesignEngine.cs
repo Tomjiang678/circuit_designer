@@ -8,8 +8,3 @@ public interface IFilterDesignEngine
     FilterDesignResult Design(FilterDesignRequest request);
     FilterDesignAvailability GetAvailability(FilterDesignRequest request);
 }
-
-public interface IFilterApproximationDesigner
-{
-    FilterDesignResult Design(FilterDesignRequest request);
-}
