@@ -11,6 +11,7 @@
     <InformationalVersion>0.0</InformationalVersion>
     <Product>Circuit Module Designer</Product>
     <Description>Analog circuit module designer.</Description>
+    <ApplicationIcon>assets\images\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Tests\**\*.cs" />

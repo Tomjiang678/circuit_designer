@@ -24,13 +24,13 @@ It is **not** a UI-only placeholder: the candidate table, verification status an
 
 ## Verification evidence
 
-- Full regression: **149 tests passed** (144 baseline + 5 module tests).
-- 300-point deterministic matrix: **300/300 accepted**.
+- Full regression: **150 tests passed** (144 baseline + 6 module tests).
+- 300-point deterministic matrix plus an engineering-coverage test for E-series, expected failures, Touchstone 2.0/continuation, complex-port SPICE consistency, and bandwidth isolation.
   - 100 attenuation points (50–200 Ω ports, 1–20 dB, T/Pi).
   - 100 L-matching points (six port pairs/frequencies).
   - 100 Pi/T points (LP/HP, various Q).
 - Representative tests:
-  - 50 Ω → 50 Ω 3 dB and 6 dB T-pad.
+  - 50 Ω → 50 Ω 3 dB and 6 dB T-pad; 0 dB uses a true zero-component direct connection.
   - 50 Ω → 50 Ω 10 dB Pi-pad; 75 Ω → 75 Ω 20 dB Pi-pad.
   - 75 Ω ↔ 50 Ω unequal T/Pi/L-pad.
   - 0 dB bypass and rejection of 50 Ω → 25 Ω 6 dB (below minimum matched loss).
@@ -49,7 +49,7 @@ dotnet build Tests\CircuitModuleDesigner.CoreTests\CircuitModuleDesigner.CoreTes
 .\Tests\CircuitModuleDesigner.CoreTests\bin\Release\net10.0-windows\CircuitModuleDesigner.CoreTests.exe
 ```
 
-Result: **149 circuit-design tests passed**. A clean alternate output was also used during development because the currently running Debug application locks the `bin\Debug` exe. Close the running app before rebuilding Debug.
+Result: **150 circuit-design tests passed**. A clean alternate output was also used during development because the currently running Debug application locks the `bin\Debug` exe. Close the running app before rebuilding Debug.
 
 No LTspice solver executable was available in this environment. SPICE validation is serializer/golden-text and consistency based; it does not claim a simulator run.
 

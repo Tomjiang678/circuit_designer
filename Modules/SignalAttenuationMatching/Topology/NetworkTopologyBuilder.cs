@@ -44,6 +44,14 @@ public static class NetworkTopologyBuilder
     public static CircuitGraph Build(NetworkTopologySpec spec, ComponentConstraints? constraints = null, double designFrequencyHz = 0)
     {
         ArgumentNullException.ThrowIfNull(spec);
+        if (spec.Elements.Count == 0)
+        {
+            var directBuilder = new CircuitBuilder();
+            directBuilder.CreateNet(InputNet);
+            directBuilder.CreateNet(GroundNet);
+            directBuilder.AliasNet(OutputNet, InputNet);
+            return directBuilder.Build();
+        }
         if (!spec.HasSeriesPath) throw new InvalidOperationException($"Topology '{spec.Name}' has no series signal path.");
         var builder = new CircuitBuilder();
         var components = new Dictionary<string, CircuitComponent>(StringComparer.OrdinalIgnoreCase);

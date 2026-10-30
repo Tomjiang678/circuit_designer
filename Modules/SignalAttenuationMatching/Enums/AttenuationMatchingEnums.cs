@@ -8,6 +8,7 @@ public enum DesignMode
 
 public enum TopologyFamily
 {
+    DirectConnection,
     TPads,
     PiPads,
     LPads,
@@ -27,7 +28,8 @@ public enum MatchingResponse
 public enum PortImpedanceType
 {
     PureResistance,
-    Custom
+    SeriesRL,
+    SeriesRC
 }
 
 public enum OptimizationObjective

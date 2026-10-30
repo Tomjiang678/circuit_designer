@@ -99,8 +99,8 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
                 .Append(MetricRow("VSWR input", selected.Metrics.VswrIn is { } vswrIn ? N(vswrIn) : "N/A", "Only valid for real reference impedance"))
                 .Append(MetricRow("VSWR output", selected.Metrics.VswrOut is { } vswrOut ? N(vswrOut) : "N/A", "Only valid for real reference impedance"))
                 .Append(MetricRow("Transducer gain", N(selected.Metrics.TransducerGain), "Pload / Pavs"))
-                .Append(MetricRow("Matching bandwidth", selected.Metrics.BandwidthHz is { } bandwidth ? N(bandwidth) + " Hz" : "N/A", "Finite sweep, target return-loss and insertion-loss gates"))
-                .Append(MetricRow("Loaded Q from sweep", selected.Metrics.LoadedQ is { } q ? N(q) : "N/A", "f0 / measured matched bandwidth"))
+                .Append(MetricRow("Matching bandwidth", selected.Sweep.BandwidthHz is { } bandwidth ? N(bandwidth) + " Hz" : "N/A", "Finite sweep, target return-loss and insertion-loss gates"))
+                .Append(MetricRow("Loaded Q from sweep", selected.Sweep.LoadedQ is { } q ? N(q) : "N/A", "f0 / measured matched bandwidth"))
                 .Append(MetricRow("Maximum resistor dissipation", N(selected.Metrics.MaximumResistorDissipationWatt) + " W", "At the specified source signal"))
                 .Append(MetricRow("Total resistor dissipation", N(selected.Metrics.TotalResistorDissipationWatt) + " W", "Sum over resistors"))
                 .Append("</tbody></table>");
@@ -133,7 +133,7 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
 
             html.Append("<h2>13. Assumptions &amp; Limitations</h2><ul class=\"note\">")
                 .Append("<li>Ideal lumped R/L/C models only; no PCB parasitic, transmission-line or vendor model extraction.</li>")
-                .Append("<li>Custom R+jX ports are held at their design-frequency value over the sweep; Series R-L/R-C reactances are frequency-dependent.</li>")
+                .Append("<li>Series R-L/R-C port reactances are frequency-dependent; the design-frequency X selects the equivalent L or C.</li><li>VNA imports are reduced to a design-frequency series R-L/R-C equivalent; the broadband measured curve is not used as a fitted device model.</li>")
                 .Append("<li>Bandwidth is limited by the finite sweep and the stated thresholds; sweep-boundary edges are not device limits.</li>")
                 .Append("<li>Attenuation, insertion loss, transducer gain, S21 and return loss are distinct quantities and are reported separately.</li>")
                 .Append("<li>Resistor tolerance, capacitor ESR and inductor Q are recorded as constraints but the nominal model is ideal unless explicitly represented by additional elements.</li>")

@@ -16,6 +16,7 @@ public sealed class AttenuationMatchingSpiceExportService
         var options = new CircuitSpiceExportOptions($"Circuit Module Designer - {candidate.TopologyName}")
         {
             Dialect = dialect,
+            NetAliases = DirectAliases(candidate),
             AdditionalComments =
             [
                 $"Passive design network only; source/load are external test conditions at {request.DesignFrequencyHz:G6} Hz.",
@@ -38,6 +39,7 @@ public sealed class AttenuationMatchingSpiceExportService
         {
             Dialect = dialect,
             Sources = [new SpiceIndependentSource("V_SRC", SpiceSourceKind.Voltage, "VSRC", "0", AcMagnitude: 1)],
+            NetAliases = DirectAliases(candidate),
             Analyses = [new SpiceAcAnalysis(SpiceSweepScale.Decade, 40, request.StartFrequencyHz, request.StopFrequencyHz)],
             OutputExpressions = ["V(VIN)", "V(VOUT)"],
             AdditionalComments =
@@ -45,7 +47,7 @@ public sealed class AttenuationMatchingSpiceExportService
                 $"AC testbench: V_SRC is a 1 V RMS Thevenin source at {request.DesignFrequencyHz:G6} Hz; source and load models are explicit R/L/C elements.",
                 $"Source model: {request.Source.ModelDescription}.",
                 $"Load model: {request.Load.ModelDescription}.",
-                "For a series R-L/R-C port the reactance is frequency-dependent; a Custom R+jX port is represented by its design-frequency equivalent and is not a broadband physical model."
+                "For a series R-L/R-C port the reactance is frequency-dependent; the exported L/C uses the design-frequency value."
             ]
         };
         return Create(dialect).Export(graph, options);
@@ -66,6 +68,11 @@ public sealed class AttenuationMatchingSpiceExportService
         File.WriteAllText(fileName, ExportDesign(candidate, request, dialect), new UTF8Encoding(false));
     }
 
+    private static IReadOnlyList<SpiceNetAlias> DirectAliases(TopologyCandidate candidate) =>
+        candidate.Graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet)
+            ? [new SpiceNetAlias("V_DIRECT", NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet)]
+            : [];
+
     private static ICircuitSpiceExporter Create(SpiceNetlistDialect dialect) => dialect switch
     {
         SpiceNetlistDialect.Ltspice => new LtspiceNetlistExporter(),
@@ -79,48 +86,43 @@ public sealed class AttenuationMatchingSpiceExportService
         foreach (var component in design.Components) builder.Add(component);
         foreach (var net in design.Nets) builder.Connect(net.Name, net.Pins.ToArray());
 
-        var source = request.Source;
+        var source = request.Source.WithReferenceFrequency(request.DesignFrequencyHz);
         builder.Add(ComponentFactory.Resistor("R_SRC", source.ResistanceOhm));
         builder.Connect("VSRC", builder.ResolvePin("R_SRC", "1"));
-        if (source.Type == PortImpedanceType.Custom && Math.Abs(source.ReactanceOhm) > 1e-12)
+        if (source.Type == PortImpedanceType.SeriesRL)
         {
-            if (source.ReactanceOhm > 0)
-            {
-                builder.Add(ComponentFactory.Inductor("L_SRC", source.ReactanceOhm / (2 * Math.PI * request.DesignFrequencyHz)));
-                builder.Connect("N_SRC", builder.ResolvePin("R_SRC", "2"), builder.ResolvePin("L_SRC", "1"));
-                builder.Connect(NetworkTopologyBuilder.InputNet, builder.ResolvePin("L_SRC", "2"));
-            }
-            else
-            {
-                builder.Add(ComponentFactory.Capacitor("C_SRC", -1 / (2 * Math.PI * request.DesignFrequencyHz * source.ReactanceOhm)));
-                builder.Connect("N_SRC", builder.ResolvePin("R_SRC", "2"), builder.ResolvePin("C_SRC", "1"));
-                builder.Connect(NetworkTopologyBuilder.InputNet, builder.ResolvePin("C_SRC", "2"));
-            }
+            builder.Add(ComponentFactory.Inductor("L_SRC", source.EquivalentInductanceHenry));
+            builder.Connect("N_SRC", builder.ResolvePin("R_SRC", "2"), builder.ResolvePin("L_SRC", "1"));
+            builder.Connect(NetworkTopologyBuilder.InputNet, builder.ResolvePin("L_SRC", "2"));
+        }
+        else if (source.Type == PortImpedanceType.SeriesRC)
+        {
+            builder.Add(ComponentFactory.Capacitor("C_SRC", source.EquivalentCapacitanceFarad));
+            builder.Connect("N_SRC", builder.ResolvePin("R_SRC", "2"), builder.ResolvePin("C_SRC", "1"));
+            builder.Connect(NetworkTopologyBuilder.InputNet, builder.ResolvePin("C_SRC", "2"));
         }
         else
             builder.Connect(NetworkTopologyBuilder.InputNet, builder.ResolvePin("R_SRC", "2"));
-        var load = request.Load;
+        var load = request.Load.WithReferenceFrequency(request.DesignFrequencyHz);
+        var outputNet = design.GetNet(NetworkTopologyBuilder.OutputNet).Name;
         builder.Add(ComponentFactory.Resistor("R_LOAD", load.ResistanceOhm));
-        if (load.Type == PortImpedanceType.Custom && Math.Abs(load.ReactanceOhm) > 1e-12)
+        if (load.Type == PortImpedanceType.SeriesRL)
         {
-            if (load.ReactanceOhm > 0)
-            {
-                builder.Add(ComponentFactory.Inductor("L_LOAD", load.ReactanceOhm / (2 * Math.PI * request.DesignFrequencyHz)));
-                builder.Connect(NetworkTopologyBuilder.OutputNet, builder.ResolvePin("R_LOAD", "1"));
-                builder.Connect("N_LOAD", builder.ResolvePin("R_LOAD", "2"), builder.ResolvePin("L_LOAD", "1"));
-                builder.Connect(NetworkTopologyBuilder.GroundNet, builder.ResolvePin("L_LOAD", "2"));
-            }
-            else
-            {
-                builder.Add(ComponentFactory.Capacitor("C_LOAD", -1 / (2 * Math.PI * request.DesignFrequencyHz * load.ReactanceOhm)));
-                builder.Connect(NetworkTopologyBuilder.OutputNet, builder.ResolvePin("R_LOAD", "1"));
-                builder.Connect("N_LOAD", builder.ResolvePin("R_LOAD", "2"), builder.ResolvePin("C_LOAD", "1"));
-                builder.Connect(NetworkTopologyBuilder.GroundNet, builder.ResolvePin("C_LOAD", "2"));
-            }
+            builder.Add(ComponentFactory.Inductor("L_LOAD", load.EquivalentInductanceHenry));
+            builder.Connect(outputNet, builder.ResolvePin("R_LOAD", "1"));
+            builder.Connect("N_LOAD", builder.ResolvePin("R_LOAD", "2"), builder.ResolvePin("L_LOAD", "1"));
+            builder.Connect(NetworkTopologyBuilder.GroundNet, builder.ResolvePin("L_LOAD", "2"));
+        }
+        else if (load.Type == PortImpedanceType.SeriesRC)
+        {
+            builder.Add(ComponentFactory.Capacitor("C_LOAD", load.EquivalentCapacitanceFarad));
+            builder.Connect(outputNet, builder.ResolvePin("R_LOAD", "1"));
+            builder.Connect("N_LOAD", builder.ResolvePin("R_LOAD", "2"), builder.ResolvePin("C_LOAD", "1"));
+            builder.Connect(NetworkTopologyBuilder.GroundNet, builder.ResolvePin("C_LOAD", "2"));
         }
         else
         {
-            builder.Connect(NetworkTopologyBuilder.OutputNet, builder.ResolvePin("R_LOAD", "1"));
+            builder.Connect(outputNet, builder.ResolvePin("R_LOAD", "1"));
             builder.Connect(NetworkTopologyBuilder.GroundNet, builder.ResolvePin("R_LOAD", "2"));
         }        return builder.Build();
     }

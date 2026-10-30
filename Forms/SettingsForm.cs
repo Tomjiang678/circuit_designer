@@ -7,7 +7,6 @@ public sealed class SettingsForm : Form
 {
     private readonly CheckBox confirmOnExit = Option("Confirm before exiting with a generated design");
     private readonly CheckBox showNavigation = Option("Show the navigation pane");
-    private readonly CheckBox showStatusBar = Option("Show the status bar");
     private readonly CheckBox rememberBounds = Option("Remember window size and position");
     private readonly CheckBox reopenLast = Option("Reopen the last category at startup");
 
@@ -20,11 +19,12 @@ public sealed class SettingsForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = UiTheme.Window;
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        MinimizeBox = true;
         ShowInTaskbar = false;
-        ClientSize = new Size(470, 330);
+        MinimumSize = new Size(560, 420);
+        ClientSize = new Size(640, 460);
 
         var root = new TableLayoutPanel
         {
@@ -57,14 +57,13 @@ public sealed class SettingsForm : Form
             BackColor = UiTheme.Surface,
             Padding = new Padding(14, 10, 14, 10)
         };
-        foreach (var option in new[] { confirmOnExit, showNavigation, showStatusBar, rememberBounds, reopenLast })
+        foreach (var option in new[] { confirmOnExit, showNavigation, rememberBounds, reopenLast })
         {
             option.Margin = new Padding(0, 4, 0, 4);
             options.Controls.Add(option);
         }
         confirmOnExit.Checked = Result.ConfirmOnExit;
         showNavigation.Checked = Result.ShowNavigationPane;
-        showStatusBar.Checked = Result.ShowStatusBar;
         rememberBounds.Checked = Result.RememberWindowBounds;
         reopenLast.Checked = Result.ReopenLastCategory;
         root.Controls.Add(options, 0, 1);
@@ -97,7 +96,7 @@ public sealed class SettingsForm : Form
         AcceptButton = ok;
         CancelButton = cancel;
         Controls.Add(root);
-        ClientSize = new Size(470, 330);
+        ClientSize = new Size(640, 460);
     }
 
     public AppSettings Result { get; }
@@ -108,7 +107,6 @@ public sealed class SettingsForm : Form
         {
             Result.ConfirmOnExit = confirmOnExit.Checked;
             Result.ShowNavigationPane = showNavigation.Checked;
-            Result.ShowStatusBar = showStatusBar.Checked;
             Result.RememberWindowBounds = rememberBounds.Checked;
             Result.ReopenLastCategory = reopenLast.Checked;
         }

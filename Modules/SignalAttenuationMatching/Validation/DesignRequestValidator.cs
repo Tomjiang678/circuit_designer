@@ -67,6 +67,12 @@ public static class DesignRequestValidator
             error("INVALID_PORT_REACTANCE", $"{name} reactance must be finite.", $"{name} reactance", port.ReactanceOhm, "finite ohm", null);
         if (port.Type == PortImpedanceType.PureResistance && Math.Abs(port.ReactanceOhm) > 1e-12)
             error("INVALID_PORT_MODEL", $"{name} is configured as a pure resistance but has a nonzero reactance.", $"{name} reactance", port.ReactanceOhm, "0 ohm", null);
+        if (port.Type == PortImpedanceType.SeriesRL && port.ReactanceOhm < 0)
+            error("INVALID_PORT_MODEL", $"{name} series R-L requires a non-negative reactance.", $"{name} reactance", port.ReactanceOhm, ">= 0 ohm", null);
+        if (port.Type == PortImpedanceType.SeriesRC && port.ReactanceOhm > 0)
+            error("INVALID_PORT_MODEL", $"{name} series R-C requires a non-positive reactance.", $"{name} reactance", port.ReactanceOhm, "<= 0 ohm", null);
+        if (port.Type is PortImpedanceType.SeriesRL or PortImpedanceType.SeriesRC && !(port.ReferenceFrequencyHz > 0))
+            error("INVALID_PORT_FREQUENCY", $"{name} reactance needs a positive reference frequency.", $"{name} reference frequency", port.ReferenceFrequencyHz, "> 0 Hz", null);
     }
 
     private static void ValidateConstraints(ComponentConstraints constraints, Action<string, string, string?, double?, string?, string?> error)

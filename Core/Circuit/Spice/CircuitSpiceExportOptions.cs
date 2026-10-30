@@ -5,6 +5,7 @@ public enum SpiceSourceKind { Voltage, Current }
 public enum SpiceOpAmpExportMode { FiniteGainVcvs, ExternalSubcircuit, Unsupported }
 public enum SpiceSweepScale { Decade, Octave, Linear }
 
+public sealed record SpiceNetAlias(string Name, string PositiveNode, string NegativeNode);
 public sealed record SpiceIndependentSource(
     string Name,
     SpiceSourceKind Kind,
@@ -74,6 +75,7 @@ public sealed class CircuitSpiceExportOptions
     public SpiceNetlistDialect Dialect { get; init; } = SpiceNetlistDialect.GenericSpice;
     public IReadOnlyList<string> AdditionalComments { get; init; } = [];
     public IReadOnlyList<SpiceIndependentSource> Sources { get; init; } = [];
+    public IReadOnlyList<SpiceNetAlias> NetAliases { get; init; } = [];
     public IReadOnlyList<SpiceAnalysisDirective> Analyses { get; init; } = [];
     public IReadOnlyList<string> OutputExpressions { get; init; } = [];
     public IReadOnlyDictionary<string, double> Parameters { get; init; } = new Dictionary<string, double>();

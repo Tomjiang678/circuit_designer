@@ -24,7 +24,7 @@ V0 已经打通了四个模拟设计模块的完整闭环：
    - `.cmddesign` 设计归档文件。
 7. **桌面应用外壳**：分类选择、导航树、统一主题、菜单、状态栏、设置持久化、设计文件查看器。
 
-当前自动化回归：**149 个测试全部通过**。另有 150 点比较器矩阵、500 点精密模拟矩阵、100 点张弛振荡器矩阵、300 点信号衰减/匹配矩阵等独立测试资料。
+当前自动化回归：**150 个测试全部通过**。另有 150 点比较器矩阵、500 点精密模拟矩阵、100 点张弛振荡器矩阵、300 点信号衰减/匹配矩阵等独立测试资料。
 
 ---
 
@@ -103,7 +103,7 @@ CircuitModuleDesigner/
 ├─ Controls/                          # 通用 UI 基础设施、字段尺寸计算
 │
 ├─ Tests/CircuitModuleDesigner.CoreTests/
-│  ├─ Program.cs                      # 控制台测试/回归入口（149 个测试）
+│  ├─ Program.cs                      # 控制台测试/回归入口（150 个测试）
 │  └─ CircuitModuleDesigner.CoreTests.csproj
 │
 ├─ NetlistSamples/LTspice/            # 可人工检查的 .cir 样例
@@ -395,7 +395,7 @@ dotnet build Tests\CircuitModuleDesigner.CoreTests\CircuitModuleDesigner.CoreTes
 .\Tests\CircuitModuleDesigner.CoreTests\bin\Debug\net10.0-windows\CircuitModuleDesigner.CoreTests.exe
 ```
 
-当前结果：**149 tests passed**。
+当前结果：**150 tests passed**。
 
 也可以按名称过滤：
 

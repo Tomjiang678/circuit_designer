@@ -29,8 +29,9 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
   - Shunt L + Series C
 - A shunt-at-input L form is only valid when the source is the high-resistance side; a shunt-at-output form requires the load to be the high side. Invalid positions are rejected instead of silently swapped.
 - Low-pass and high-pass Pi/T using a virtual intermediate resistance and two L-section solves.
+- A 0 dB equal-port attenuation design and an already-matched port pair use a true zero-component direct connection: VIN and VOUT alias the same graph node. The SPICE representation emits an explicit 0 V ideal source (`V_DIRECT`) because SPICE has no native wire element.
 - Mixed-reactance Pi/T networks (four elements) are supported when `Allow mixed reactance` is enabled and the resulting network is verified.
-- Real and complex ports: enter `R` and optional `X @ f0`. The port model is fixed `R+jX` over the sweep, so it is a single-frequency model.
+- Real and complex ports: enter `R` and `X @ f0` directly. Positive X becomes a series R-L, negative X becomes a series R-C, and zero X is a pure resistance. The same physical L/C model drives the internal sweep and the exported SPICE testbench.
 - Design Q is a synthesis choice. Loaded Q is calculated separately from the final frequency sweep; the two are not treated as the same number.
 
 ## Mathematics and verification
@@ -58,7 +59,16 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
 
 Changing any parameter marks the previous result stale and blocks export until recalculation.
 
-## VNA import\n\n- Each port has an **Import VNA...** button.\n- Supported files: Touchstone `.s1p` and `.s2p`, with `RI`, `MA` or `DB` data and Hz/kHz/MHz/GHz frequency units.\n- The selected reflection coefficient is interpolated at the current design frequency and converted with `Z = Z0 (1+Γ)/(1−Γ)`. No extrapolation is performed.\n- `.s1p` uses S11; `.s2p` uses S11 for the load and S22 for the source.\n- The imported R and X are written directly into the two port fields; non-zero X automatically selects Impedance Matching.\n\n## SPICE
+## VNA import
+
+- Each port has an **Import VNA...** button.
+- Supported files: Touchstone `.s1p` and `.s2p`, with `RI`, `MA` or `DB` data and Hz/kHz/MHz/GHz frequency units.
+- The selected reflection coefficient is interpolated at the current design frequency and converted with `Z = Z0 (1+Γ)/(1−Γ)`. No extrapolation is performed.
+- `.s1p` uses S11; `.s2p` opens an explicit port selector (S11/Port 1 or S22/Port 2), defaulting to S11 for the load and S22 for the source.
+- Touchstone 2.0 metadata (`[Version]`, `[Number of Ports]`, `[Two-Port Data Order]`, `[Network Data]`) and backslash continuation lines are supported.
+- The imported R and X are written directly into the two port fields; non-zero X automatically selects Impedance Matching. The import is a **design-frequency series R-L/R-C equivalent**, not a broadband fit to the whole VNA curve.
+
+## SPICE
 
 Two netlists are produced:
 
@@ -69,8 +79,8 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 
 ## Tests
 
-- 5 module regression tests integrated in the 149-test suite.
-- 300-point deterministic matrix: [CSV](../../artifacts/SignalAttenuationMatching/300-point-matrix.csv).
+- 6 module regression tests integrated in the 150-test suite, including the engineering-coverage test.
+- 300-point deterministic regression matrix: [CSV](../../artifacts/SignalAttenuationMatching/300-point-matrix.csv); separate engineering coverage covers E-series, expected failures, Touchstone 2.0/continuation, complex-port SPICE consistency, and bandwidth isolation.
   - 100 attenuation points across port values and attenuation targets.
   - 100 L-matching points across impedance ratios/frequencies.
   - 100 Pi/T matching points across families, responses and design Q values.
@@ -79,7 +89,7 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 ## Known limitations
 
 - Only ideal lumped R/L/C is the baseline. Optional ESR/Q is a series-resistance approximation, not a full vendor model.
-- Custom `R+jX` ports are held constant over the sweep; they are single-frequency models. Use Series R-L/R-C when broadband physical behavior matters.
+- Port reactance is specified at the design frequency and then follows the equivalent series L or C over the sweep.
 - No transmission lines, microstrip, PCB electromagnetic simulation, or distributed matching.
 - No transformer matching, baluns, or vendor-specific matching ICs.
 - No Monte Carlo or tolerance-yield analysis.

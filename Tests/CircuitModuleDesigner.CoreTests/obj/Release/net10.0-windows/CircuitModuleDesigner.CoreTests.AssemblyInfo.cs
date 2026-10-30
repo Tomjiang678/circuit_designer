@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CircuitModuleDesigner.CoreTests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0cf565eb1922c79160b500c84b5cce9f80195d95")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+35fe3d0391ccbe46f97c080936e6df7383254009")]
 [assembly: System.Reflection.AssemblyProductAttribute("CircuitModuleDesigner.CoreTests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CircuitModuleDesigner.CoreTests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

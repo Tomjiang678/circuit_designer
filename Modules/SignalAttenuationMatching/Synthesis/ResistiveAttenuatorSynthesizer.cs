@@ -60,8 +60,6 @@ internal static class PadMath
 /// </summary>
 public sealed class ResistiveAttenuatorSynthesizer
 {
-    private const double BypassResistanceOhm = 1e-6;
-
     public SynthesisAttempt Synthesize(AttenuationMatchingDesignRequest request, TopologyFamily family)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -76,11 +74,9 @@ public sealed class ResistiveAttenuatorSynthesizer
                 return SynthesisAttempt.Failed(Name(family), Description(family),
                     "A 0 dB matched bypass is only possible with equal port resistances; a lossless direct link cannot match unequal source and load.");
             return new SynthesisAttempt(
-                new NetworkTopologySpec($"{Name(family)} (0 dB bypass)", family, MatchingResponse.LowPass,
-                    [new NetworkElementSpec("R_BYPASS", Core.Circuit.ComponentType.Resistor, ElementPlacement.Series, BypassResistanceOhm)],
-                    "0 dB bypass with a near-ideal series link; no resistive attenuation is inserted."),
-                $"{Name(family)} (Bypass)", "0 dB bypass", true, "Bypass");
-        }
+                new NetworkTopologySpec("Direct connection", TopologyFamily.DirectConnection, MatchingResponse.LowPass,
+                    [], "Ideal through connection with no inserted components."),
+                "Direct connection", "0 dB direct connection", true, "None");        }
 
         return family switch
         {

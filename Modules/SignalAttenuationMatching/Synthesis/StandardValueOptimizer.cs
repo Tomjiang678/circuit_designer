@@ -32,6 +32,13 @@ public sealed class StandardValueOptimizer
     {
         ArgumentNullException.ThrowIfNull(ideal);
         ArgumentNullException.ThrowIfNull(request);
+        if (ideal.Elements.Count == 0)
+        {
+            var directGraph = NetworkTopologyBuilder.Build(ideal, request.Components, request.DesignFrequencyHz);
+            var directSolution = analyzer.Analyze(directGraph, request, request.DesignFrequencyHz);
+            var hard = EvaluateHardConstraints(directSolution.Metrics, ideal, request, out var diagnostics);
+            return new OptimizedNetwork(ideal, directGraph, directSolution, [], hard, 1, diagnostics);
+        }
         var modes = ValueSets(ideal, request.Components);
         if (modes is null) return Fail(ideal, request, "No standard component values exist inside the selected ranges for one or more elements.");
         var combinations = Cartesian(modes, request.Components.MaximumSearchCombinations);

@@ -101,7 +101,7 @@ public sealed class FilterSchematicControl : UserControl
     {
         base.OnPaint(e);
         e.Graphics.Clear(SystemColors.Window);
-        if (document == null || document.PlacedComponents.Count == 0)
+        if (document == null || (document.PlacedComponents.Count == 0 && document.Wires.Count == 0))
         {
             e.Graphics.DrawString("No schematic available.", Font, Brushes.DimGray, 20, 20);
             return;
@@ -306,7 +306,7 @@ public sealed class FilterSchematicControl : UserControl
 
     private void FitDocument(bool initialFitOnly)
     {
-        if (document == null || document.PlacedComponents.Count == 0) return;
+        if (document == null || (document.PlacedComponents.Count == 0 && document.Wires.Count == 0)) return;
         CalculateLogicalBounds(out minimumX, out minimumY, out var width, out _);
         var fit = Math.Min(1, Math.Max(300, ClientSize.Width - CanvasMargin * 2) / Math.Max(1, width));
         Zoom = initialFitOnly ? Math.Max(0.75, fit) : Math.Max(0.65, fit);
@@ -315,7 +315,7 @@ public sealed class FilterSchematicControl : UserControl
 
     private void UpdateScrollExtent()
     {
-        if (document == null || document.PlacedComponents.Count == 0) return;
+        if (document == null || (document.PlacedComponents.Count == 0 && document.Wires.Count == 0)) return;
         CalculateLogicalBounds(out minimumX, out minimumY, out var width, out var height);
         AutoScrollMinSize = new Size((int)Math.Ceiling(width * zoom + CanvasMargin * 2), (int)Math.Ceiling(height * zoom + CanvasMargin * 2));
     }
@@ -324,10 +324,10 @@ public sealed class FilterSchematicControl : UserControl
     {
         var boxes = document!.PlacedComponents.Select(item => SchematicGeometry.GetBounds(item)).ToArray();
         var points = document.Wires.SelectMany(item => item.Points).Concat(document.Junctions.Select(item => item.Position)).Concat(document.NetLabels.Select(item => item.Position)).Concat(document.TextAnnotations.Select(item => item.Position)).ToArray();
-        minX = Math.Min(boxes.Min(item => item.X), points.Min(item => item.X)) - 50;
-        minY = Math.Min(boxes.Min(item => item.Y), points.Min(item => item.Y)) - 45;
-        var maxX = Math.Max(boxes.Max(item => item.X + item.Width), points.Max(item => item.X)) + 80;
-        var maxY = Math.Max(boxes.Max(item => item.Y + item.Height), points.Max(item => item.Y)) + 50;
+        minX = Math.Min(boxes.Select(item => item.X).DefaultIfEmpty(double.MaxValue).Min(), points.Select(item => item.X).DefaultIfEmpty(0).Min()) - 50;
+        minY = Math.Min(boxes.Select(item => item.Y).DefaultIfEmpty(double.MaxValue).Min(), points.Select(item => item.Y).DefaultIfEmpty(0).Min()) - 45;
+        var maxX = Math.Max(boxes.Select(item => item.X + item.Width).DefaultIfEmpty(0).Max(), points.Select(item => item.X).DefaultIfEmpty(0).Max()) + 80;
+        var maxY = Math.Max(boxes.Select(item => item.Y + item.Height).DefaultIfEmpty(0).Max(), points.Select(item => item.Y).DefaultIfEmpty(0).Max()) + 50;
         width = maxX - minX; height = maxY - minY;
     }
 

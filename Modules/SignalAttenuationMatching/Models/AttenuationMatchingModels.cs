@@ -7,8 +7,7 @@ namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Models;
 
 /// <summary>
 /// A two-terminal port impedance. Series R-L / R-C models are frequency-dependent
-/// through the reactance specified at the reference design frequency. Custom R+jX
-/// is a single-frequency model and is explicitly reported as such.
+/// through the reactance specified at the reference design frequency.
 /// </summary>
 public sealed record PortImpedanceModel(
     string Name,
@@ -18,16 +17,27 @@ public sealed record PortImpedanceModel(
     double ReferenceFrequencyHz = 0)
 {
     public bool IsComplex => Math.Abs(ReactanceOhm) > 1e-12;
+    public bool IsFrequencyDependent => Type is PortImpedanceType.SeriesRL or PortImpedanceType.SeriesRC;
 
     public PortImpedanceModel WithReferenceFrequency(double frequencyHz) => this with { ReferenceFrequencyHz = frequencyHz };
+
+    public double EquivalentInductanceHenry => Type == PortImpedanceType.SeriesRL
+        ? ReactanceOhm / (2 * Math.PI * ReferenceFrequencyHz)
+        : 0;
+
+    public double EquivalentCapacitanceFarad => Type == PortImpedanceType.SeriesRC
+        ? -1 / (2 * Math.PI * ReferenceFrequencyHz * ReactanceOhm)
+        : 0;
 
     public Complex ImpedanceAt(double frequencyHz)
     {
         if (!(frequencyHz > 0) || !double.IsFinite(frequencyHz)) throw new ArgumentOutOfRangeException(nameof(frequencyHz));
+        var omega = 2 * Math.PI * frequencyHz;
         return Type switch
         {
             PortImpedanceType.PureResistance => new Complex(ResistanceOhm, 0),
-            PortImpedanceType.Custom => new Complex(ResistanceOhm, ReactanceOhm),
+            PortImpedanceType.SeriesRL => new Complex(ResistanceOhm, omega * EquivalentInductanceHenry),
+            PortImpedanceType.SeriesRC => new Complex(ResistanceOhm, -1 / (omega * EquivalentCapacitanceFarad)),
             _ => throw new ArgumentOutOfRangeException()
         };
     }
@@ -35,14 +45,16 @@ public sealed record PortImpedanceModel(
     public Complex ReferenceImpedance => Type switch
     {
         PortImpedanceType.PureResistance => new Complex(ResistanceOhm, 0),
-        PortImpedanceType.Custom => new Complex(ResistanceOhm, ReactanceOhm),
+        PortImpedanceType.SeriesRL => new Complex(ResistanceOhm, 2 * Math.PI * ReferenceFrequencyHz * EquivalentInductanceHenry),
+        PortImpedanceType.SeriesRC => new Complex(ResistanceOhm, -1 / (2 * Math.PI * ReferenceFrequencyHz * EquivalentCapacitanceFarad)),
         _ => throw new ArgumentOutOfRangeException()
     };
 
     public string ModelDescription => Type switch
     {
         PortImpedanceType.PureResistance => "pure resistance, frequency independent",
-        PortImpedanceType.Custom => "custom R+jX held constant over the sweep (single-frequency model)",
+        PortImpedanceType.SeriesRL => $"series R-L, L={Engineering(EquivalentInductanceHenry)}H derived from X at the design frequency",
+        PortImpedanceType.SeriesRC => $"series R-C, C={EquivalentCapacitanceFarad:G6}F derived from X at the design frequency",
         _ => string.Empty
     };
 

@@ -40,7 +40,7 @@ Pi: Rshunt  = R0 (K+1)/(K-1)
     Rseries = R0 (K²-1)/(2K)
 ```
 
-0 dB is handled as a near-ideal bypass only for equal ports. Unequal 0 dB is rejected because a direct link cannot match both ports.
+0 dB is handled as a true zero-component direct connection only for equal ports; VIN and VOUT are aliases of the same graph node. Unequal 0 dB is rejected because a direct link cannot match both ports.
 
 ### 3.2 Unequal T / Pi pads
 
@@ -116,7 +116,7 @@ Bandwidth = continuous band around f0 satisfying return-loss/insertion-loss gate
 LoadedQ = f0 / Bandwidth
 ```
 
-S11/S21/S22 use a separate real-reference solve. S12 is left N/A in this module. A port `R+jX` is held constant over the sweep; it is a single-frequency model.
+S11/S21/S22 use a separate real-reference solve. S12 is left N/A in this module. A port `X` at `f0` is converted to a series L (positive X) or C (negative X), so the internal sweep and SPICE testbench use the same frequency-dependent impedance.
 
 ## 5. Independent verification
 
@@ -163,7 +163,7 @@ Status is Supported only when no errors exist; Warning only when non-blocking mo
 
 ## 7. Tests and evidence
 
-- Full suite: **149 tests passed** (baseline + 5 new module tests).
+- Full suite: **150 tests passed** (baseline + 6 module tests).
 - 300-point deterministic matrix: [CSV](../../artifacts/SignalAttenuationMatching/300-point-matrix.csv) — 300/300 accepted, 0 failed.
 - Specific checks:
   - 50 Ω → 50 Ω 3/6 dB T-pad; 10/20 dB Pi-pad.
@@ -179,7 +179,7 @@ Status is Supported only when no errors exist; Warning only when non-blocking mo
 
 - Ideal lumped R/L/C baseline; ESR/Q is a series-resistance approximation.
 - No distributed/transmission-line/microstrip/EM simulation.
-- Custom R+jX is a single-frequency model.
+- Port reactance is defined at the design frequency and swept as the equivalent series L/C.
 - No transformer/balun/vendor matching IC or encrypted model support.
 - No Monte Carlo/tolerance-yield analysis.
 - Bandwidth is bounded by the finite sweep and declared thresholds.

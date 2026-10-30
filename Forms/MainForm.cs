@@ -26,33 +26,9 @@ public sealed class MainForm : Form
     private readonly ComboBox categoryCombo = new();
     private readonly TreeView navigationTree = new();
     private readonly Label navigationHint = new() { UseMnemonic = false };
-    private readonly Label statusText = new()
-    {
-        Text = "Ready",
-        AutoSize = false,
-        Dock = DockStyle.Fill,
-        TextAlign = ContentAlignment.MiddleLeft,
-        Font = UiTheme.Caption,
-        ForeColor = UiTheme.Text,
-        AutoEllipsis = true,
-        UseMnemonic = false
-    };
-    private readonly Label statusModule = new()
-    {
-        Text = string.Empty,
-        AutoSize = true,
-        Anchor = AnchorStyles.Right,
-        TextAlign = ContentAlignment.MiddleRight,
-        Font = UiTheme.Caption,
-        ForeColor = UiTheme.Muted,
-        Margin = new Padding(12, 0, 0, 0),
-        UseMnemonic = false
-    };
-
     private AppSettings settings;
     private Panel? designHost;
     private SplitContainer? mainSplit;
-    private Panel? statusBar;
     private IDesignModuleHost? activeModule;
     private string? currentFile;
     private string? activeCategory;
@@ -70,7 +46,7 @@ public sealed class MainForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = UiTheme.Body;
         BackColor = UiTheme.Window;
-        Icon = SystemIcons.Application;
+        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
 
         BuildInterface();
         ApplySettings(settings);
@@ -92,20 +68,18 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // menu
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // category card
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // workspace
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));  // status
 
         var menu = CreateMenu();
         root.Controls.Add(menu, 0, 0);
         root.Controls.Add(CreateSelectionCard(), 0, 1);
         root.Controls.Add(CreateWorkArea(), 0, 2);
-        root.Controls.Add(CreateStatusBar(), 0, 3);
 
         MainMenuStrip = menu;
         Controls.Add(root);
@@ -306,36 +280,6 @@ public sealed class MainForm : Form
         return card;
     }
 
-    private Control CreateStatusBar()
-    {
-        statusBar = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = UiTheme.Surface,
-            Padding = new Padding(12, 0, 12, 0)
-        };
-        statusBar.Paint += (_, e) =>
-        {
-            using var pen = new Pen(UiTheme.Border);
-            e.Graphics.DrawLine(pen, 0, 0, statusBar.Width, 0);
-        };
-
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            BackColor = Color.Transparent,
-            Margin = Padding.Empty
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.Controls.Add(statusText, 0, 0);
-        layout.Controls.Add(statusModule, 1, 0);
-        statusBar.Controls.Add(layout);
-        return statusBar;
-    }
-
     private Control CreateEmptyState()
     {
         var host = new TableLayoutPanel
@@ -425,9 +369,6 @@ public sealed class MainForm : Form
         navigationHint.Visible = false;
         designHost!.Controls.Add(control);
         UiTheme.ApplyModule(control);
-
-        statusText.Text = $"{selection} ready.";
-        UpdateStatus();
         UpdateTitle();
     }
 
@@ -472,7 +413,6 @@ public sealed class MainForm : Form
     {
         if (activeModule?.HasDesign == true && !ConfirmDiscard("Starting a new design")) return;
         ClearWorkspace(true);
-        statusText.Text = "New design started. Choose a circuit category.";
     }
 
     private void ClearWorkspace(bool resetCategory)
@@ -491,7 +431,6 @@ public sealed class MainForm : Form
             categoryCombo.SelectedIndex = 0;
             suppressCategoryEvent = false;
         }
-        UpdateStatus();
         UpdateTitle();
     }
 
@@ -504,12 +443,10 @@ public sealed class MainForm : Form
         }
         try
         {
-            statusText.Text = $"Calculating {activeModule.ModuleTitle}...";
             activeModule.Calculate();
         }
         catch (Exception exception)
         {
-            statusText.Text = "Calculation failed.";
             ShowError("The design calculation failed:\r\n\r\n" + exception.Message);
         }
     }
@@ -524,7 +461,6 @@ public sealed class MainForm : Form
         if (activeModule?.HasDesign == true && !ConfirmDiscard("Resetting parameters")) return;
         var category = activeCategory;
         SwitchModule(category, force: true);
-        statusText.Text = $"{category} parameters reset to defaults.";
     }
 
     private void SaveDesign()
@@ -570,7 +506,6 @@ public sealed class MainForm : Form
             var document = DesignDocumentService.Create(activeModule!, activeCategory ?? string.Empty, DateTimeOffset.UtcNow);
             documentService.Save(document, fileName);
             currentFile = fileName;
-            statusText.Text = $"Saved {Path.GetFileName(fileName)}";
             UpdateTitle();
         }
         catch (Exception exception)
@@ -619,9 +554,6 @@ public sealed class MainForm : Form
         var viewer = new DesignDocumentViewer(document, fileName);
         viewer.CloseRequested += (_, _) => ClearWorkspace(true);
         designHost!.Controls.Add(viewer);
-
-        statusText.Text = $"Opened {Path.GetFileName(fileName)}";
-        UpdateStatus();
         UpdateTitle();
     }
 
@@ -634,7 +566,6 @@ public sealed class MainForm : Form
         try
         {
             settingsStore.Save(settings);
-            statusText.Text = "Settings saved.";
         }
         catch (Exception exception)
         {
@@ -651,12 +582,6 @@ public sealed class MainForm : Form
     private void ApplySettings(AppSettings value)
     {
         if (mainSplit is not null) mainSplit.Panel1Collapsed = !value.ShowNavigationPane;
-        if (statusBar is not null)
-        {
-            statusBar.Visible = value.ShowStatusBar;
-            if (statusBar.Parent is TableLayoutPanel table && table.RowStyles.Count > 3)
-                table.RowStyles[3].Height = value.ShowStatusBar ? 26 : 0;
-        }
         if (value.RememberWindowBounds && value.WindowWidth > 320 && value.WindowHeight > 240)
         {
             var bounds = new Rectangle(value.WindowX, value.WindowY, value.WindowWidth, value.WindowHeight);
@@ -707,10 +632,6 @@ public sealed class MainForm : Form
     }
 
     // ------------------------------------------------------------------- helpers
-
-    private void UpdateStatus() =>
-        statusModule.Text = activeModule?.ModuleTitle ??
-            (currentFile is not null ? "Saved design" : "No module selected");
 
     private void UpdateTitle()
     {

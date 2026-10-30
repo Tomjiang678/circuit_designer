@@ -5,6 +5,7 @@ public sealed class CircuitBuilder
     private readonly Dictionary<string, CircuitComponent> components = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<ComponentPin>> nets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> netNameByPinId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> netAliases = new(StringComparer.OrdinalIgnoreCase);
 
     public CircuitComponent Add(CircuitComponent component)
     {
@@ -57,13 +58,23 @@ public sealed class CircuitBuilder
         return component.GetPin(pinName);
     }
 
+    public CircuitBuilder AliasNet(string alias, string target)
+    {
+        ValidateNetName(alias);
+        ValidateNetName(target);
+        if (nets.ContainsKey(alias)) throw new InvalidOperationException($"Net '{alias}' already exists as a real net.");
+        if (!nets.ContainsKey(target)) throw new InvalidOperationException($"Alias target net '{target}' does not exist.");
+        netAliases[alias] = target;
+        return this;
+    }
+
     public CircuitGraph Build()
     {
         var immutableNets = nets.ToDictionary(
             pair => pair.Key,
             pair => new CircuitNet(pair.Key, pair.Value.ToArray()),
             StringComparer.OrdinalIgnoreCase);
-        var graph = new CircuitGraph(components, immutableNets);
+        var graph = new CircuitGraph(components, immutableNets, netAliases);
         CircuitGraphValidator.EnsureValid(graph);
         return graph;
     }

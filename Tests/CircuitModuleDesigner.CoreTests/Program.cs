@@ -222,6 +222,7 @@ var tests = new (string Name, Action Run)[]
     ,("Signal attenuation LC matching networks", TestSignalAttenuationLcMatching)
     ,("Signal attenuation engine and standard values", TestSignalAttenuationEngine)
     ,("Signal attenuation reports schematic and SPICE", TestSignalAttenuationReports)
+    ,("Signal attenuation engineering coverage", TestSignalAttenuationEngineeringCoverage)
     ,("Signal attenuation 300-point matrix", TestSignalAttenuation300PointMatrix)
     ,("Design document save/open round-trip", TestDesignDocument)
     ,("App settings persistence", TestAppSettingsStore)
@@ -3815,12 +3816,14 @@ static void TestSignalAttenuationLcMatching()
     var complexRequest = new AttenuationMatchingDesignRequest
     {
         Mode = DesignMode.ImpedanceMatching,
-        Source = new("Source", 50, 20, PortImpedanceType.Custom, 10e6),
-        Load = new("Load", 100, -30, PortImpedanceType.Custom, 10e6),
+        Source = new("Source", 50, 20, PortImpedanceType.SeriesRL, 10e6),
+        Load = new("Load", 100, -30, PortImpedanceType.SeriesRC, 10e6),
         DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
         Matching = new(15, 15, 2), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 4 }
     };
-    var complex = new AttenuationMatchingDesignEngine().Design(complexRequest);
+    Require(Math.Abs(complexRequest.Source.ImpedanceAt(20e6).Imaginary - 40) < 1e-6 &&
+            Math.Abs(complexRequest.Load.ImpedanceAt(20e6).Imaginary + 15) < 1e-6,
+        "Series R-L/R-C port impedance is not frequency-dependent.");    var complex = new AttenuationMatchingDesignEngine().Design(complexRequest);
     Require(complex.Candidates.Count > 0, "Complex R+jX matching should produce at least one physically solved candidate.");
     Require(complex.SelectedCandidate is not null && complex.SelectedCandidate.Metrics.InputReturnLossDb >= 15,
         $"Complex-port matching did not meet input return loss: {complex.Message}");
@@ -3888,8 +3891,9 @@ static void TestSignalAttenuationLcMatching()
         Matching = new(20, 20, 1), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
         Topology = new(TopologySelectionMode.Manual, TopologyFamily.LMatching)
     });
-    Require(!noSolution.Success && noSolution.Message.Contains("direct connection", StringComparison.OrdinalIgnoreCase),
-        "An equal-resistance source/load was incorrectly reported as a successful matching design.");
+    Require(noSolution.Success && noSolution.SelectedCandidate is { } directMatchedCandidate && directMatchedCandidate.Graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet) &&
+            noSolution.Message.Contains("direct connection", StringComparison.OrdinalIgnoreCase),
+        "An already-matched source/load should return a supported direct connection, not a failure.");
 }
 
 static void TestSignalAttenuationEngine()
@@ -3944,6 +3948,30 @@ static void TestSignalAttenuationEngine()
     var defaultResult = engine.Design(defaultRequest);
     Require(defaultResult.Success && defaultResult.Request.Load.ResistanceOhm == 75,
         $"The default 50 Ω source / 75 Ω load attenuation design failed: {defaultResult.Message}");
+    var directAttenuation = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation, DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance, 10e6),
+        Load = new("Load", 50, 0, PortImpedanceType.PureResistance, 10e6),
+        Attenuation = new(0, .1, 20, 20), Components = new() { ValueMode = ComponentValueMode.Continuous }
+    });
+    Require(directAttenuation.Success && directAttenuation.SelectedCandidate is { } directCandidate && directCandidate.Graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet) &&
+            directCandidate.Graph.Components.Count == 0 && directCandidate.Components.Count == 0,
+        $"A 0 dB equal-port attenuation design must use a true direct connection: {directAttenuation.Message}");    if (directAttenuation.SelectedCandidate is { } directCandidateForArtifacts)
+    {
+        var directDocument = new CircuitModuleDesigner.Modules.SignalAttenuationMatching.Schematic.AttenuationMatchingLayoutService().Layout(directCandidateForArtifacts);
+        Require(directDocument.Circuit.Components.Count == 0 && directDocument.Wires.Count >= 1 &&
+                CircuitModuleDesigner.Modules.SignalAttenuationMatching.Schematic.AttenuationMatchingLayoutService.ValidateLayout(directDocument).Count == 0,
+            "The direct connection did not produce a valid zero-component schematic.");
+        var directService = new CircuitModuleDesigner.Modules.SignalAttenuationMatching.Services.AttenuationMatchingSpiceExportService();
+        var directNetlist = directService.ExportDesign(directCandidateForArtifacts, directAttenuation.Request);
+        var directTestbench = directService.ExportTestbench(directCandidateForArtifacts, directAttenuation.Request);
+        var directGeneric = directService.ExportTestbench(directCandidateForArtifacts, directAttenuation.Request, SpiceNetlistDialect.GenericSpice);
+        Require(directNetlist.Contains("V_DIRECT VIN VOUT DC 0", StringComparison.OrdinalIgnoreCase) &&
+                directTestbench.Contains("V_DIRECT VIN VOUT DC 0", StringComparison.OrdinalIgnoreCase) &&
+                directGeneric.Contains("V(VOUT)", StringComparison.OrdinalIgnoreCase),
+            "The direct connection SPICE export does not contain a valid VIN-to-VOUT short.");
+    }
     var invalid = engine.Design(new AttenuationMatchingDesignRequest { DesignFrequencyHz = double.NaN });
     Require(invalid.Status == DesignStatus.Failed && invalid.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error), "NaN design frequency was accepted.");
 }
@@ -4021,6 +4049,103 @@ static void TestSignalAttenuationReports()
         "The signal matching .cmddesign document did not round-trip.");
 }
 
+static void TestSignalAttenuationEngineeringCoverage()
+{
+    var engine = new AttenuationMatchingDesignEngine();
+    foreach (var mode in new[] { ComponentValueMode.E12, ComponentValueMode.E24, ComponentValueMode.E48, ComponentValueMode.E96 })
+    {
+        var result = engine.Design(new AttenuationMatchingDesignRequest
+        {
+            Mode = DesignMode.Attenuation, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+            Load = new("Load", 50, 0, PortImpedanceType.PureResistance), DesignFrequencyHz = 10e6,
+            StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, SweepPoints = 41,
+            Attenuation = new(6, .5, 20, 20),
+            Components = new() { ValueMode = mode, MaximumCandidateCount = 2, MaximumSearchCombinations = 3000 },
+            Topology = new(TopologySelectionMode.Manual, TopologyFamily.TPads)
+        });
+        Require(result.Success && result.SelectedCandidate is { } candidate && candidate.Components.All(component =>
+                component.Type != ComponentType.Resistor || StandardValueSeries.IsSeriesValue(component.SelectedValue, ToStandardSeries(mode))),
+            $"{mode} attenuation design did not stay on standard values: {result.Message}");
+    }
+
+    var conjugateBandwidth = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 20, PortImpedanceType.SeriesRL, 10e6),
+        Load = new("Load", 50, -20, PortImpedanceType.SeriesRC, 10e6),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, SweepPoints = 41,
+        Matching = new(20, 20, 2, 1e9), Components = new() { ValueMode = ComponentValueMode.Continuous }
+    });
+    Require(!conjugateBandwidth.Success,
+        "A direct connection that only matches at f0 was incorrectly marked Supported for a 1 GHz bandwidth target.");
+    var narrow = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 50, 0, PortImpedanceType.PureResistance), DesignFrequencyHz = 10e6,
+        StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, Attenuation = new(6, .1, 20, 20),
+        Components = new() { ValueMode = ComponentValueMode.Continuous, MinimumResistanceOhm = 1000, MaximumResistanceOhm = 1100 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.TPads)
+    });
+    Require(!narrow.Success, "A narrow resistor range incorrectly produced a supported attenuation design.");
+
+    var unequalBypass = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 75, 0, PortImpedanceType.PureResistance), DesignFrequencyHz = 10e6,
+        StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, Attenuation = new(0, .1, 20, 20),
+        Components = new() { ValueMode = ComponentValueMode.Continuous }
+    });
+    Require(!unequalBypass.Success, "A 0 dB unequal-port attenuation design incorrectly produced a lossless direct connection.");
+
+    var bandwidthIsolation = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.Attenuation, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 50, 0, PortImpedanceType.PureResistance), DesignFrequencyHz = 10e6,
+        StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, SweepPoints = 41,
+        Attenuation = new(6, .5, 20, 20), Matching = new(20, 20, 1, 1e12),
+        Components = new() { ValueMode = ComponentValueMode.Continuous },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.TPads)
+    });
+    Require(bandwidthIsolation.Success,
+        "Attenuation mode incorrectly used the matching-bandwidth requirement: " + bandwidthIsolation.Message);
+
+    var complexResult = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching, Source = new("Source", 50, 20, PortImpedanceType.SeriesRL, 10e6),
+        Load = new("Load", 100, -30, PortImpedanceType.SeriesRC, 10e6), DesignFrequencyHz = 10e6,
+        StartFrequencyHz = 1e6, StopFrequencyHz = 100e6, SweepPoints = 41,
+        Matching = new(15, 15, 2), Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 3 }
+    });
+    var complexCandidate = complexResult.SelectedCandidate!;
+    Require(complexResult.Success && complexCandidate is not null,
+        "Complex series-port coverage did not produce a supported design.");
+    var complexNetlist = new AttenuationMatchingSpiceExportService().ExportTestbench(complexCandidate, complexResult.Request);
+    Require(complexNetlist.Contains("L_SRC", StringComparison.OrdinalIgnoreCase) &&
+            complexNetlist.Contains("C_LOAD", StringComparison.OrdinalIgnoreCase),
+        "SPICE testbench does not use the same series R-L/R-C port model as the internal analysis.");
+
+    var v2S2P = "# MHz S RI R 50\n[Version] 2.0\n[Number of Ports] 2\n[Two-Port Data Order] 12_21\n[Network Data]\n10 0.6 0 0.2 0 0 0 0.5 0\n[End]\n";
+    var v2Data = TouchstoneImporter.Parse(v2S2P, "v2.s2p");
+    Require(v2Data.IsVersion2 && v2Data.PortCount == 2 && Math.Abs(v2Data.Points[0].S22.Real - .5) < 1e-12,
+        "Touchstone 2.0 S2P metadata/data parsing failed.");
+    var v2Source = TouchstoneImporter.Import(v2Data, "v2.s2p", 1, 10e6);
+    Require(v2Source.PortIndex == 1 && Math.Abs(v2Source.Impedance.Real - 150) < 1e-6,
+        "Touchstone 2.0 explicit S22 import failed.");
+
+    var continued = "# MHz S RI R 50\n10 0.6 0 \\\n0 0 0 0 0.5 0\n";
+    var continuedData = TouchstoneImporter.Parse(continued, "continued.s2p");
+    Require(continuedData.Points.Count == 1 && Math.Abs(continuedData.Points[0].S22.Real - .5) < 1e-12,
+        "Touchstone continuation-line parsing failed.");
+}
+
+static StandardComponentSeries ToStandardSeries(ComponentValueMode mode) => mode switch
+{
+    ComponentValueMode.E12 => StandardComponentSeries.E12,
+    ComponentValueMode.E24 => StandardComponentSeries.E24,
+    ComponentValueMode.E48 => StandardComponentSeries.E48,
+    ComponentValueMode.E96 => StandardComponentSeries.E96,
+    _ => throw new ArgumentOutOfRangeException(nameof(mode))
+};
 static void TestSignalAttenuation300PointMatrix()
 {
     var engine = new AttenuationMatchingDesignEngine();

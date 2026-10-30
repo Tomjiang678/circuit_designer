@@ -82,7 +82,7 @@ public sealed class AttenuationMatchingJsonReportBuilder
             Assumptions = new[]
             {
                 "Only ideal lumped R/L/C elements are modeled.",
-                "A Custom R+jX port is a single-frequency model; Series R-L/R-C reactances are frequency-dependent.",
+                "Series R-L/R-C port reactances are frequency-dependent; the design-frequency X selects the equivalent L or C. VNA imports are reduced to this design-frequency equivalent; the broadband measured curve is not fitted.",
                 "Source and load are external test conditions, not part of the design CircuitGraph.",
                 "Matching bandwidth is derived from the finite frequency sweep and the stated return-loss/insertion-loss gates.",
                 "No transmission lines, PCB parasitics, vendor component models or electromagnetic simulation are included."
@@ -98,6 +98,8 @@ public sealed class AttenuationMatchingJsonReportBuilder
         ReactanceOhm = port.ReactanceOhm,
         Type = port.Type.ToString(),
         port.ReferenceFrequencyHz,
+        port.EquivalentInductanceHenry,
+        port.EquivalentCapacitanceFarad,
         Model = port.ModelDescription
     };
 

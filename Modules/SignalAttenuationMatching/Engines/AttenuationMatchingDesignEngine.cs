@@ -2,6 +2,7 @@ using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Analysis;
 using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Enums;
 using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Models;
 using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Synthesis;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Topology;
 using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Validation;
 
 namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Engines;
@@ -37,16 +38,7 @@ public sealed class AttenuationMatchingDesignEngine
             };
 
         if (normalized.Mode == DesignMode.ImpedanceMatching && IsDirectlyMatched(normalized))
-            return new AttenuationMatchingDesignResult
-            {
-                Request = normalized,
-                Status = DesignStatus.Failed,
-                Message = "Source and load are already conjugately matched at the design frequency; a direct connection is optimal and no matching network is required.",
-                Diagnostics = validation.Concat([new AttenuationMatchingDiagnostic(
-                    "DIRECT_CONNECTION_OPTIMAL", DiagnosticSeverity.Info,
-                    "A direct connection already gives zero reflection and maximum power transfer; an added LC network would be unnecessary.",
-                    "Port impedances", null, "Not equal/conjugate", "Use the direct connection, or change the source/load impedance if a matching network is actually required.")]).ToArray()
-            };
+            return BuildDirectResult(normalized, validation);
         var attempts = candidates.Generate(normalized);
         if (attempts.Count == 0)
             return new AttenuationMatchingDesignResult
@@ -87,7 +79,7 @@ public sealed class AttenuationMatchingDesignEngine
                 Metrics = optimized.Solution.Metrics,
                 Sweep = new AcSweepResult([], null, null, null, null, false, []),
                 Diagnostics = [.. optimized.Diagnostics],
-                IsStandardValueDesign = normalized.Components.ValueMode != ComponentValueMode.Continuous,
+                IsStandardValueDesign = attempt.Topology.Elements.Count > 0 && normalized.Components.ValueMode != ComponentValueMode.Continuous,
                 TopologyDescription = attempt.Description,
                 LimitNote = attempt.Topology.LimitNote,
                 StatusMessage = attempt.Reason
@@ -170,6 +162,48 @@ public sealed class AttenuationMatchingDesignEngine
         };
     }
 
+    private AttenuationMatchingDesignResult BuildDirectResult(AttenuationMatchingDesignRequest request, IReadOnlyList<AttenuationMatchingDiagnostic> validation)
+    {
+        var spec = new NetworkTopologySpec("Direct connection", TopologyFamily.DirectConnection, MatchingResponse.LowPass,
+            [], string.Empty);
+        var optimized = optimizer.Optimize(spec, request);
+        var initial = new TopologyCandidate
+        {
+            Id = "DirectConnection-1", TopologyName = "Direct connection", Family = TopologyFamily.DirectConnection,
+            TopologySpec = spec, Response = MatchingResponse.LowPass, Graph = optimized.Graph,
+            Components = [], Metrics = optimized.Solution.Metrics,
+            Sweep = new AcSweepResult([], null, null, null, null, false, []),
+            Diagnostics = [], IsStandardValueDesign = false,
+            TopologyDescription = "Direct connection", LimitNote = string.Empty,
+            StatusMessage = "Direct connection"
+        };
+        var verification = verifier.Verify(initial, request);
+        var candidate = new TopologyCandidate
+        {
+            Id = initial.Id, TopologyName = initial.TopologyName, Family = initial.Family,
+            TopologySpec = initial.TopologySpec, Response = initial.Response, Graph = initial.Graph,
+            Components = verification.Components, Metrics = verification.Metrics, Sweep = verification.Sweep,
+            Diagnostics = [.. verification.Diagnostics], IsStandardValueDesign = false,
+            TopologyDescription = initial.TopologyDescription, LimitNote = initial.LimitNote,
+            Status = verification.Status,
+            StatusMessage = verification.Status switch
+            {
+                DesignStatus.Supported => "Direct connection",
+                DesignStatus.Warning => "Direct connection (warning)",
+                _ => verification.Diagnostics.FirstOrDefault(item => item.Severity == DiagnosticSeverity.Error)?.Description ?? "Direct connection failed verification."
+            }
+        };
+        candidate.Score = Score(candidate, request);
+        return new AttenuationMatchingDesignResult
+        {
+            Request = request,
+            Status = verification.Status,
+            Message = verification.Status == DesignStatus.Supported ? "Direct connection" : candidate.StatusMessage,
+            Candidates = [candidate],
+            SelectedIndex = 0,
+            Diagnostics = [.. validation, .. verification.Diagnostics]
+        };
+    }
     private static bool IsDirectlyMatched(AttenuationMatchingDesignRequest request)
     {
         var source = request.Source.ImpedanceAt(request.DesignFrequencyHz);

@@ -18,6 +18,14 @@ public sealed class AttenuationMatchingLayoutService
         var graph = candidate.Graph;
         var spec = candidate.TopologySpec;
         var document = new SchematicDocument(graph);
+        if (graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet))
+        {
+            document.AddWire(new SchematicWire(NetworkTopologyBuilder.InputNet,
+                [new SchematicPoint(82, 122), new SchematicPoint(768, 122)]));
+            document.AddNetLabel(new SchematicNetLabel(NetworkTopologyBuilder.InputNet, "SOURCE / VIN", new SchematicPoint(82, 84)));
+            document.AddNetLabel(new SchematicNetLabel(NetworkTopologyBuilder.OutputNet, "LOAD / VOUT", new SchematicPoint(684, 84)));
+            return document;
+        }
         if (spec is null) return document;
 
         const double signalY = 122;

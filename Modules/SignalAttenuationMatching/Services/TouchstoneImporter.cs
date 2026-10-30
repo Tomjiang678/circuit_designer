@@ -1,12 +1,15 @@
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 
 namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Services;
 
 /// <summary>
-/// Minimal Touchstone reader for one- and two-port VNA files. The module needs
-/// only the selected reflection coefficient at the design frequency, so the
-/// importer deliberately does not attempt fixture de-embedding or extrapolation.
+/// Touchstone reader for one- and two-port VNA files. It supports the common
+/// Touchstone 1.x layout and the metadata/continuation syntax needed by
+/// Touchstone 2.0 network-data files. The module needs only the selected
+/// reflection coefficient at the design frequency, so no fixture de-embedding or
+/// extrapolation is attempted.
 /// </summary>
 public sealed record TouchstonePoint(double FrequencyHz, Complex S11, Complex S21, Complex S12, Complex S22);
 
@@ -15,7 +18,8 @@ public sealed record TouchstoneData(
     double ReferenceImpedanceOhm,
     int PortCount,
     string DataFormat,
-    string FrequencyUnit);
+    string FrequencyUnit,
+    bool IsVersion2 = false);
 
 public sealed record ImportedPortImpedance(
     double FrequencyHz,
@@ -41,14 +45,48 @@ public static class TouchstoneImporter
         var format = "MA";
         var reference = 50.0;
         var optionSeen = false;
+        int? declaredPorts = null;
+        var twoPortOrder = "21_12";
+        var version2 = false;
+        var inNetworkData = false;
         var points = new List<TouchstonePoint>();
-        var lineNumber = 0;
 
-        foreach (var raw in content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        foreach (var (lineNumber, raw) in LogicalLines(content))
         {
-            lineNumber++;
             var line = raw.Trim();
             if (line.Length == 0 || line.StartsWith('!')) continue;
+            if (line.StartsWith('['))
+            {
+                var closing = line.IndexOf(']');
+                var section = (closing > 1 ? line[1..closing] : line[1..]).Trim().ToUpperInvariant();
+                var value = closing > 0 && closing + 1 < line.Length ? line[(closing + 1)..].Trim() : string.Empty;
+                switch (section)
+                {
+                    case "VERSION":
+                        version2 = value.StartsWith("2", StringComparison.Ordinal);
+                        break;
+                    case "NUMBER OF PORTS":
+                        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ports) && ports is 1 or 2)
+                            declaredPorts = ports;
+                        break;
+                    case "TWO-PORT DATA ORDER":
+                        var normalizedOrder = value.Replace(" ", "", StringComparison.Ordinal).ToUpperInvariant();
+                        if (normalizedOrder is "12_21" or "21_12") twoPortOrder = normalizedOrder;
+                        break;
+                    case "REFERENCE":
+                        var references = value.Split([' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries);
+                        if (references.Length > 0 && double.TryParse(references[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedReference))
+                            reference = parsedReference;
+                        break;
+                    case "NETWORK DATA":
+                        inNetworkData = true;
+                        break;
+                    case "END":
+                        inNetworkData = false;
+                        break;
+                }
+                continue;
+            }
             if (line.StartsWith('#'))
             {
                 if (!optionSeen)
@@ -58,11 +96,11 @@ public static class TouchstoneImporter
                 }
                 continue;
             }
+            if (version2 && !inNetworkData) continue;
 
             var fields = line.Split([' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries);
-            var expected = extensionPorts == 2 ? 9 : extensionPorts == 1 ? 3 : 9;
-            if (extensionPorts == 0)
-                expected = fields.Length >= 9 ? 9 : fields.Length >= 3 ? 3 : 0;
+            var expectedPorts = declaredPorts ?? extensionPorts;
+            var expected = expectedPorts == 2 ? 9 : expectedPorts == 1 ? 3 : fields.Length >= 9 ? 9 : fields.Length >= 3 ? 3 : 0;
             if (expected == 0 || fields.Length < expected)
                 throw new InvalidDataException($"Touchstone line {lineNumber} has {fields.Length} columns; expected {expected}.");
 
@@ -71,6 +109,8 @@ public static class TouchstoneImporter
             var s21 = expected >= 9 ? Pair(fields, 3, format, lineNumber) : Complex.Zero;
             var s12 = expected >= 9 ? Pair(fields, 5, format, lineNumber) : Complex.Zero;
             var s22 = expected >= 9 ? Pair(fields, 7, format, lineNumber) : s11;
+            if (expected >= 9 && twoPortOrder == "12_21")
+                (s21, s12) = (s12, s21);
             if (!(frequency > 0) || !double.IsFinite(frequency))
                 throw new InvalidDataException($"Touchstone line {lineNumber} has an invalid frequency.");
             points.Add(new TouchstonePoint(frequency, s11, s21, s12, s22));
@@ -80,7 +120,7 @@ public static class TouchstoneImporter
             throw new InvalidDataException("No Touchstone data rows were found.");
         if (!(reference > 0) || !double.IsFinite(reference))
             throw new InvalidDataException("The Touchstone reference impedance must be finite and positive.");
-        var portCount = extensionPorts != 0 ? extensionPorts : points.Any(point => point.S21 != Complex.Zero || point.S12 != Complex.Zero) ? 2 : 1;
+        var portCount = declaredPorts ?? (extensionPorts != 0 ? extensionPorts : points.Any(point => point.S21 != Complex.Zero || point.S12 != Complex.Zero) ? 2 : 1);
         if (portCount == 2 && extensionPorts == 1)
             throw new InvalidDataException("A .s1p file cannot be used as a two-port measurement.");
         for (var index = 1; index < points.Count; index++)
@@ -88,7 +128,7 @@ public static class TouchstoneImporter
             if (points[index].FrequencyHz <= points[index - 1].FrequencyHz)
                 throw new InvalidDataException("Touchstone frequencies must be strictly increasing.");
         }
-        return new TouchstoneData(points, reference, portCount, format, FrequencyUnitName(frequencyFactor));
+        return new TouchstoneData(points, reference, portCount, format, FrequencyUnitName(frequencyFactor), version2);
     }
 
     public static ImportedPortImpedance Import(string path, bool useOutputPort, double designFrequencyHz)
@@ -96,6 +136,14 @@ public static class TouchstoneImporter
         if (!File.Exists(path)) throw new FileNotFoundException("Touchstone file not found.", path);
         var data = Parse(File.ReadAllText(path), path);
         var portIndex = data.PortCount == 2 && useOutputPort ? 1 : 0;
+        return Import(data, path, portIndex, designFrequencyHz);
+    }
+
+    public static ImportedPortImpedance Import(TouchstoneData data, string fileName, int portIndex, double designFrequencyHz)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (portIndex < 0 || portIndex >= data.PortCount)
+            throw new ArgumentOutOfRangeException(nameof(portIndex), $"Port index must be 0..{data.PortCount - 1}.");
         var reflection = Interpolate(data, portIndex, designFrequencyHz);
         var denominator = Complex.One - reflection;
         if (Complex.Abs(denominator) < 1e-14)
@@ -104,7 +152,7 @@ public static class TouchstoneImporter
         if (!double.IsFinite(impedance.Real) || !double.IsFinite(impedance.Imaginary) || impedance.Real <= 0)
             throw new InvalidDataException("The Touchstone data does not produce a finite positive-resistance impedance.");
         return new ImportedPortImpedance(designFrequencyHz, impedance, portIndex, data.PortCount,
-            Path.GetFileName(path), data.DataFormat, data.ReferenceImpedanceOhm);
+            Path.GetFileName(fileName), data.DataFormat, data.ReferenceImpedanceOhm);
     }
 
     public static Complex Interpolate(TouchstoneData data, int portIndex, double frequencyHz)
@@ -135,6 +183,30 @@ public static class TouchstoneImporter
             return a + (b - a) * fraction;
         }
         return portIndex == 0 ? data.Points[^1].S11 : data.Points[^1].S22;
+    }
+
+    private static IEnumerable<(int LineNumber, string Text)> LogicalLines(string content)
+    {
+        var pending = new StringBuilder();
+        var pendingLine = 0;
+        var lineNumber = 0;
+        foreach (var raw in content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            lineNumber++;
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (line.StartsWith('!') && pending.Length == 0) continue;
+            if (pending.Length == 0) pendingLine = lineNumber;
+            if (line.EndsWith('\\'))
+            {
+                pending.Append(line[..^1]).Append(' ');
+                continue;
+            }
+            pending.Append(line);
+            yield return (pendingLine, pending.ToString());
+            pending.Clear();
+        }
+        if (pending.Length > 0) yield return (pendingLine, pending.ToString());
     }
 
     private static void ParseOption(string line, ref double frequencyFactor, ref string format, ref double reference)

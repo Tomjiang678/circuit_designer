@@ -35,6 +35,8 @@ public sealed class AttenuationMatchingCircuitVerifier
             diagnostics.Add(new(code, DiagnosticSeverity.Warning, message, parameter, actual, expected));
 
         var graph = candidate.Graph;
+        if (!graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet))
+        {
         foreach (var component in graph.Components)
         {
             if (component.Type is not (ComponentType.Resistor or ComponentType.Capacitor or ComponentType.Inductor))
@@ -87,6 +89,7 @@ public sealed class AttenuationMatchingCircuitVerifier
             }
         }
 
+        }
         NetworkSolution solution;
         AcSweepResult sweep;
         try
@@ -130,7 +133,7 @@ public sealed class AttenuationMatchingCircuitVerifier
             if (metrics.AttenuationDb > request.Matching.MaximumInsertionLossDb + 1e-9)
                 Error("INSERTION_LOSS_REQUIREMENT_NOT_MET", "Insertion loss is above the matching requirement.", "Insertion loss", metrics.AttenuationDb, $"<= {request.Matching.MaximumInsertionLossDb:G6} dB");
         }
-        if (request.Matching.TargetBandwidthHz > 0)
+        if (request.Mode == DesignMode.ImpedanceMatching && request.Matching.TargetBandwidthHz > 0)
         {
             if (sweep.BandwidthHz is not { } bandwidth || bandwidth + 1e-9 < request.Matching.TargetBandwidthHz)
                 Error("BANDWIDTH_REQUIREMENT_NOT_MET", "The measured matching bandwidth is below the target.", "Bandwidth", sweep.BandwidthHz, $">= {request.Matching.TargetBandwidthHz:G6} Hz");

@@ -32,7 +32,6 @@ public sealed class TwoPortNetworkAnalyzer
         var load = request.Load.ImpedanceAt(frequencyHz);
         if (source.Real <= 0 || load.Real <= 0 || !double.IsFinite(source.Real) || !double.IsFinite(load.Real))
             throw new InvalidOperationException("Port resistance must be finite and positive at every analysis frequency.");
-
         var nodes = graph.Nets
             .Where(net => !net.Name.Equals(NetworkTopologyBuilder.GroundNet, StringComparison.OrdinalIgnoreCase))
             .Select(net => net.Name)
@@ -40,8 +39,8 @@ public sealed class TwoPortNetworkAnalyzer
             .ToList();
         var index = nodes.Select((name, position) => (name, position))
             .ToDictionary(item => item.name, item => item.position, StringComparer.OrdinalIgnoreCase);
-        if (!index.TryGetValue(NetworkTopologyBuilder.InputNet, out var inputNode) ||
-            !index.TryGetValue(NetworkTopologyBuilder.OutputNet, out var outputNode))
+        if (!index.TryGetValue(graph.GetNet(NetworkTopologyBuilder.InputNet).Name, out var inputNode) ||
+            !index.TryGetValue(graph.GetNet(NetworkTopologyBuilder.OutputNet).Name, out var outputNode))
             throw new InvalidOperationException("The passive network must expose VIN and VOUT nets.");
 
         var matrix = BuildAdmittance(graph, nodes, index, frequencyHz);
@@ -68,8 +67,8 @@ public sealed class TwoPortNetworkAnalyzer
         var inputReturnLoss = ReturnLoss(gammaIn);
         var outputReturnLoss = ReturnLoss(gammaOut);
         var warnings = new List<string>();
-        if (request.Source.IsComplex) warnings.Add("The source uses a custom R+jX single-frequency model; its impedance is held constant across the sweep.");
-        if (request.Load.IsComplex) warnings.Add("The load uses a custom R+jX single-frequency model; its impedance is held constant across the sweep.");
+        if (request.Source.IsFrequencyDependent) warnings.Add("The source uses a frequency-dependent series R-L/R-C port model; reactance is swept with frequency.");
+        if (request.Load.IsFrequencyDependent) warnings.Add("The load uses a frequency-dependent series R-L/R-C port model; reactance is swept with frequency.");
 
         double? s11 = null, s21 = null, s22 = null, matchedAttenuation = null;
         if (Math.Abs(source.Imaginary) < 1e-12 && Math.Abs(load.Imaginary) < 1e-12 && includeSWeepWarnings)
@@ -159,11 +158,15 @@ public sealed class TwoPortNetworkAnalyzer
 
     private static bool BandwidthPass(AcSweepPoint point, AttenuationMatchingDesignRequest request)
     {
+        if (request.Mode == DesignMode.Attenuation)
+        {
+            if (point.InputReturnLossDb + 1e-9 < request.Attenuation.MinimumInputReturnLossDb) return false;
+            if (point.OutputReturnLossDb + 1e-9 < request.Attenuation.MinimumOutputReturnLossDb) return false;
+            return Math.Abs(point.AttenuationDb - request.Attenuation.TargetAttenuationDb) <= request.Attenuation.AllowedAttenuationErrorDb + 1e-9;
+        }
         if (point.InputReturnLossDb + 1e-9 < request.Matching.TargetInputReturnLossDb) return false;
         if (request.Matching.TargetOutputReturnLossDb is { } output && point.OutputReturnLossDb + 1e-9 < output) return false;
-        if ((request.Mode is DesignMode.ImpedanceMatching) &&
-            point.AttenuationDb > request.Matching.MaximumInsertionLossDb + 1e-9) return false;
-        return true;
+        return point.AttenuationDb <= request.Matching.MaximumInsertionLossDb + 1e-9;
     }
 
     private static IReadOnlyList<double> SweepFrequencies(AttenuationMatchingDesignRequest request)
@@ -195,8 +198,8 @@ public sealed class TwoPortNetworkAnalyzer
         var nodes = graph.Nets.Where(net => !net.Name.Equals(NetworkTopologyBuilder.GroundNet, StringComparison.OrdinalIgnoreCase))
             .Select(net => net.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var index = nodes.Select((name, position) => (name, position)).ToDictionary(item => item.name, item => item.position, StringComparer.OrdinalIgnoreCase);
-        var inputNode = index[NetworkTopologyBuilder.InputNet];
-        var outputNode = index[NetworkTopologyBuilder.OutputNet];
+        var inputNode = index[graph.GetNet(NetworkTopologyBuilder.InputNet).Name];
+        var outputNode = index[graph.GetNet(NetworkTopologyBuilder.OutputNet).Name];
         var matrix = BuildAdmittance(graph, nodes, index, frequencyHz);
         matrix[inputNode, inputNode] += 1 / source;
         matrix[outputNode, outputNode] += 1 / load;
@@ -247,8 +250,8 @@ public sealed class TwoPortNetworkAnalyzer
     private static Complex OutputImpedance(CircuitGraph graph, IReadOnlyList<string> nodes, IReadOnlyDictionary<string, int> index, Complex source, double frequencyHz)
     {
         var matrix = BuildAdmittance(graph, nodes, index, frequencyHz);
-        var inputNode = index[NetworkTopologyBuilder.InputNet];
-        var outputNode = index[NetworkTopologyBuilder.OutputNet];
+        var inputNode = index[graph.GetNet(NetworkTopologyBuilder.InputNet).Name];
+        var outputNode = index[graph.GetNet(NetworkTopologyBuilder.OutputNet).Name];
         matrix[inputNode, inputNode] += 1 / source;
         var right = new Complex[nodes.Count];
         right[outputNode] += 1;

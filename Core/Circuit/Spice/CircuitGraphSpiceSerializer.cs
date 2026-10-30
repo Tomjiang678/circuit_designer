@@ -12,6 +12,8 @@ public sealed class CircuitGraphSpiceSerializer
 
         var elements = new List<string>();
         foreach (var source in options.Sources) elements.Add(Source(source));
+        foreach (var alias in options.NetAliases)
+            elements.Add($"{SpiceText.Identifier(alias.Name, "V_ALIAS")} {SpiceText.Node(alias.PositiveNode)} {SpiceText.Node(alias.NegativeNode)} DC 0");
         if (options.SourceResistanceOhm is > 0)
             elements.Add($"R_SOURCE {SpiceText.Node("VSRC")} {SpiceText.Node("VIN")} {SpiceText.Number(options.SourceResistanceOhm.Value)}");
 

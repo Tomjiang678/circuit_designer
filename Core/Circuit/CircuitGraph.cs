@@ -7,18 +7,24 @@ public sealed class CircuitGraph
     private readonly IReadOnlyDictionary<string, CircuitComponent> components;
     private readonly IReadOnlyDictionary<string, CircuitNet> nets;
     private readonly IReadOnlyDictionary<string, CircuitNet> netByPinId;
+    private readonly IReadOnlyDictionary<string, string> netAliases;
 
     public IReadOnlyCollection<CircuitComponent> Components => components.Values.ToArray();
     public IReadOnlyCollection<CircuitNet> Nets => nets.Values.ToArray();
 
     internal CircuitGraph(
         IDictionary<string, CircuitComponent> components,
-        IDictionary<string, CircuitNet> nets)
+        IDictionary<string, CircuitNet> nets,
+        IReadOnlyDictionary<string, string>? netAliases = null)
     {
         this.components = new ReadOnlyDictionary<string, CircuitComponent>(
             new Dictionary<string, CircuitComponent>(components, StringComparer.OrdinalIgnoreCase));
         this.nets = new ReadOnlyDictionary<string, CircuitNet>(
             new Dictionary<string, CircuitNet>(nets, StringComparer.OrdinalIgnoreCase));
+        this.netAliases = new ReadOnlyDictionary<string, string>(
+            netAliases is null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(netAliases, StringComparer.OrdinalIgnoreCase));
 
         var pinMap = new Dictionary<string, CircuitNet>(StringComparer.OrdinalIgnoreCase);
         foreach (var net in this.nets.Values)
@@ -37,10 +43,15 @@ public sealed class CircuitGraph
             ? component
             : throw new KeyNotFoundException($"Component '{reference}' was not found.");
 
-    public CircuitNet GetNet(string name) =>
-        nets.TryGetValue(name, out var net)
-            ? net
-            : throw new KeyNotFoundException($"Net '{name}' was not found.");
+    public CircuitNet GetNet(string name)
+    {
+        if (nets.TryGetValue(name, out var direct)) return direct;
+        if (netAliases.TryGetValue(name, out var canonical) && nets.TryGetValue(canonical, out var aliased)) return aliased;
+        throw new KeyNotFoundException($"Net '{name}' was not found.");
+    }
+
+    public bool AreConnected(string first, string second) =>
+        string.Equals(GetNet(first).Name, GetNet(second).Name, StringComparison.OrdinalIgnoreCase);
 
     public ComponentPin GetPin(string componentReference, string pinName) =>
         GetComponent(componentReference).GetPin(pinName);

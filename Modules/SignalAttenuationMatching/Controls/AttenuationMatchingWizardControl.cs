@@ -57,6 +57,8 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private GroupBox? capacitorGroup;
     private GroupBox? inductorGroup;
     private GroupBox? resistorGroup;
+    private Label? sourceImportNote;
+    private Label? loadImportNote;
     private readonly EngineeringNumberInput designFrequency = new(10e6, EngineeringUnits.Frequency, 1, 1e12);
     private readonly EngineeringNumberInput startFrequency = new(1e6, EngineeringUnits.Frequency, 1, 1e12);
     private readonly EngineeringNumberInput stopFrequency = new(100e6, EngineeringUnits.Frequency, 1, 1e12);
@@ -224,7 +226,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private void ShowStep(int index)
     {
         currentIndex = Math.Clamp(index, 0, pages.Count - 1);
-        stepTitle.Text = $"Signal Attenuation & Impedance Matching — {currentIndex + 1}. {titles[currentIndex]}";
+        stepTitle.Text = $"Signal Attenuation & Impedance Matching - {currentIndex + 1}. {titles[currentIndex]}";
         foreach (var page in pages) page.Visible = false;
         pages[currentIndex].Visible = true;
         updatingNavigation = true;
@@ -237,7 +239,6 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         if (currentIndex == 5) RefreshCandidates();
         pageHost.PerformLayout();
     }
-
     private Panel BuildModePage()
     {
         var page = Page();
@@ -310,6 +311,16 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         var import = new Button { Text = "Import VNA...", AutoSize = true, MinimumSize = new Size(120, 28), Margin = new Padding(3, 8, 3, 3) };
         import.Click += (_, _) => ImportTouchstone(isSource);
         grid.Controls.Add(import, 1, includeSignal ? 3 : 2);
+        var importNote = new Label
+        {
+            AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(330, 0),
+            Margin = new Padding(3, 0, 3, 3), Visible = false
+        };
+        if (isSource) sourceImportNote = importNote; else loadImportNote = importNote;
+        void ClearImportNote() { importNote.Text = string.Empty; importNote.Visible = false; }
+        resistance.ValueChanged += (_, _) => ClearImportNote();
+        reactance.ValueChanged += (_, _) => ClearImportNote();
+        grid.Controls.Add(importNote, 1, includeSignal ? 4 : 3);
         group.Controls.Add(grid);
     }
 
@@ -324,7 +335,15 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
         try
         {
-            var imported = TouchstoneImporter.Import(dialog.FileName, source, designFrequency.ValueBaseUnit);
+            var data = TouchstoneImporter.Parse(File.ReadAllText(dialog.FileName), dialog.FileName);
+            var portIndex = 0;
+            if (data.PortCount == 2)
+            {
+                var selectedPort = ChooseTouchstonePort(dialog.FileName, source);
+                if (selectedPort is null) return;
+                portIndex = selectedPort.Value;
+            }
+            var imported = TouchstoneImporter.Import(data, dialog.FileName, portIndex, designFrequency.ValueBaseUnit);
             if (imported.Impedance.Real > (double)sourceR.Maximum || imported.Impedance.Real < (double)sourceR.Minimum)
                 throw new InvalidDataException($"Imported resistance {imported.Impedance.Real:G6} Ω is outside the supported range.");
             if (source)
@@ -338,12 +357,41 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
                 loadX.Value = (decimal)imported.Impedance.Imaginary;
             }
             UpdatePortControls();
+            var note = source ? sourceImportNote : loadImportNote;
+            if (note is not null)
+            {
+                note.Text = Path.GetFileName(dialog.FileName) + "  ·  design-frequency series R-X equivalent";
+                note.Visible = true;
+            }
             MarkStale();
         }
         catch (Exception exception)
         {
             MessageBox.Show(this, exception.Message, "VNA Import", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+    private int? ChooseTouchstonePort(string fileName, bool source)
+    {
+        using var form = new Form
+        {
+            Text = "VNA Port",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ClientSize = new Size(360, 150),
+            ShowInTaskbar = false
+        };
+        var label = new Label { Text = Path.GetFileName(fileName), AutoSize = true, Location = new Point(14, 14), MaximumSize = new Size(330, 0) };
+        var port = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(14, 48), Width = 330 };
+        port.Items.Add("S11 / Port 1");
+        port.Items.Add("S22 / Port 2");
+        port.SelectedIndex = source ? 1 : 0;
+        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(176, 98), Width = 80 };
+        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(264, 98), Width = 80 };
+        form.Controls.Add(label); form.Controls.Add(port); form.Controls.Add(ok); form.Controls.Add(cancel);
+        form.AcceptButton = ok; form.CancelButton = cancel;
+        return form.ShowDialog(FindForm()) == DialogResult.OK ? port.SelectedIndex : null;
     }
     private Panel BuildSpecificationPage()
     {
@@ -595,10 +643,11 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private AttenuationMatchingDesignRequest BuildRequest()
     {
         var mode = SelectedMode();
-        var source = new PortImpedanceModel("Source", (double)sourceR.Value, (double)sourceX.Value,
-            Math.Abs((double)sourceX.Value) > 1e-12 ? PortImpedanceType.Custom : PortImpedanceType.PureResistance);
-        var load = new PortImpedanceModel("Load", (double)loadR.Value, (double)loadX.Value,
-            Math.Abs((double)loadX.Value) > 1e-12 ? PortImpedanceType.Custom : PortImpedanceType.PureResistance);
+        static PortImpedanceType PortType(double reactance) =>
+            reactance > 1e-12 ? PortImpedanceType.SeriesRL : reactance < -1e-12 ? PortImpedanceType.SeriesRC : PortImpedanceType.PureResistance;
+        var referenceFrequency = designFrequency.ValueBaseUnit;
+        var source = new PortImpedanceModel("Source", (double)sourceR.Value, (double)sourceX.Value, PortType((double)sourceX.Value), referenceFrequency);
+        var load = new PortImpedanceModel("Load", (double)loadR.Value, (double)loadX.Value, PortType((double)loadX.Value), referenceFrequency);
         var components = new ComponentConstraints
         {
             ValueMode = (ComponentValueMode)valueMode.SelectedItem!,
@@ -687,7 +736,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
                 componentGrid.Rows.Add(component.Reference, component.TypeName, component.IdealValue.ToString("G6"), component.SelectedValue.ToString("G6"), component.Unit, component.ErrorPercent.ToString("G5"), component.Rating);
             netlistView.Text = new AttenuationMatchingSpiceExportService().ExportDesign(candidate, result!.Request);
             reportView.DocumentText = new AttenuationMatchingDesignReportService().ExportHtml(ResultWithSelection());
-            outputStatus.Text = $"{candidate.Status} — {candidate.TopologyName}";
+            outputStatus.Text = candidate.Status + " - " + candidate.TopologyName;
         }
         catch (Exception exception)
         {
@@ -696,9 +745,8 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             outputStatus.Text = exception.Message;
         }
     }
-
     private static bool IsAttenuationOnly(TopologyCandidate candidate) =>
-        candidate.Family is TopologyFamily.TPads or TopologyFamily.PiPads or TopologyFamily.LPads or TopologyFamily.CascadedPads;
+        candidate.Family is TopologyFamily.DirectConnection or TopologyFamily.TPads or TopologyFamily.PiPads or TopologyFamily.LPads or TopologyFamily.CascadedPads;
 
     private static bool HasMeaningfulSmith(TopologyCandidate candidate)
     {
