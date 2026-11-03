@@ -27,6 +27,8 @@ public sealed record OptimizedNetwork(
 public sealed class StandardValueOptimizer
 {
     private readonly TwoPortNetworkAnalyzer analyzer = new();
+    private readonly MatchingPlanEvaluator planEvaluator = new();
+    private readonly ComponentRatingEvaluator ratingEvaluator = new();
 
     public OptimizedNetwork Optimize(NetworkTopologySpec ideal, AttenuationMatchingDesignRequest request, bool enforceObjectiveHardLimits = true)
     {
@@ -60,8 +62,21 @@ public sealed class StandardValueOptimizer
             try { solution = analyzer.Analyze(graph, request, request.DesignFrequencyHz); }
             catch { continue; }
             var hard = EvaluateHardConstraints(solution.Metrics, selected, request, out var diagnostics);
+            var plan = planEvaluator.Evaluate(graph, request, request.MatchingPlan.MinimumPointsPerBand);
+            if (request.Mode == DesignMode.ImpedanceMatching && request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency && !plan.Passed)
+            {
+                hard = false;
+                diagnostics = diagnostics.Concat([new AttenuationMatchingDiagnostic(
+                    "MATCHING_PLAN_NOT_MET", DiagnosticSeverity.Error,
+                    "One or more multi-frequency/broadband target masks are not met by this component combination.",
+                    "Frequency plan", null, "All bands pass")]).ToArray();
+            }
+            var ratings = ratingEvaluator.Evaluate(graph, request);
+            if (!ratings.Passed) hard = false;
+            if (ratings.Diagnostics.Count > 0)
+                diagnostics = diagnostics.Concat(ratings.Diagnostics).ToArray();
             if (hard) hardCount++;
-            var score = Score(solution.Metrics, selected, request, hard);
+            var score = Score(solution.Metrics, selected, request, hard) + plan.Score + ratings.Penalty;
             if (score < bestScore - 1e-12)
             {
                 bestScore = score;
@@ -189,7 +204,8 @@ public sealed class StandardValueOptimizer
             issues.Add(new("INPUT_RETURN_LOSS_NOT_MET", DiagnosticSeverity.Error, "Input return loss is below the attenuation-mode requirement.", "Input return loss", metrics.InputReturnLossDb, $">= {request.Attenuation.MinimumInputReturnLossDb:G6} dB"));
         if (metrics.OutputReturnLossDb + 1e-9 < request.Attenuation.MinimumOutputReturnLossDb && (request.Mode is DesignMode.Attenuation))
             issues.Add(new("OUTPUT_RETURN_LOSS_NOT_MET", DiagnosticSeverity.Error, "Output return loss is below the attenuation-mode requirement.", "Output return loss", metrics.OutputReturnLossDb, $">= {request.Attenuation.MinimumOutputReturnLossDb:G6} dB"));
-        if ((request.Mode is DesignMode.ImpedanceMatching))
+        var distributed = request.Mode is DesignMode.ImpedanceMatching && request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency;
+        if (request.Mode is DesignMode.ImpedanceMatching && !distributed)
         {
             if (metrics.InputReturnLossDb + 1e-9 < request.Matching.TargetInputReturnLossDb)
                 issues.Add(new("INPUT_RETURN_LOSS_NOT_MET", DiagnosticSeverity.Error, "Input return loss is below the matching requirement.", "Input return loss", metrics.InputReturnLossDb, $">= {request.Matching.TargetInputReturnLossDb:G6} dB"));
@@ -233,12 +249,13 @@ public sealed class StandardValueOptimizer
 
     private static double Score(NetworkMetrics metrics, NetworkTopologySpec spec, AttenuationMatchingDesignRequest request, bool hard)
     {
+        var distributed = request.Mode is DesignMode.ImpedanceMatching && request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency;
         var attenuationError = (request.Mode is DesignMode.Attenuation)
             ? Math.Abs(metrics.AttenuationDb - request.Attenuation.TargetAttenuationDb)
             : 0;
-        var inputMiss = Math.Max(0, ((request.Mode is DesignMode.ImpedanceMatching) ? request.Matching.TargetInputReturnLossDb : request.Attenuation.MinimumInputReturnLossDb) - metrics.InputReturnLossDb);
-        var outputMiss = Math.Max(0, ((request.Mode is DesignMode.ImpedanceMatching) ? request.Matching.TargetOutputReturnLossDb ?? 0 : request.Attenuation.MinimumOutputReturnLossDb) - metrics.OutputReturnLossDb);
-        var lossMiss = (request.Mode is DesignMode.ImpedanceMatching) ? Math.Max(0, metrics.AttenuationDb - request.Matching.MaximumInsertionLossDb) : 0;
+        var inputMiss = !distributed ? Math.Max(0, ((request.Mode is DesignMode.ImpedanceMatching) ? request.Matching.TargetInputReturnLossDb : request.Attenuation.MinimumInputReturnLossDb) - metrics.InputReturnLossDb) : 0;
+        var outputMiss = !distributed ? Math.Max(0, ((request.Mode is DesignMode.ImpedanceMatching) ? request.Matching.TargetOutputReturnLossDb ?? 0 : request.Attenuation.MinimumOutputReturnLossDb) - metrics.OutputReturnLossDb) : 0;
+        var lossMiss = request.Mode is DesignMode.ImpedanceMatching && !distributed ? Math.Max(0, metrics.AttenuationDb - request.Matching.MaximumInsertionLossDb) : 0;
         var stress = Math.Max(0, metrics.MaximumResistorDissipationWatt / Math.Max(1e-12, request.Components.MaximumResistorDissipationWatt) - 1);
         var common = attenuationError * 10 + inputMiss * 2 + outputMiss * 2 + lossMiss * 2 + stress;
         var objective = request.Objective switch

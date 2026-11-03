@@ -124,7 +124,7 @@ public sealed class AttenuationMatchingCircuitVerifier
             if (metrics.OutputReturnLossDb + 1e-9 < request.Attenuation.MinimumOutputReturnLossDb)
                 Error("RETURN_LOSS_REQUIREMENT_NOT_MET", "Output return loss is below the attenuation-mode requirement.", "Output return loss", metrics.OutputReturnLossDb, $">= {request.Attenuation.MinimumOutputReturnLossDb:G6} dB");
         }
-        if (request.Mode is DesignMode.ImpedanceMatching)
+        if (request.Mode is DesignMode.ImpedanceMatching && request.MatchingPlan.Kind == MatchingDesignKind.SingleFrequency)
         {
             if (metrics.InputReturnLossDb + 1e-9 < request.Matching.TargetInputReturnLossDb)
                 Error("RETURN_LOSS_REQUIREMENT_NOT_MET", "Input return loss is below the matching requirement.", "Input return loss", metrics.InputReturnLossDb, $">= {request.Matching.TargetInputReturnLossDb:G6} dB");
@@ -133,13 +133,35 @@ public sealed class AttenuationMatchingCircuitVerifier
             if (metrics.AttenuationDb > request.Matching.MaximumInsertionLossDb + 1e-9)
                 Error("INSERTION_LOSS_REQUIREMENT_NOT_MET", "Insertion loss is above the matching requirement.", "Insertion loss", metrics.AttenuationDb, $"<= {request.Matching.MaximumInsertionLossDb:G6} dB");
         }
-        if (request.Mode == DesignMode.ImpedanceMatching && request.Matching.TargetBandwidthHz > 0)
+        if (request.Mode is DesignMode.ImpedanceMatching && request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency)
+        {
+            foreach (var band in sweep.BandMetrics.Where(item => !item.Passed))
+            {
+                var target = request.MatchingPlan.EffectiveBands(request)[band.BandIndex];
+                Error("FREQUENCY_PLAN_REQUIREMENT_NOT_MET",
+                    $"Frequency target {band.BandIndex + 1} fails at or near {band.WorstFrequencyHz:G6} Hz.",
+                    "Frequency plan", band.WorstInputReturnLossDb,
+                    $"RL in >= {target.TargetInputReturnLossDb:G6} dB; RL out >= {target.TargetOutputReturnLossDb?.ToString("G6") ?? "N/A"} dB; IL <= {target.MaximumInsertionLossDb:G6} dB",
+                    "Relax the mask, narrow the band, or select a higher-order topology when available.");
+            }
+        }
+        if (request.Mode == DesignMode.ImpedanceMatching && request.MatchingPlan.Kind == MatchingDesignKind.SingleFrequency && request.Matching.TargetBandwidthHz > 0)
         {
             if (sweep.BandwidthHz is not { } bandwidth || bandwidth + 1e-9 < request.Matching.TargetBandwidthHz)
                 Error("BANDWIDTH_REQUIREMENT_NOT_MET", "The measured matching bandwidth is below the target.", "Bandwidth", sweep.BandwidthHz, $">= {request.Matching.TargetBandwidthHz:G6} Hz");
             else if (sweep.BandwidthLimitedBySweep)
                 Warning("BANDWIDTH_LIMITED_BY_SWEEP", "The matched band touches a sweep boundary; the target is met only within the simulated range.", "Bandwidth", bandwidth, $">= {request.Matching.TargetBandwidthHz:G6} Hz");
         }
+        var ratingEvaluation = new ComponentRatingEvaluator().Evaluate(graph, request, collectUnconstrainedStress: true);
+        diagnostics.AddRange(ratingEvaluation.Diagnostics);
+        var stressMap = ratingEvaluation.WorstStress;
+        var availablePower = request.Signal.AvailablePowerWatt(request.Source.ResistanceOhm);
+        if (availablePower > .1 &&
+            (graph.Components.Any(component => component.Type == ComponentType.Capacitor) &&
+             (request.Components.CapacitorMaximumVoltageVolt is null || request.Components.CapacitorMaximumRippleCurrentAmpere is null) ||
+             graph.Components.Any(component => component.Type == ComponentType.Inductor) &&
+             (request.Components.InductorMaximumRmsCurrentAmpere is null || request.Components.InductorSaturationCurrentAmpere is null)))
+            Warning("COMPONENT_RATING_UNSPECIFIED", "High-power LC design has no complete capacitor/inductor voltage/current ratings; component stresses were calculated but cannot be fully judged.", "Component ratings");
         if (candidate.Metrics.TransducerGain is var reported &&
             Math.Abs(reported - metrics.TransducerGain) > Math.Max(1e-9, Math.Abs(metrics.TransducerGain) * 1e-6))
             Error("STALE_RESULT", "The candidate performance differs from the independent final-graph analysis.", "Transducer gain", reported, $"{metrics.TransducerGain:G9}");
@@ -148,12 +170,13 @@ public sealed class AttenuationMatchingCircuitVerifier
         var status = diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error)
             ? DesignStatus.Failed
             : diagnostics.Any(item => item.Severity == DiagnosticSeverity.Warning) ? DesignStatus.Warning : DesignStatus.Supported;
-        var components = BuildComponents(candidate.TopologySpec, graph, solution, request);
+        var components = BuildComponents(candidate.TopologySpec, graph, solution, request, stressMap);
         return new VerificationOutcome(status, metrics, sweep, diagnostics, components);
     }
 
     private static IReadOnlyList<AttenuationMatchingComponent> BuildComponents(
-        NetworkTopologySpec? spec, CircuitGraph graph, NetworkSolution solution, AttenuationMatchingDesignRequest request)
+        NetworkTopologySpec? spec, CircuitGraph graph, NetworkSolution solution, AttenuationMatchingDesignRequest request,
+        IReadOnlyDictionary<string, ComponentStress>? stressOverride = null)
     {
         var result = new List<AttenuationMatchingComponent>();
         foreach (var component in graph.Components.OrderBy(component => component.Reference, StringComparer.OrdinalIgnoreCase))
@@ -162,15 +185,26 @@ public sealed class AttenuationMatchingCircuitVerifier
                 ?? ComponentValue(component);
             var value = ComponentValue(component);
             var power = solution.ResistorDissipationWatt.TryGetValue(component.Reference, out var dissipation) ? dissipation : 0;
+            var stress = stressOverride is { } overrideStress && overrideStress.TryGetValue(component.Reference, out var overrideItem)
+                ? overrideItem
+                : solution.ComponentStress is { } stresses && stresses.TryGetValue(component.Reference, out var item) ? item : null;
+            var rating = component.Type switch
+            {
+                ComponentType.Resistor => $"P={power:G5} W; limit {request.Components.MaximumResistorDissipationWatt:G4} W",
+                ComponentType.Capacitor when stress is not null =>
+                    $"Vpk={stress.VoltagePeak:G4} V; Irms={stress.CurrentRms:G4} A; ESR {request.Components.CapacitorEsrOhm:G4} ohm" +
+                    (request.Components.CapacitorMaximumVoltageVolt is { } maxV ? $"; Vlimit {maxV:G4} V" : "") +
+                    (request.Components.CapacitorMaximumRippleCurrentAmpere is { } maxI ? $"; Ilimit {maxI:G4} A" : ""),
+                ComponentType.Inductor when stress is not null =>
+                    $"Irms={stress.CurrentRms:G4} A; Ipk={stress.CurrentPeak:G4} A; Q {request.Components.InductorQ:G5}" +
+                    (request.Components.InductorMaximumRmsCurrentAmpere is { } maxRms ? $"; Irms limit {maxRms:G4} A" : "") +
+                    (request.Components.InductorSaturationCurrentAmpere is { } saturation ? $"; Isat {saturation:G4} A" : ""),
+                _ => "No stress model"
+            };
             result.Add(new AttenuationMatchingComponent(component.Reference, component.Type, ideal, value,
                 NetworkTopologyBuilder.UnitFor(component.Type),
                 Math.Abs(ideal) > 0 ? 100 * (value / ideal - 1) : 0,
-                power,
-                component.Type == ComponentType.Resistor
-                    ? $"P={power:G5} W; limit {request.Components.MaximumResistorDissipationWatt:G4} W"
-                    : component.Type == ComponentType.Capacitor
-                        ? $"ESR {request.Components.CapacitorEsrOhm:G4} ohm reported; ideal C in this model"
-                        : $"Q {request.Components.InductorQ:G5} reported; ideal L in this model"));
+                power, rating));
         }
         return result;
     }

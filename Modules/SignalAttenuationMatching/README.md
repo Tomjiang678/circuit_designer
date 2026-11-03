@@ -7,7 +7,9 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
 | Mode | Purpose | Primary topologies |
 |---|---|---|
 | Attenuation | Controlled loss with matched or unequal ports | T-pad, Pi-pad, resistive L-pad, cascaded T-pads |
-| Impedance Matching | Single-frequency conjugate match using LC networks | L (four positions), Pi (LP/HP/mixed), T (LP/HP/mixed) |
+| Single-frequency Matching | Conjugate match at one design frequency | L (four positions), Pi (LP/HP/mixed), T (LP/HP/mixed) |
+| Multi-frequency Matching | One passive network optimized against several discrete frequency masks | L, Pi and T with multi-point optimization |
+| Broadband Matching | One passive network optimized and independently verified across one or more continuous bands | L, Pi and T with dense band verification |
 
 ## Supported topology matrix
 
@@ -50,11 +52,11 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
 
 ## Wizard
 
-1. **Select Design Mode** — two modes: Attenuation or Impedance Matching.
+1. **Select Design Mode** — Attenuation, Single-frequency Matching, Multi-frequency Matching or Broadband Matching.
 2. **Source & Load Configuration** — R and Reactance directly, VNA import (`S1P` / `S2P` Touchstone) in each port, signal level, design frequency, sweep range/points/type.
 3. **Performance Requirements** — attenuation/error/return-loss/power or matching/bandwidth requirements, optimization objective.
 4. **Network Topology** — automatic/manual selection, family/response/Q, actual topology preview, unsupported combinations disabled.
-5. **Component Selection & Optimization** — value mode, R/C/L ranges, ESR/Q, dissipation, search budget.
+5. **Component Selection & Optimization** — value mode, R/C/L ranges, ESR/Q, dissipation, capacitor voltage/ripple/SRF, inductor RMS/saturation/SRF, search budget.
 6. **Candidate & Verification** — one page with the ranked candidates, verification status, filter-style tabs (`Schematic`, conditional `Analysis`/`Smith Chart`, `Components`, `SPICE Netlist`, `Design Report`) and export actions. Attenuation is pure resistor, so it has no frequency-response or Smith tabs.
 
 Changing any parameter marks the previous result stale and blocks export until recalculation.
@@ -66,7 +68,8 @@ Changing any parameter marks the previous result stale and blocks export until r
 - The selected reflection coefficient is interpolated at the current design frequency and converted with `Z = Z0 (1+Γ)/(1−Γ)`. No extrapolation is performed.
 - `.s1p` uses S11; `.s2p` opens an explicit port selector (S11/Port 1 or S22/Port 2), defaulting to S11 for the load and S22 for the source.
 - Touchstone 2.0 metadata (`[Version]`, `[Number of Ports]`, `[Two-Port Data Order]`, `[Network Data]`) and backslash continuation lines are supported.
-- The imported R and X are written directly into the two port fields; non-zero X automatically selects Impedance Matching. The import is a **design-frequency series R-L/R-C equivalent**, not a broadband fit to the whole VNA curve.
+- The imported R and X are written directly into the two port fields, and the complete measured table is retained for multi-point/broadband analysis. The table is interpolated over its measured range; no extrapolation is allowed.
+- The full VNA table is used by the internal MNA analyzer and reports. The R/L/C SPICE testbench is not exported for a measured table because a frequency-dependent complex port cannot be represented by a fixed R/L/C network.
 
 ## SPICE
 
@@ -89,7 +92,9 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 ## Known limitations
 
 - Only ideal lumped R/L/C is the baseline. Optional ESR/Q is a series-resistance approximation, not a full vendor model.
-- Port reactance is specified at the design frequency and then follows the equivalent series L or C over the sweep.
+- Capacitor voltage/ripple/SRF and inductor RMS/saturation/SRF limits are nullable engineering inputs. Supplied limits participate in continuous/standard-value optimization and final verification; blank fields remain explicitly unspecified.
+- Fano/Bode screening samples band edges and interior points and compares the requested mask with the normalized π/Q integral bound; it is advisory for measured/non-canonical loads.
+- Series R-L/R-C port reactance follows the equivalent L/C over the sweep; full VNA tables are interpolated only inside the measured frequency range.
 - No transmission lines, microstrip, PCB electromagnetic simulation, or distributed matching.
 - No transformer matching, baluns, or vendor-specific matching ICs.
 - No Monte Carlo or tolerance-yield analysis.
@@ -97,6 +102,7 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 - LTspice `.asc` coordinate export is not provided.
 - A resistive pad cannot cancel complex port reactance; use the Impedance Matching mode.
 - Fully differential and multi-port networks are outside v1.
+- Multi-frequency/broadband v1 optimizes the existing single-section L/Pi/T topology set; automatic cascaded multi-section synthesis is still future work.
 ## Visuals
 
 The topology preview uses real resistor/inductor/capacitor symbols rather than generic boxes. The T-pad is drawn as series–shunt–series, the Pi-pad as shunt–series–shunt, and LC previews use L/C symbols with the correct low-pass/high-pass/mixed positions.
@@ -115,3 +121,6 @@ Frequency response uses separate left/right dB axes so a 200 dB return-loss trac
 
 ![Frequency response](../../artifacts/SignalAttenuationMatching/response.png)
 ![Smith chart](../../artifacts/SignalAttenuationMatching/smith.png)
+## Future work
+
+- [Broadband and multiband matching extension plan](BROADBAND_MATCHING_PLAN.md)

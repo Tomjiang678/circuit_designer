@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Analog circuit module designer.")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.0+35fe3d0391ccbe46f97c080936e6df7383254009")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.0+99753f983993cb9b1229b27fc88291c6cbba2450")]
 [assembly: System.Reflection.AssemblyProductAttribute("Circuit Module Designer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CircuitModuleDesigner")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.0.0.0")]

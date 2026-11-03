@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Models;
 
 namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Services;
 
@@ -28,8 +29,8 @@ public sealed record ImportedPortImpedance(
     int PortCount,
     string FileName,
     string DataFormat,
-    double ReferenceImpedanceOhm);
-
+    double ReferenceImpedanceOhm,
+    IReadOnlyList<PortImpedancePoint> Points);
 public static class TouchstoneImporter
 {
     public static TouchstoneData Parse(string content, string fileName = "measurement.s1p")
@@ -145,16 +146,26 @@ public static class TouchstoneImporter
         if (portIndex < 0 || portIndex >= data.PortCount)
             throw new ArgumentOutOfRangeException(nameof(portIndex), $"Port index must be 0..{data.PortCount - 1}.");
         var reflection = Interpolate(data, portIndex, designFrequencyHz);
+        var impedance = ToImpedance(reflection, data.ReferenceImpedanceOhm);
+        if (!double.IsFinite(impedance.Real) || !double.IsFinite(impedance.Imaginary) || impedance.Real <= 0)
+            throw new InvalidDataException("The Touchstone data does not produce a finite positive-resistance impedance.");
+        var points = data.Points.Select(item =>
+        {
+            var value = ToImpedance(portIndex == 0 ? item.S11 : item.S22, data.ReferenceImpedanceOhm);
+            return new PortImpedancePoint(item.FrequencyHz, value.Real, value.Imaginary);
+        }).Where(item => double.IsFinite(item.ResistanceOhm) && double.IsFinite(item.ReactanceOhm) && item.ResistanceOhm > 0).ToArray();
+        if (points.Length < 2)
+            throw new InvalidDataException("The selected Touchstone port does not contain at least two finite positive-resistance points.");
+        return new ImportedPortImpedance(designFrequencyHz, impedance, portIndex, data.PortCount,
+            Path.GetFileName(fileName), data.DataFormat, data.ReferenceImpedanceOhm, points);
+    }
+    private static Complex ToImpedance(Complex reflection, double referenceOhm)
+    {
         var denominator = Complex.One - reflection;
         if (Complex.Abs(denominator) < 1e-14)
             throw new InvalidDataException("The measured reflection coefficient is exactly 1; the impedance is unbounded.");
-        var impedance = data.ReferenceImpedanceOhm * (Complex.One + reflection) / denominator;
-        if (!double.IsFinite(impedance.Real) || !double.IsFinite(impedance.Imaginary) || impedance.Real <= 0)
-            throw new InvalidDataException("The Touchstone data does not produce a finite positive-resistance impedance.");
-        return new ImportedPortImpedance(designFrequencyHz, impedance, portIndex, data.PortCount,
-            Path.GetFileName(fileName), data.DataFormat, data.ReferenceImpedanceOhm);
+        return referenceOhm * (Complex.One + reflection) / denominator;
     }
-
     public static Complex Interpolate(TouchstoneData data, int portIndex, double frequencyHz)
     {
         ArgumentNullException.ThrowIfNull(data);

@@ -4109,6 +4109,126 @@ static void TestSignalAttenuationEngineeringCoverage()
     Require(bandwidthIsolation.Success,
         "Attenuation mode incorrectly used the matching-bandwidth requirement: " + bandwidthIsolation.Message);
 
+    var multiFrequency = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 8e6, StopFrequencyHz = 12e6, SweepPoints = 81,
+        Matching = new(6, 6, 2),
+        MatchingPlan = new()
+        {
+            Kind = MatchingDesignKind.MultiFrequency,
+            Bands = [new(9.5e6, 9.5e6, 6, 6, 2), new(10.5e6, 10.5e6, 6, 6, 2)]
+        },
+        Components = new() { ValueMode = ComponentValueMode.Continuous },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching)
+    });
+    Require(multiFrequency.SelectedCandidate?.Sweep.BandMetrics is { Count: 2 } multiMetrics && multiMetrics.All(item => item.Passed),
+        "Multi-frequency matching did not independently verify both target points: " + multiFrequency.Message);
+
+    var broadband = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 8e6, StopFrequencyHz = 12e6, SweepPoints = 81,
+        Matching = new(6, 6, 2),
+        MatchingPlan = new() { Kind = MatchingDesignKind.Broadband, Bands = [new(9.5e6, 10.5e6, 6, 6, 2)] },
+        Components = new() { ValueMode = ComponentValueMode.Continuous },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching)
+    });
+    Require(broadband.SelectedCandidate?.Sweep.BandMetrics is [{ Passed: true }],
+        "Broadband matching did not independently verify the requested band: " + broadband.Message);
+    var broadbandJson = new AttenuationMatchingJsonReportBuilder().Build(broadband);
+    Require(broadbandJson.Contains("matchingPlan", StringComparison.Ordinal) && broadbandJson.Contains("bandMetrics", StringComparison.Ordinal),
+        "Broadband frequency plan/metrics were omitted from the JSON snapshot.");
+
+    var impossibleBroadband = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 1000, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 4e6, StopFrequencyHz = 16e6, SweepPoints = 81,
+        Matching = new(80, 80, .01),
+        MatchingPlan = new() { Kind = MatchingDesignKind.Broadband, Bands = [new(5e6, 15e6, 80, 80, .01)] },
+        Components = new() { ValueMode = ComponentValueMode.Continuous }
+    });
+    Require(impossibleBroadband.Candidates.All(candidate => candidate.Family != TopologyFamily.LMatching),
+        "Automatic broadband synthesis incorrectly offered an L match.");
+    Require(impossibleBroadband.Status != DesignStatus.Failed || impossibleBroadband.SelectedCandidate is null,
+        "A failed broadband trial was incorrectly exposed as the selected topology.");
+
+    var vnaPoints = new[]
+    {
+        new PortImpedancePoint(10e6, 200, 0),
+        new PortImpedancePoint(20e6, 50, 0)
+    };
+    var vnaPort = new PortImpedanceModel("Load", 200, 0, PortImpedanceType.Vna, 15e6, vnaPoints);
+    Require(Math.Abs(vnaPort.ImpedanceAt(15e6).Real - 125) < 1e-6,
+        "The full VNA port table did not interpolate between measured points.");
+    var vnaRequest = new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = vnaPort, DesignFrequencyHz = 15e6, StartFrequencyHz = 10e6, StopFrequencyHz = 20e6,
+        Matching = new(10, 10, 2), Components = new() { ValueMode = ComponentValueMode.Continuous }
+    };
+    Require(!DesignRequestValidator.Validate(vnaRequest).Any(item => item.Severity == DiagnosticSeverity.Error),
+        "A VNA port table with a valid analysis range was rejected.");
+    var vnaDocumentNetlist = new AttenuationMatchingSpiceExportService().ExportDocumentNetlist(broadband.SelectedCandidate!, vnaRequest);
+    Require(vnaDocumentNetlist.Contains(AttenuationMatchingSpiceExportService.VnaTestbenchUnavailable, StringComparison.Ordinal) &&
+            vnaDocumentNetlist.Contains("passive design network only", StringComparison.OrdinalIgnoreCase),
+        "A VNA-backed design document silently omitted the unavailable testbench instead of exporting an explicit design-only netlist.");
+    var vnaTestbenchRejected = false;
+    try { _ = new AttenuationMatchingSpiceExportService().ExportTestbench(broadband.SelectedCandidate!, vnaRequest); }
+    catch (NotSupportedException) { vnaTestbenchRejected = true; }
+    Require(vnaTestbenchRejected, "A full VNA table was incorrectly exported as a lumped SPICE testbench.");
+
+    var highQ = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 50, -500, PortImpedanceType.SeriesRC, 10e6),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 8e6, StopFrequencyHz = 12e6,
+        Matching = new(20, 20, 1),
+        MatchingPlan = new() { Kind = MatchingDesignKind.Broadband, Bands = [new(8e6, 12e6, 20, 20, 1)] },
+        Components = new() { ValueMode = ComponentValueMode.Continuous }
+    });
+    Require(highQ.Diagnostics.Any(item => item.Code == "FANO_BANDWIDTH_SCREEN"),
+        "A high-Q wideband request did not run the Fano/Bode screening.");
+    var edgeQRequest = highQ.Request with
+    {
+        Load = new PortImpedanceModel("Load", 50, -10, PortImpedanceType.Vna, 10e6,
+            [new(8e6, 50, -1000), new(10e6, 50, -10), new(12e6, 50, -1000)])
+    };
+    Require(FanoLimitEvaluator.Screen(edgeQRequest).Any(item => item.Code == "FANO_BANDWIDTH_SCREEN"),
+        "Fano/Bode screening missed a high-Q band edge because only the center point was considered.");
+    var hardGrid = MatchingPlanEvaluator.RequiredFrequencies(highQ.Request);
+    Require(hardGrid.Count == highQ.Request.MatchingPlan.MinimumPointsPerBand &&
+            Nearly(hardGrid[0], 8e6, 1e-9) && Nearly(hardGrid[^1], 12e6, 1e-9),
+        "The canonical optimization/verification grid omitted a band edge or changed point count.");
+
+    var overVoltage = engine.Design(new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching, Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 200, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 1e6, StopFrequencyHz = 100e6,
+        Matching = new(20, 20, 1), Components = new()
+        {
+            ValueMode = ComponentValueMode.Continuous, CapacitorMaximumVoltageVolt = 1e-9
+        },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching, MatchingResponse.LowPass, 1.5)
+    });
+    Require(overVoltage.Diagnostics.Any(item => item.Code == "CAPACITOR_VOLTAGE_EXCEEDED"),
+        "A capacitor voltage limit was not enforced by final verification.");
+    var ratingAttempt = new PiMatchingSynthesizer().Synthesize(overVoltage.Request, MatchingResponse.LowPass);
+    var ratingOptimized = new StandardValueOptimizer().Optimize(ratingAttempt.Topology!, overVoltage.Request);
+    Require(!ratingOptimized.HardConstraintsPass && ratingOptimized.Diagnostics.Any(item => item.Code == "CAPACITOR_VOLTAGE_EXCEEDED"),
+        "LC ratings were deferred until final verification instead of constraining standard-value optimization.");
+    using (var optionalRating = new CircuitModuleDesigner.Modules.SignalAttenuationMatching.Controls.OptionalNumberInput())
+    {
+        Require(optionalRating.Text.Length == 0 && optionalRating.NullableValue is null,
+            "An unspecified LC rating was displayed or interpreted as a real zero value.");
+    }
     var complexResult = engine.Design(new AttenuationMatchingDesignRequest
     {
         Mode = DesignMode.ImpedanceMatching, Source = new("Source", 50, 20, PortImpedanceType.SeriesRL, 10e6),
@@ -4119,12 +4239,12 @@ static void TestSignalAttenuationEngineeringCoverage()
     var complexCandidate = complexResult.SelectedCandidate!;
     Require(complexResult.Success && complexCandidate is not null,
         "Complex series-port coverage did not produce a supported design.");
-    var complexNetlist = new AttenuationMatchingSpiceExportService().ExportTestbench(complexCandidate, complexResult.Request);
+    var complexNetlist = new AttenuationMatchingSpiceExportService().ExportTestbench(complexCandidate!, complexResult.Request);
     Require(complexNetlist.Contains("L_SRC", StringComparison.OrdinalIgnoreCase) &&
             complexNetlist.Contains("C_LOAD", StringComparison.OrdinalIgnoreCase),
         "SPICE testbench does not use the same series R-L/R-C port model as the internal analysis.");
 
-    var v2S2P = "# MHz S RI R 50\n[Version] 2.0\n[Number of Ports] 2\n[Two-Port Data Order] 12_21\n[Network Data]\n10 0.6 0 0.2 0 0 0 0.5 0\n[End]\n";
+    var v2S2P = "# MHz S RI R 50\n[Version] 2.0\n[Number of Ports] 2\n[Two-Port Data Order] 12_21\n[Network Data]\n10 0.6 0 0.2 0 0 0 0.5 0\n20 0.0 0 0.0 0 0 0 0.0 0\n[End]\n";
     var v2Data = TouchstoneImporter.Parse(v2S2P, "v2.s2p");
     Require(v2Data.IsVersion2 && v2Data.PortCount == 2 && Math.Abs(v2Data.Points[0].S22.Real - .5) < 1e-12,
         "Touchstone 2.0 S2P metadata/data parsing failed.");

@@ -35,6 +35,7 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
 
         html.Append("<h2>1. Design Overview</h2><table><tbody>")
             .Append(Row("Design mode", result.Request.Mode.ToString()))
+            .Append(Row("Matching frequency strategy", result.Request.Mode == DesignMode.ImpedanceMatching ? result.Request.MatchingPlan.Kind.ToString() : "N/A"))
             .Append(Row("Status", result.Status.ToString()))
             .Append(Row("Message", result.Message))
             .Append(Row("Design frequency", N(result.Request.DesignFrequencyHz) + " Hz"))
@@ -58,6 +59,20 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
             .Append(Row("Target bandwidth", result.Request.Matching.TargetBandwidthHz > 0 ? N(result.Request.Matching.TargetBandwidthHz) + " Hz" : "Not required"))
             .Append(Row("Component value mode", result.Request.Components.ValueMode.ToString()))
             .Append("</tbody></table>");
+        if (result.Request.Mode == DesignMode.ImpedanceMatching)
+        {
+            html.Append("<h3>Frequency target plan</h3><table><thead><tr><th>#</th><th>Start</th><th>Stop</th><th>RL In</th><th>RL Out</th><th>Max IL</th><th>Weight</th></tr></thead><tbody>");
+            var planBands = result.Request.MatchingPlan.EffectiveBands(result.Request);
+            for (var index = 0; index < planBands.Count; index++)
+            {
+                var band = planBands[index];
+                html.Append("<tr><td>").Append(index + 1).Append("</td><td class=\"num\">").Append(N(band.StartFrequencyHz)).Append(" Hz</td><td class=\"num\">")
+                    .Append(N(band.StopFrequencyHz)).Append(" Hz</td><td class=\"num\">").Append(N(band.TargetInputReturnLossDb)).Append(" dB</td><td class=\"num\">")
+                    .Append(band.TargetOutputReturnLossDb is { } bandOutput ? N(bandOutput) + " dB" : "N/A").Append("</td><td class=\"num\">")
+                    .Append(N(band.MaximumInsertionLossDb)).Append(" dB</td><td class=\"num\">").Append(N(band.Weight)).Append("</td></tr>");
+            }
+            html.Append("</tbody></table>");
+        }
 
         html.Append("<h2>4. Selected Topology</h2>");
         if (selected is null)
@@ -104,6 +119,16 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
                 .Append(MetricRow("Maximum resistor dissipation", N(selected.Metrics.MaximumResistorDissipationWatt) + " W", "At the specified source signal"))
                 .Append(MetricRow("Total resistor dissipation", N(selected.Metrics.TotalResistorDissipationWatt) + " W", "Sum over resistors"))
                 .Append("</tbody></table>");
+            if (selected.Sweep.BandMetrics.Count > 0)
+            {
+                html.Append("<h3>Per-target worst case</h3><table><thead><tr><th>#</th><th>Range</th><th>Worst RL In</th><th>Worst RL Out</th><th>Max IL</th><th>Worst frequency</th><th>Result</th></tr></thead><tbody>");
+                foreach (var band in selected.Sweep.BandMetrics)
+                    html.Append("<tr><td>").Append(band.BandIndex + 1).Append("</td><td class=\"num\">").Append(N(band.StartFrequencyHz)).Append(" – ").Append(N(band.StopFrequencyHz))
+                        .Append(" Hz</td><td class=\"num\">").Append(N(band.WorstInputReturnLossDb)).Append(" dB</td><td class=\"num\">").Append(N(band.WorstOutputReturnLossDb))
+                        .Append(" dB</td><td class=\"num\">").Append(N(band.MaximumInsertionLossDb)).Append(" dB</td><td class=\"num\">").Append(N(band.WorstFrequencyHz))
+                        .Append(" Hz</td><td class=\"").Append(band.Passed ? "pass" : "fail").Append("\">").Append(band.Passed ? "Pass" : "Fail").Append("</td></tr>");
+                html.Append("</tbody></table>");
+            }
             html.Append(ResponseSvg(selected));
 
             html.Append("<h2>9. Independent Verification</h2>");
@@ -128,12 +153,15 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
             if (allWarnings.Length == 0) html.Append("<p>No warnings recorded.</p>");
             else foreach (var warning in allWarnings) html.Append("<p class=\"warnbox\">").Append(E(warning)).Append("</p>");
 
-            html.Append("<h2>12. SPICE Netlist</h2><h3>Design network</h3><pre>").Append(E(spice.ExportDesign(selected, result.Request)))
-                .Append("</pre><h3>Testbench</h3><pre>").Append(E(spice.ExportTestbench(selected, result.Request))).Append("</pre>");
+            html.Append("<h2>12. SPICE Netlist</h2><h3>Design network</h3><pre>").Append(E(spice.ExportDesign(selected, result.Request))).Append("</pre><h3>Testbench</h3>");
+            if (AttenuationMatchingSpiceExportService.SupportsTestbench(result.Request))
+                html.Append("<pre>").Append(E(spice.ExportTestbench(selected, result.Request))).Append("</pre>");
+            else
+                html.Append("<p class=\"warnbox\">").Append(E(AttenuationMatchingSpiceExportService.VnaTestbenchUnavailable)).Append("</p>");
 
             html.Append("<h2>13. Assumptions &amp; Limitations</h2><ul class=\"note\">")
                 .Append("<li>Ideal lumped R/L/C models only; no PCB parasitic, transmission-line or vendor model extraction.</li>")
-                .Append("<li>Series R-L/R-C port reactances are frequency-dependent; the design-frequency X selects the equivalent L or C.</li><li>VNA imports are reduced to a design-frequency series R-L/R-C equivalent; the broadband measured curve is not used as a fitted device model.</li>")
+                .Append("<li>Series R-L/R-C port reactances are frequency-dependent; the design-frequency X selects the equivalent L or C.</li><li>VNA port tables are interpolated across their measured range without extrapolation; a full measured table has no automatic lumped SPICE testbench equivalent.</li>")
                 .Append("<li>Bandwidth is limited by the finite sweep and the stated thresholds; sweep-boundary edges are not device limits.</li>")
                 .Append("<li>Attenuation, insertion loss, transducer gain, S21 and return loss are distinct quantities and are reported separately.</li>")
                 .Append("<li>Resistor tolerance, capacitor ESR and inductor Q are recorded as constraints but the nominal model is ideal unless explicitly represented by additional elements.</li>")

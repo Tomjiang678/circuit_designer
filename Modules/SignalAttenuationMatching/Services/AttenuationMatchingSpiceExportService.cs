@@ -10,6 +10,11 @@ namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Services;
 
 public sealed class AttenuationMatchingSpiceExportService
 {
+    public const string VnaTestbenchUnavailable = "A SPICE testbench cannot represent a full VNA impedance table. Export the design network only, or replace the VNA port with an explicit equivalent circuit.";
+
+    public static bool SupportsTestbench(AttenuationMatchingDesignRequest request) =>
+        request.Source.Type != PortImpedanceType.Vna && request.Load.Type != PortImpedanceType.Vna;
+
     public string ExportDesign(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
     {
         ArgumentNullException.ThrowIfNull(candidate);
@@ -34,6 +39,7 @@ public sealed class AttenuationMatchingSpiceExportService
     public string ExportTestbench(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
     {
         ArgumentNullException.ThrowIfNull(candidate);
+        if (!SupportsTestbench(request)) throw new NotSupportedException(VnaTestbenchUnavailable);
         var graph = BuildTestbenchGraph(candidate.Graph, request);
         var options = new CircuitSpiceExportOptions($"Circuit Module Designer - {candidate.TopologyName} testbench")
         {
@@ -55,6 +61,14 @@ public sealed class AttenuationMatchingSpiceExportService
 
     public string Export(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice) =>
         ExportTestbench(candidate, request, dialect);
+
+    public string ExportDocumentNetlist(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
+    {
+        if (SupportsTestbench(request)) return ExportTestbench(candidate, request, dialect);
+        return "* " + VnaTestbenchUnavailable + Environment.NewLine +
+               "* The following netlist contains the verified passive design network only." + Environment.NewLine +
+               ExportDesign(candidate, request, dialect);
+    }
 
     public void SaveTestbench(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, string fileName, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
     {

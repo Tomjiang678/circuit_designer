@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using CircuitModuleDesigner.Modules.Filters.FilterDesign.Controls;
 
 namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Controls;
@@ -73,4 +74,36 @@ public sealed class EngineeringNumberInput : UserControl
     }
 
     private static decimal ToDecimal(double value) => value >= 1e15 ? 1_000_000_000_000_000m : value <= -1e15 ? -1_000_000_000_000_000m : (decimal)value;
+}
+
+/// <summary>Blank means the engineering rating was not specified; zero is never used as a sentinel.</summary>
+public sealed class OptionalNumberInput : TextBox
+{
+    private readonly double maximum;
+
+    public OptionalNumberInput(double maximum = 1_000_000)
+    {
+        this.maximum = maximum;
+        Width = 180;
+        Margin = new Padding(3);
+        TextAlign = HorizontalAlignment.Right;
+        PlaceholderText = "Not specified";
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public double? NullableValue
+    {
+        get
+        {
+            var text = Text.Trim();
+            if (text.Length == 0) return null;
+            if (!double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out var value) &&
+                !double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value))
+                throw new InvalidOperationException("The component rating must be a positive number or left blank.");
+            if (!(value > 0) || !double.IsFinite(value) || value > maximum)
+                throw new InvalidOperationException($"The component rating must be greater than zero and no more than {maximum:G6}, or left blank.");
+            return value;
+        }
+    }
 }

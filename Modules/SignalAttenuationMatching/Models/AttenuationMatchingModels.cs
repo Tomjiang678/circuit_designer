@@ -9,15 +9,18 @@ namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Models;
 /// A two-terminal port impedance. Series R-L / R-C models are frequency-dependent
 /// through the reactance specified at the reference design frequency.
 /// </summary>
+public sealed record PortImpedancePoint(double FrequencyHz, double ResistanceOhm, double ReactanceOhm);
+
 public sealed record PortImpedanceModel(
     string Name,
     double ResistanceOhm,
     double ReactanceOhm,
     PortImpedanceType Type,
-    double ReferenceFrequencyHz = 0)
+    double ReferenceFrequencyHz = 0,
+    IReadOnlyList<PortImpedancePoint>? VnaData = null)
 {
-    public bool IsComplex => Math.Abs(ReactanceOhm) > 1e-12;
-    public bool IsFrequencyDependent => Type is PortImpedanceType.SeriesRL or PortImpedanceType.SeriesRC;
+    public bool IsComplex => Type == PortImpedanceType.Vna || Math.Abs(ReactanceOhm) > 1e-12;
+    public bool IsFrequencyDependent => Type is PortImpedanceType.SeriesRL or PortImpedanceType.SeriesRC or PortImpedanceType.Vna;
 
     public PortImpedanceModel WithReferenceFrequency(double frequencyHz) => this with { ReferenceFrequencyHz = frequencyHz };
 
@@ -32,6 +35,7 @@ public sealed record PortImpedanceModel(
     public Complex ImpedanceAt(double frequencyHz)
     {
         if (!(frequencyHz > 0) || !double.IsFinite(frequencyHz)) throw new ArgumentOutOfRangeException(nameof(frequencyHz));
+        if (Type == PortImpedanceType.Vna) return InterpolateVna(frequencyHz);
         var omega = 2 * Math.PI * frequencyHz;
         return Type switch
         {
@@ -47,7 +51,8 @@ public sealed record PortImpedanceModel(
         PortImpedanceType.PureResistance => new Complex(ResistanceOhm, 0),
         PortImpedanceType.SeriesRL => new Complex(ResistanceOhm, 2 * Math.PI * ReferenceFrequencyHz * EquivalentInductanceHenry),
         PortImpedanceType.SeriesRC => new Complex(ResistanceOhm, -1 / (2 * Math.PI * ReferenceFrequencyHz * EquivalentCapacitanceFarad)),
-        _ => throw new ArgumentOutOfRangeException()
+            PortImpedanceType.Vna => InterpolateVna(ReferenceFrequencyHz),
+            _ => throw new ArgumentOutOfRangeException()
     };
 
     public string ModelDescription => Type switch
@@ -55,9 +60,32 @@ public sealed record PortImpedanceModel(
         PortImpedanceType.PureResistance => "pure resistance, frequency independent",
         PortImpedanceType.SeriesRL => $"series R-L, L={Engineering(EquivalentInductanceHenry)}H derived from X at the design frequency",
         PortImpedanceType.SeriesRC => $"series R-C, C={EquivalentCapacitanceFarad:G6}F derived from X at the design frequency",
+        PortImpedanceType.Vna => VnaData is { Count: > 0 } table ? $"measured VNA table, {table.Count} points, {table[0].FrequencyHz:G6}..{table[^1].FrequencyHz:G6} Hz" : "measured VNA table (no points)",
         _ => string.Empty
     };
 
+    private Complex InterpolateVna(double frequencyHz)
+    {
+        if (VnaData is not { Count: >= 2 } points)
+            throw new InvalidOperationException($"{Name} has no usable VNA table.");
+        if (!(frequencyHz > 0) || !double.IsFinite(frequencyHz))
+            throw new ArgumentOutOfRangeException(nameof(frequencyHz));
+        var first = points[0].FrequencyHz;
+        var last = points[^1].FrequencyHz;
+        if (frequencyHz < first || frequencyHz > last)
+            throw new InvalidOperationException($"{Name} VNA data covers {first:G6}..{last:G6} Hz; {frequencyHz:G6} Hz is outside that range.");
+        for (var index = 1; index < points.Count; index++)
+        {
+            if (frequencyHz > points[index].FrequencyHz) continue;
+            var previous = points[index - 1];
+            var fraction = frequencyHz <= previous.FrequencyHz ? 0 :
+                (frequencyHz - previous.FrequencyHz) / (points[index].FrequencyHz - previous.FrequencyHz);
+            return new Complex(
+                previous.ResistanceOhm + (points[index].ResistanceOhm - previous.ResistanceOhm) * fraction,
+                previous.ReactanceOhm + (points[index].ReactanceOhm - previous.ReactanceOhm) * fraction);
+        }
+        return new Complex(points[^1].ResistanceOhm, points[^1].ReactanceOhm);
+    }
     private static string Engineering(double value) => value.ToString("G9", System.Globalization.CultureInfo.InvariantCulture);
 }
 
@@ -102,6 +130,31 @@ public sealed record MatchingSpecification(
     double MaximumInsertionLossDb = 1,
     double TargetBandwidthHz = 0);
 
+public sealed record MatchingBand(
+    double StartFrequencyHz,
+    double StopFrequencyHz,
+    double TargetInputReturnLossDb = 20,
+    double? TargetOutputReturnLossDb = 20,
+    double MaximumInsertionLossDb = 1,
+    double Weight = 1)
+{
+    public bool IsPoint => Math.Abs(StopFrequencyHz - StartFrequencyHz) <= Math.Max(1, StartFrequencyHz) * 1e-12;
+    public double CenterFrequencyHz => IsPoint ? StartFrequencyHz : Math.Sqrt(StartFrequencyHz * StopFrequencyHz);
+}
+
+public sealed record MatchingPlan
+{
+    public MatchingDesignKind Kind { get; init; } = MatchingDesignKind.SingleFrequency;
+    public IReadOnlyList<MatchingBand> Bands { get; init; } = [];
+    public int MinimumPointsPerBand { get; init; } = 31;
+
+    public IReadOnlyList<MatchingBand> EffectiveBands(AttenuationMatchingDesignRequest request) => Bands.Count > 0
+        ? Bands
+        : [new MatchingBand(request.DesignFrequencyHz, request.DesignFrequencyHz,
+            request.Matching.TargetInputReturnLossDb, request.Matching.TargetOutputReturnLossDb,
+            request.Matching.MaximumInsertionLossDb)];
+}
+
 public sealed record ComponentConstraints(
     ComponentValueMode ValueMode = ComponentValueMode.E96,
     double MinimumResistanceOhm = 1,
@@ -115,7 +168,13 @@ public sealed record ComponentConstraints(
     double InductorQ = 0,
     double InductorSeriesResistanceOhm = 0,
     int MaximumSearchCombinations = 20_000,
-    int MaximumCandidateCount = 12);
+    int MaximumCandidateCount = 12,
+    double? CapacitorMaximumVoltageVolt = null,
+    double? CapacitorMaximumRippleCurrentAmpere = null,
+    double? CapacitorSelfResonantFrequencyHz = null,
+    double? InductorMaximumRmsCurrentAmpere = null,
+    double? InductorSaturationCurrentAmpere = null,
+    double? InductorSelfResonantFrequencyHz = null);
 
 
 public sealed record TopologySelection(
@@ -141,6 +200,7 @@ public sealed record AttenuationMatchingDesignRequest
     public SourceSignal Signal { get; init; } = new(1, SignalLevelUnit.RmsVoltage);
     public AttenuationSpecification Attenuation { get; init; } = new();
     public MatchingSpecification Matching { get; init; } = new();
+    public MatchingPlan MatchingPlan { get; init; } = new();
     public ComponentConstraints Components { get; init; } = new();
     public TopologySelection Topology { get; init; } = new();
     public OptimizationObjective Objective { get; init; } = OptimizationObjective.Balanced;
@@ -196,7 +256,20 @@ public sealed record AcSweepResult(
     double? BandwidthHz,
     double? LoadedQ,
     bool BandwidthLimitedBySweep,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    public IReadOnlyList<MatchingBandMetrics> BandMetrics { get; init; } = [];
+}
+
+public sealed record MatchingBandMetrics(
+    int BandIndex,
+    double StartFrequencyHz,
+    double StopFrequencyHz,
+    double WorstInputReturnLossDb,
+    double WorstOutputReturnLossDb,
+    double MaximumInsertionLossDb,
+    double WorstFrequencyHz,
+    bool Passed);
 
 public sealed record NetworkMetrics
 {

@@ -29,7 +29,8 @@ public sealed class CandidateSelectionEngine
                 break;
 
             case DesignMode.ImpedanceMatching:
-                if (manual is null or TopologyFamily.LMatching)
+                var distributed = request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency;
+                if (!distributed && (manual is null or TopologyFamily.LMatching))
                     foreach (var variant in Enum.GetValues<LNetworkVariant>())
                         attempts.Add(lMatching.Synthesize(request, variant));
                 if (manual is null or TopologyFamily.PiMatching)

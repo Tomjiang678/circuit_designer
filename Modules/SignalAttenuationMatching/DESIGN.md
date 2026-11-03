@@ -116,7 +116,7 @@ Bandwidth = continuous band around f0 satisfying return-loss/insertion-loss gate
 LoadedQ = f0 / Bandwidth
 ```
 
-S11/S21/S22 use a separate real-reference solve. S12 is left N/A in this module. A port `X` at `f0` is converted to a series L (positive X) or C (negative X), so the internal sweep and SPICE testbench use the same frequency-dependent impedance.
+S11/S21/S22 use a separate real-reference solve. S12 is left N/A in this module. A scalar port `X` at `f0` is converted to a series L (positive X) or C (negative X), so the internal sweep and a scalar-port SPICE testbench use the same frequency-dependent impedance. A full Touchstone table is interpolated over its measured range and used by the internal MNA analyzer/report; a full measured table cannot be represented by the R/L/C SPICE testbench.
 
 ## 5. Independent verification
 
@@ -177,9 +177,9 @@ Status is Supported only when no errors exist; Warning only when non-blocking mo
 
 ## 8. Known limitations
 
-- Ideal lumped R/L/C baseline; ESR/Q is a series-resistance approximation.
+- Ideal lumped R/L/C baseline; ESR/Q is a series-resistance approximation. Supplied capacitor voltage/ripple/SRF and inductor RMS/saturation/SRF limits constrain optimization and final verification; blank ratings are nullable, not zero.\n- Fano/Bode screening samples band edges and interior points and uses the normalized π/Q integral bound.
 - No distributed/transmission-line/microstrip/EM simulation.
-- Port reactance is defined at the design frequency and swept as the equivalent series L/C.
+- Scalar port reactance is defined at the design frequency and swept as the equivalent series L/C; full VNA tables are interpolated only inside their measured range.
 - No transformer/balun/vendor matching IC or encrypted model support.
 - No Monte Carlo/tolerance-yield analysis.
 - Bandwidth is bounded by the finite sweep and declared thresholds.

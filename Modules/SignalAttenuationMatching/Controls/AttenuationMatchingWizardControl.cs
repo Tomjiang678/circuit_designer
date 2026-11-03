@@ -37,15 +37,19 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private bool initializing = true;
     private bool designing;
     private bool stale;
+    private bool configuringMatchingPlanGrid;
     private AttenuationMatchingDesignResult? result;
     private int selectedIndex;
     private CancellationTokenSource? designCancellation;
 
     private readonly RadioButton attenuationMode = new() { Text = "Attenuation", AutoSize = true, Font = new Font("Segoe UI Semibold", 10F) };
-    private readonly RadioButton matchingMode = new() { Text = "Impedance Matching", AutoSize = true, Font = new Font("Segoe UI Semibold", 10F) };
+    private readonly RadioButton matchingMode = new() { Text = "Single-frequency Matching", AutoSize = true, Font = new Font("Segoe UI Semibold", 10F) };
+    private readonly RadioButton multiFrequencyMode = new() { Text = "Multi-frequency Matching", AutoSize = true, Font = new Font("Segoe UI Semibold", 10F) };
+    private readonly RadioButton broadbandMode = new() { Text = "Broadband Matching", AutoSize = true, Font = new Font("Segoe UI Semibold", 10F) };
     private readonly Label modeDescription = new() { AutoSize = true, MaximumSize = new Size(1000, 0), ForeColor = Color.FromArgb(75, 85, 99), Padding = new Padding(4, 6, 4, 4) };
     private readonly List<(AttenuationDesignMode Mode, Panel Card, RadioButton Radio)> modeCards = [];
     private AttenuationDesignMode selectedMode = AttenuationDesignMode.Attenuation;
+    private MatchingDesignKind selectedMatchingKind = MatchingDesignKind.SingleFrequency;
 
     private readonly NumericUpDown sourceR = Number(.000001m, 1_000_000_000, 50, 3);
     private readonly NumericUpDown sourceX = Number(-1_000_000_000, 1_000_000_000, 0, 3);
@@ -54,11 +58,19 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private readonly NumericUpDown signalValue = Number(-1000, 1000, 1, 3);
     private readonly ComboBox signalUnit = Choice(Enum.GetValues<SignalLevelUnit>());
     private GroupBox? frequencyGroup;
+    private TableLayoutPanel? frequencySettingsGrid;
+    private Label? designFrequencyLabel;
+    private Label? startFrequencyLabel;
+    private Label? stopFrequencyLabel;
+    private Label? sweepPointsLabel;
+    private Label? sweepTypeLabel;
     private GroupBox? capacitorGroup;
     private GroupBox? inductorGroup;
     private GroupBox? resistorGroup;
     private Label? sourceImportNote;
     private Label? loadImportNote;
+    private IReadOnlyList<PortImpedancePoint>? sourceVnaPoints;
+    private IReadOnlyList<PortImpedancePoint>? loadVnaPoints;
     private readonly EngineeringNumberInput designFrequency = new(10e6, EngineeringUnits.Frequency, 1, 1e12);
     private readonly EngineeringNumberInput startFrequency = new(1e6, EngineeringUnits.Frequency, 1, 1e12);
     private readonly EngineeringNumberInput stopFrequency = new(100e6, EngineeringUnits.Frequency, 1, 1e12);
@@ -77,6 +89,22 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private readonly ComboBox objective = Choice(Enum.GetValues<OptimizationObjective>());
     private readonly GroupBox attenuationGroup = new() { Text = "Attenuation Requirements", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 22, 8, 6) };
     private readonly GroupBox matchingGroup = new() { Text = "Matching Requirements", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 22, 8, 6) };
+    private readonly DataGridView matchingPlanGrid = new()
+    {
+        Dock = DockStyle.Fill, BackgroundColor = SystemColors.Window,
+        RowHeadersVisible = false, AllowUserToAddRows = true, AllowUserToDeleteRows = true,
+        AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, SelectionMode = DataGridViewSelectionMode.CellSelect
+    };
+    private readonly TableLayoutPanel matchingPlanPanel = new()
+    {
+        Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 2,
+        Margin = new Padding(0, 10, 0, 0), Padding = new Padding(4, 8, 4, 4), Visible = false
+    };
+    private readonly Label matchingPlanHint = new()
+    {
+        AutoSize = true, Dock = DockStyle.Fill, ForeColor = Color.DimGray,
+        Padding = new Padding(0, 0, 0, 6)
+    };
 
     private readonly RadioButton automaticTopology = new() { Text = "Automatic topology search", AutoSize = true, Checked = true };
     private readonly RadioButton manualTopology = new() { Text = "Manual topology restriction", AutoSize = true };
@@ -94,10 +122,16 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private readonly EngineeringNumberInput minimumCapacitance = new(1e-12, EngineeringUnits.Capacitance, 1e-15, 1);
     private readonly EngineeringNumberInput maximumCapacitance = new(1e-5, EngineeringUnits.Capacitance, 1e-15, 1);
     private readonly NumericUpDown capacitorEsr = Number(0, 100000, 0, 6);
+    private readonly OptionalNumberInput capacitorMaxVoltage = new();
+    private readonly OptionalNumberInput capacitorMaxRipple = new();
+    private readonly OptionalNumberInput capacitorSrfMhz = new();
     private readonly EngineeringNumberInput minimumInductance = new(1e-9, EngineeringUnits.Inductance, 1e-12, 1);
     private readonly EngineeringNumberInput maximumInductance = new(1e-2, EngineeringUnits.Inductance, 1e-12, 1);
     private readonly NumericUpDown inductorQ = Number(0, 100000, 0, 3);
     private readonly NumericUpDown inductorSeriesResistance = Number(0, 100000, 0, 6);
+    private readonly OptionalNumberInput inductorMaxRms = new();
+    private readonly OptionalNumberInput inductorSaturation = new();
+    private readonly OptionalNumberInput inductorSrfMhz = new();
     private readonly NumericUpDown maximumCombinations = Number(100, 200000, 20000, 0);
     private readonly NumericUpDown maximumCandidates = Number(1, 100, 12, 0);
 
@@ -155,6 +189,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         var summary = new StringBuilder()
             .AppendLine($"Signal attenuation / impedance matching design: {result.Status}")
             .AppendLine($"Mode: {result.Request.Mode}, design frequency: {result.Request.DesignFrequencyHz:G6} Hz")
+            .AppendLine($"Frequency strategy: {(result.Request.Mode == AttenuationDesignMode.ImpedanceMatching ? result.Request.MatchingPlan.Kind : null)}")
             .AppendLine($"Selected topology: {selected?.TopologyName ?? "none"}")
             .AppendLine($"Message: {result.Message}");
         if (selected is not null)
@@ -171,7 +206,11 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     public string? BuildNetlist()
     {
         if (SelectedCandidate is not { Status: not DesignStatus.Failed } selected) return null;
-        try { return new AttenuationMatchingSpiceExportService().ExportTestbench(selected, result!.Request); }
+        try
+        {
+            var service = new AttenuationMatchingSpiceExportService();
+            return service.ExportDocumentNetlist(selected, result!.Request);
+        }
         catch { return null; }
     }
 
@@ -243,28 +282,36 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     {
         var page = Page();
         var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(18, 14, 18, 14) };
-        attenuationMode.Font = Font; matchingMode.Font = Font;
-        attenuationMode.AutoSize = true; matchingMode.AutoSize = true;
-        attenuationMode.Margin = new Padding(2); matchingMode.Margin = new Padding(2);
+        attenuationMode.Font = Font; matchingMode.Font = Font; multiFrequencyMode.Font = Font; broadbandMode.Font = Font;
+        attenuationMode.AutoSize = true; matchingMode.AutoSize = true; multiFrequencyMode.AutoSize = true; broadbandMode.AutoSize = true;
+        attenuationMode.Margin = new Padding(2); matchingMode.Margin = new Padding(2); multiFrequencyMode.Margin = new Padding(2); broadbandMode.Margin = new Padding(2);
         attenuationMode.CheckedChanged += (_, _) => { if (attenuationMode.Checked) SelectMode(AttenuationDesignMode.Attenuation); };
-        matchingMode.CheckedChanged += (_, _) => { if (matchingMode.Checked) SelectMode(AttenuationDesignMode.ImpedanceMatching); };
+        matchingMode.CheckedChanged += (_, _) => { if (matchingMode.Checked) SelectMode(AttenuationDesignMode.ImpedanceMatching, MatchingDesignKind.SingleFrequency); };
+        multiFrequencyMode.CheckedChanged += (_, _) => { if (multiFrequencyMode.Checked) SelectMode(AttenuationDesignMode.ImpedanceMatching, MatchingDesignKind.MultiFrequency); };
+        broadbandMode.CheckedChanged += (_, _) => { if (broadbandMode.Checked) SelectMode(AttenuationDesignMode.ImpedanceMatching, MatchingDesignKind.Broadband); };
         layout.Controls.Add(attenuationMode);
         layout.Controls.Add(matchingMode);
+        layout.Controls.Add(multiFrequencyMode);
+        layout.Controls.Add(broadbandMode);
         page.Controls.Add(layout);
         SelectMode(AttenuationDesignMode.Attenuation);
         return page;
     }
 
-    private void SelectMode(AttenuationDesignMode mode, bool updateRadio = true)
+    private void SelectMode(AttenuationDesignMode mode, MatchingDesignKind matchingKind = MatchingDesignKind.SingleFrequency)
     {
         selectedMode = mode;
+        selectedMatchingKind = matchingKind;
         attenuationMode.Checked = mode == AttenuationDesignMode.Attenuation;
-        matchingMode.Checked = mode == AttenuationDesignMode.ImpedanceMatching;
+        matchingMode.Checked = mode == AttenuationDesignMode.ImpedanceMatching && matchingKind == MatchingDesignKind.SingleFrequency;
+        multiFrequencyMode.Checked = mode == AttenuationDesignMode.ImpedanceMatching && matchingKind == MatchingDesignKind.MultiFrequency;
+        broadbandMode.Checked = mode == AttenuationDesignMode.ImpedanceMatching && matchingKind == MatchingDesignKind.Broadband;
         if (mode == AttenuationDesignMode.Attenuation)
         {
             sourceX.Value = 0; loadX.Value = 0;
         }
         UpdateModeVisibility();
+        ConfigureMatchingPlanGrid();
         UpdateTopologyFamilies();
         MarkStale();
     }
@@ -282,14 +329,25 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         var frequency = Group("Frequency & Sweep");
         frequencyGroup = frequency;
         var grid = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 4 };
+        frequencySettingsGrid = grid;
         for (var index = 0; index < 4; index++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         InputColumns(grid, 280, 1, 3);
-        AddPair(grid, 0, 0, "Design frequency:", designFrequency);
-        AddPair(grid, 2, 0, "Sweep points:", sweepPoints);
-        AddPair(grid, 0, 1, "Start frequency:", startFrequency);
-        AddPair(grid, 2, 1, "Stop frequency:", stopFrequency);
-        AddPair(grid, 0, 2, "Sweep type:", sweepType);
-        frequency.Controls.Add(grid);
+        designFrequencyLabel = AddPair(grid, 0, 0, "Design frequency:", designFrequency);
+        sweepPointsLabel = AddPair(grid, 2, 0, "Sweep points:", sweepPoints);
+        startFrequencyLabel = AddPair(grid, 0, 1, "Start frequency:", startFrequency);
+        stopFrequencyLabel = AddPair(grid, 2, 1, "Stop frequency:", stopFrequency);
+        sweepTypeLabel = AddPair(grid, 0, 2, "Sweep type:", sweepType);
+        matchingPlanPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        matchingPlanPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 155));
+        matchingPlanPanel.Controls.Add(matchingPlanHint, 0, 0);
+        matchingPlanPanel.Controls.Add(matchingPlanGrid, 0, 1);
+        matchingPlanGrid.CellValueChanged += (_, eventArgs) => MatchingPlanChanged(eventArgs);
+        matchingPlanGrid.RowsRemoved += (_, _) => MatchingPlanChanged();
+        matchingPlanGrid.UserAddedRow += (_, _) => MatchingPlanChanged();
+        var frequencyLayout = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 2 };
+        frequencyLayout.Controls.Add(grid, 0, 0);
+        frequencyLayout.Controls.Add(matchingPlanPanel, 0, 1);
+        frequency.Controls.Add(frequencyLayout);
         layout.Controls.Add(frequency, 0, 2); layout.SetColumnSpan(frequency, 2);
         page.Controls.Add(layout);
         return page;
@@ -317,7 +375,11 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             Margin = new Padding(3, 0, 3, 3), Visible = false
         };
         if (isSource) sourceImportNote = importNote; else loadImportNote = importNote;
-        void ClearImportNote() { importNote.Text = string.Empty; importNote.Visible = false; }
+        void ClearImportNote()
+        {
+            importNote.Text = string.Empty; importNote.Visible = false;
+            if (isSource) sourceVnaPoints = null; else loadVnaPoints = null;
+        }
         resistance.ValueChanged += (_, _) => ClearImportNote();
         reactance.ValueChanged += (_, _) => ClearImportNote();
         grid.Controls.Add(importNote, 1, includeSignal ? 4 : 3);
@@ -343,27 +405,37 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
                 if (selectedPort is null) return;
                 portIndex = selectedPort.Value;
             }
-            var imported = TouchstoneImporter.Import(data, dialog.FileName, portIndex, designFrequency.ValueBaseUnit);
+            var imported = TouchstoneImporter.Import(data, dialog.FileName, portIndex, SelectedReferenceFrequency());
             if (imported.Impedance.Real > (double)sourceR.Maximum || imported.Impedance.Real < (double)sourceR.Minimum)
                 throw new InvalidDataException($"Imported resistance {imported.Impedance.Real:G6} Ω is outside the supported range.");
             if (source)
             {
                 sourceR.Value = (decimal)imported.Impedance.Real;
                 sourceX.Value = (decimal)imported.Impedance.Imaginary;
+                sourceVnaPoints = imported.Points;
             }
             else
             {
                 loadR.Value = (decimal)imported.Impedance.Real;
                 loadX.Value = (decimal)imported.Impedance.Imaginary;
+                loadVnaPoints = imported.Points;
             }
+            var tableMinimum = imported.Points[0].FrequencyHz;
+            var tableMaximum = imported.Points[^1].FrequencyHz;
+            if (startFrequency.ValueBaseUnit < tableMinimum || stopFrequency.ValueBaseUnit > tableMaximum ||
+                startFrequency.ValueBaseUnit >= stopFrequency.ValueBaseUnit)
+            {
+                startFrequency.ValueBaseUnit = tableMinimum;
+                stopFrequency.ValueBaseUnit = tableMaximum;
+            }
+            UpdateAutomaticSweepRange();
             UpdatePortControls();
             var note = source ? sourceImportNote : loadImportNote;
             if (note is not null)
             {
-                note.Text = Path.GetFileName(dialog.FileName) + "  ·  design-frequency series R-X equivalent";
+                note.Text = $"{Path.GetFileName(dialog.FileName)}  -  full VNA curve ({imported.Points.Count} points, {imported.Points[0].FrequencyHz:G6}-{imported.Points[^1].FrequencyHz:G6} Hz)";
                 note.Visible = true;
-            }
-            MarkStale();
+            }            MarkStale();
         }
         catch (Exception exception)
         {
@@ -417,7 +489,8 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         matchingGroup.Controls.Add(matchingGrid);
 
         var objectiveGroup = Group("Optimization objective");
-        var objectiveRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        objectiveGroup.Padding = new Padding(8, 30, 8, 8);
+        var objectiveRow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = false, Padding = new Padding(3, 4, 3, 3) };
         objectiveRow.Controls.Add(objective);
         objectiveGroup.Controls.Add(objectiveRow);
         layout.Controls.Add(attenuationGroup); layout.Controls.Add(matchingGroup); layout.Controls.Add(objectiveGroup);
@@ -479,6 +552,9 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         AddPair(cGrid, 0, 0, "Minimum C:", minimumCapacitance);
         AddPair(cGrid, 2, 0, "Maximum C:", maximumCapacitance);
         AddPair(cGrid, 0, 1, "ESR (Ω):", capacitorEsr);
+        AddPair(cGrid, 2, 1, "Max voltage (V):", capacitorMaxVoltage);
+        AddPair(cGrid, 0, 2, "Max ripple (A):", capacitorMaxRipple);
+        AddPair(cGrid, 2, 2, "SRF (MHz):", capacitorSrfMhz);
         capacitor.Controls.Add(cGrid);
 
         var inductor = Group("Inductor constraints");
@@ -490,6 +566,9 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         AddPair(lGrid, 2, 0, "Maximum L:", maximumInductance);
         AddPair(lGrid, 0, 1, "Inductor Q:", inductorQ);
         AddPair(lGrid, 2, 1, "Series R (Ω):", inductorSeriesResistance);
+        AddPair(lGrid, 0, 2, "Max RMS (A):", inductorMaxRms);
+        AddPair(lGrid, 2, 2, "Saturation (A):", inductorSaturation);
+        AddPair(lGrid, 0, 3, "SRF (MHz):", inductorSrfMhz);
         inductor.Controls.Add(lGrid);
 
         var budget = Group("Search budget");
@@ -513,10 +592,12 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         calculate.Click += (_, _) => _ = RunDesignAsync();
         candidateGrid.Dock = DockStyle.Fill;
         candidateGrid.Columns.Add("rank", "Rank"); candidateGrid.Columns.Add("topology", "Topology"); candidateGrid.Columns.Add("status", "Status");
-        candidateGrid.Columns.Add("components", "Components"); candidateGrid.Columns.Add("attenuation", "Attenuation dB"); candidateGrid.Columns.Add("rlin", "RL In dB");
+        candidateGrid.Columns.Add("components", "Components"); candidateGrid.Columns.Add("attenuation", "Max IL / Atten dB"); candidateGrid.Columns.Add("rlin", "Worst RL In dB");
+        candidateGrid.Columns.Add("rlout", "Worst RL Out dB"); candidateGrid.Columns.Add("bandpass", "Targets");
         candidateGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         candidateGrid.Columns[0].FillWeight = 8; candidateGrid.Columns[1].FillWeight = 30; candidateGrid.Columns[2].FillWeight = 14;
-        candidateGrid.Columns[3].FillWeight = 14; candidateGrid.Columns[4].FillWeight = 17; candidateGrid.Columns[5].FillWeight = 17;
+        candidateGrid.Columns[3].FillWeight = 11; candidateGrid.Columns[4].FillWeight = 15; candidateGrid.Columns[5].FillWeight = 15;
+        candidateGrid.Columns[6].FillWeight = 15; candidateGrid.Columns[7].FillWeight = 12;
         candidateGrid.SelectionChanged += (_, _) => SelectCandidate();
         layout.Controls.Add(command, 0, 0); layout.Controls.Add(candidateGrid, 0, 1); layout.Controls.Add(previewTabs, 0, 2);
 
@@ -643,11 +724,18 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private AttenuationMatchingDesignRequest BuildRequest()
     {
         var mode = SelectedMode();
+        var bands = ReadMatchingBands();
+        var distributed = mode == AttenuationDesignMode.ImpedanceMatching && selectedMatchingKind != MatchingDesignKind.SingleFrequency;
+        if (distributed && bands.Count == 0) throw new InvalidOperationException("Add at least one frequency target row.");
+        var referenceFrequency = SelectedReferenceFrequency(bands);
+        var analysisStart = startFrequency.ValueBaseUnit;
+        var analysisStop = stopFrequency.ValueBaseUnit;
         static PortImpedanceType PortType(double reactance) =>
             reactance > 1e-12 ? PortImpedanceType.SeriesRL : reactance < -1e-12 ? PortImpedanceType.SeriesRC : PortImpedanceType.PureResistance;
-        var referenceFrequency = designFrequency.ValueBaseUnit;
-        var source = new PortImpedanceModel("Source", (double)sourceR.Value, (double)sourceX.Value, PortType((double)sourceX.Value), referenceFrequency);
-        var load = new PortImpedanceModel("Load", (double)loadR.Value, (double)loadX.Value, PortType((double)loadX.Value), referenceFrequency);
+        var source = new PortImpedanceModel("Source", (double)sourceR.Value, (double)sourceX.Value,
+            sourceVnaPoints is not null ? PortImpedanceType.Vna : PortType((double)sourceX.Value), referenceFrequency, sourceVnaPoints);
+        var load = new PortImpedanceModel("Load", (double)loadR.Value, (double)loadX.Value,
+            loadVnaPoints is not null ? PortImpedanceType.Vna : PortType((double)loadX.Value), referenceFrequency, loadVnaPoints);
         var components = new ComponentConstraints
         {
             ValueMode = (ComponentValueMode)valueMode.SelectedItem!,
@@ -657,10 +745,16 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             MinimumCapacitanceFarad = minimumCapacitance.ValueBaseUnit,
             MaximumCapacitanceFarad = maximumCapacitance.ValueBaseUnit,
             CapacitorEsrOhm = (double)capacitorEsr.Value,
+            CapacitorMaximumVoltageVolt = capacitorMaxVoltage.NullableValue,
+            CapacitorMaximumRippleCurrentAmpere = capacitorMaxRipple.NullableValue,
+            CapacitorSelfResonantFrequencyHz = capacitorSrfMhz.NullableValue is { } capacitorSrf ? capacitorSrf * 1e6 : null,
             MinimumInductanceHenry = minimumInductance.ValueBaseUnit,
             MaximumInductanceHenry = maximumInductance.ValueBaseUnit,
             InductorQ = (double)inductorQ.Value,
             InductorSeriesResistanceOhm = (double)inductorSeriesResistance.Value,
+            InductorMaximumRmsCurrentAmpere = inductorMaxRms.NullableValue,
+            InductorSaturationCurrentAmpere = inductorSaturation.NullableValue,
+            InductorSelfResonantFrequencyHz = inductorSrfMhz.NullableValue is { } inductorSrf ? inductorSrf * 1e6 : null,
             MaximumSearchCombinations = (int)maximumCombinations.Value,
             MaximumCandidateCount = (int)maximumCandidates.Value
         };
@@ -680,18 +774,162 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             Mode = mode,
             Source = source,
             Load = load,
-            DesignFrequencyHz = designFrequency.ValueBaseUnit,
-            StartFrequencyHz = startFrequency.ValueBaseUnit,
-            StopFrequencyHz = stopFrequency.ValueBaseUnit,
+            DesignFrequencyHz = referenceFrequency,
+            StartFrequencyHz = analysisStart,
+            StopFrequencyHz = analysisStop,
             SweepPoints = (int)sweepPoints.Value,
             LogarithmicSweep = sweepType.SelectedIndex == 0,
             Signal = new SourceSignal((double)signalValue.Value, (SignalLevelUnit)signalUnit.SelectedItem!),
             Attenuation = attenuation,
             Matching = matching,
+            MatchingPlan = new MatchingPlan { Kind = selectedMatchingKind, Bands = bands, MinimumPointsPerBand = 41 },
             Components = components,
             Topology = topology,
             Objective = (OptimizationObjective)objective.SelectedItem!
         };
+    }
+
+    private IReadOnlyList<MatchingBand> ReadMatchingBands()
+    {
+        if (selectedMatchingKind == MatchingDesignKind.SingleFrequency) return [];
+        var bands = new List<MatchingBand>();
+        foreach (DataGridViewRow row in matchingPlanGrid.Rows)
+        {
+            if (row.IsNewRow || row.Cells.Cast<DataGridViewCell>().All(cell => string.IsNullOrWhiteSpace(Convert.ToString(cell.Value)))) continue;
+            double Value(string name, bool optional = false)
+            {
+                var text = Convert.ToString(row.Cells[name].Value)?.Trim();
+                if (optional && string.IsNullOrEmpty(text)) return double.NaN;
+                if (!double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var value) &&
+                    !double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
+                    throw new InvalidOperationException($"Frequency plan row {row.Index + 1} contains an invalid value in {row.Cells[name].OwningColumn?.HeaderText ?? name}.");
+                return value;
+            }
+            var start = Value(selectedMatchingKind == MatchingDesignKind.MultiFrequency ? "frequency" : "start") * 1e6;
+            var stop = selectedMatchingKind == MatchingDesignKind.MultiFrequency ? start : Value("stop") * 1e6;
+            var output = Value("rlout", optional: true);
+            bands.Add(new MatchingBand(start, stop, Value("rlin"), double.IsNaN(output) ? null : output, Value("il"), Value("weight")));
+        }
+        return bands;
+    }
+
+    private double SelectedReferenceFrequency(IReadOnlyList<MatchingBand>? parsedBands = null)
+    {
+        if (selectedMode != AttenuationDesignMode.ImpedanceMatching || selectedMatchingKind == MatchingDesignKind.SingleFrequency)
+            return designFrequency.ValueBaseUnit;
+        var bands = parsedBands ?? ReadMatchingBands();
+        if (bands.Count == 0) return designFrequency.ValueBaseUnit;
+        return Math.Sqrt(bands.Min(band => band.StartFrequencyHz) * bands.Max(band => band.StopFrequencyHz));
+    }
+
+    private void UpdateFrequencySettingsLayout(bool distributed)
+    {
+        if (frequencySettingsGrid is null || designFrequencyLabel is null || sweepPointsLabel is null || sweepTypeLabel is null) return;
+        frequencySettingsGrid.SuspendLayout();
+        try
+        {
+            if (distributed)
+            {
+                frequencySettingsGrid.SetCellPosition(designFrequencyLabel, new TableLayoutPanelCellPosition(0, 3));
+                frequencySettingsGrid.SetCellPosition(designFrequency, new TableLayoutPanelCellPosition(1, 3));
+                if (startFrequencyLabel is not null)
+                    frequencySettingsGrid.SetCellPosition(startFrequencyLabel, new TableLayoutPanelCellPosition(0, 0));
+                frequencySettingsGrid.SetCellPosition(startFrequency, new TableLayoutPanelCellPosition(1, 0));
+                if (stopFrequencyLabel is not null)
+                    frequencySettingsGrid.SetCellPosition(stopFrequencyLabel, new TableLayoutPanelCellPosition(2, 0));
+                frequencySettingsGrid.SetCellPosition(stopFrequency, new TableLayoutPanelCellPosition(3, 0));
+                frequencySettingsGrid.SetCellPosition(sweepPointsLabel, new TableLayoutPanelCellPosition(0, 1));
+                frequencySettingsGrid.SetCellPosition(sweepPoints, new TableLayoutPanelCellPosition(1, 1));
+                frequencySettingsGrid.SetCellPosition(sweepTypeLabel, new TableLayoutPanelCellPosition(2, 1));
+                frequencySettingsGrid.SetCellPosition(sweepType, new TableLayoutPanelCellPosition(3, 1));
+            }
+            else
+            {
+                frequencySettingsGrid.SetCellPosition(designFrequencyLabel, new TableLayoutPanelCellPosition(0, 0));
+                frequencySettingsGrid.SetCellPosition(designFrequency, new TableLayoutPanelCellPosition(1, 0));
+                frequencySettingsGrid.SetCellPosition(sweepPointsLabel, new TableLayoutPanelCellPosition(2, 0));
+                frequencySettingsGrid.SetCellPosition(sweepPoints, new TableLayoutPanelCellPosition(3, 0));
+                if (startFrequencyLabel is not null)
+                    frequencySettingsGrid.SetCellPosition(startFrequencyLabel, new TableLayoutPanelCellPosition(0, 1));
+                frequencySettingsGrid.SetCellPosition(startFrequency, new TableLayoutPanelCellPosition(1, 1));
+                if (stopFrequencyLabel is not null)
+                    frequencySettingsGrid.SetCellPosition(stopFrequencyLabel, new TableLayoutPanelCellPosition(2, 1));
+                frequencySettingsGrid.SetCellPosition(stopFrequency, new TableLayoutPanelCellPosition(3, 1));
+                frequencySettingsGrid.SetCellPosition(sweepTypeLabel, new TableLayoutPanelCellPosition(0, 2));
+                frequencySettingsGrid.SetCellPosition(sweepType, new TableLayoutPanelCellPosition(1, 2));
+            }
+        }
+        finally
+        {
+            frequencySettingsGrid.ResumeLayout(true);
+        }
+    }
+
+    private void UpdateAutomaticSweepRange(IReadOnlyList<MatchingBand>? parsedBands = null)
+    {
+        if (selectedMode != AttenuationDesignMode.ImpedanceMatching || selectedMatchingKind == MatchingDesignKind.SingleFrequency) return;
+        try
+        {
+            var bands = parsedBands ?? ReadMatchingBands();
+            if (bands.Count == 0) return;
+            var targetMinimum = bands.Min(band => band.StartFrequencyHz);
+            var targetMaximum = bands.Max(band => band.StopFrequencyHz);
+            double automaticStart;
+            double automaticStop;
+            if (targetMaximum <= targetMinimum * (1 + 1e-12))
+            {
+                automaticStart = targetMinimum * .8;
+                automaticStop = targetMaximum * 1.25;
+            }
+            else
+            {
+                var marginRatio = Math.Exp(Math.Max(.06, Math.Log(targetMaximum / targetMinimum) * .08));
+                automaticStart = targetMinimum / marginRatio;
+                automaticStop = targetMaximum * marginRatio;
+            }
+
+            double? measuredMinimum = null;
+            double? measuredMaximum = null;
+            var vnaTables = new[] { sourceVnaPoints, loadVnaPoints }.Where(table => table is { Count: >= 2 }).ToArray();
+            if (vnaTables.Length > 0)
+            {
+                measuredMinimum = vnaTables.Max(table => table![0].FrequencyHz);
+                measuredMaximum = vnaTables.Min(table => table![^1].FrequencyHz);
+                if (measuredMinimum <= targetMinimum && measuredMaximum >= targetMaximum)
+                {
+                    automaticStart = Math.Max(automaticStart, measuredMinimum.Value);
+                    automaticStop = Math.Min(automaticStop, measuredMaximum.Value);
+                }
+            }
+
+            const double preferredStepHz = 10e6;
+            const double fallbackStepHz = 1e6;
+            var roundedStart = Math.Round(automaticStart / preferredStepHz, MidpointRounding.AwayFromZero) * preferredStepHz;
+            var roundedStop = Math.Round(automaticStop / preferredStepHz, MidpointRounding.AwayFromZero) * preferredStepHz;
+            if (roundedStart <= 0 || roundedStart > targetMinimum)
+                roundedStart = Math.Floor(targetMinimum / fallbackStepHz) * fallbackStepHz;
+            if (roundedStart <= 0)
+                roundedStart = Math.Max(1, Math.Min(automaticStart, targetMinimum));
+            if (roundedStop < targetMaximum)
+                roundedStop = Math.Ceiling(targetMaximum / preferredStepHz) * preferredStepHz;
+            if (roundedStop <= roundedStart)
+                roundedStop = Math.Ceiling(automaticStop / preferredStepHz) * preferredStepHz;
+            if (roundedStop <= roundedStart)
+                roundedStop = roundedStart + preferredStepHz;
+
+            if (measuredMinimum is not null && measuredMaximum is not null &&
+                measuredMinimum <= targetMinimum && measuredMaximum >= targetMaximum)
+            {
+                roundedStart = Math.Max(roundedStart, measuredMinimum.Value);
+                roundedStop = Math.Min(roundedStop, measuredMaximum.Value);
+            }
+            startFrequency.ValueBaseUnit = Math.Min(roundedStart, targetMinimum);
+            stopFrequency.ValueBaseUnit = Math.Max(roundedStop, targetMaximum);
+        }
+        catch (InvalidOperationException)
+        {
+            // A cell may be temporarily incomplete while the user is editing.
+        }
     }
 
     private void RefreshCandidates()
@@ -700,19 +938,40 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         if (result is null) { outputStatus.Text = "No design."; netlistView.Text = string.Empty; reportView.DocumentText = string.Empty; return; }
         foreach (var candidate in result.Candidates)
         {
-            var attenuation = Math.Abs(candidate.Metrics.AttenuationDb) < 1e-6 ? "0" : candidate.Metrics.AttenuationDb.ToString("0.###");
-            var inputReturnLoss = double.IsFinite(candidate.Metrics.InputReturnLossDb) ? candidate.Metrics.InputReturnLossDb.ToString("0.#") : "N/A";
+            var bandMetrics = candidate.Sweep.BandMetrics;
+            var attenuationValue = bandMetrics.Count > 0 ? bandMetrics.Max(item => item.MaximumInsertionLossDb) : candidate.Metrics.AttenuationDb;
+            var inputValue = bandMetrics.Count > 0 ? bandMetrics.Min(item => item.WorstInputReturnLossDb) : candidate.Metrics.InputReturnLossDb;
+            var outputValue = bandMetrics.Count > 0 ? bandMetrics.Min(item => item.WorstOutputReturnLossDb) : candidate.Metrics.OutputReturnLossDb;
+            var attenuation = Math.Abs(attenuationValue) < 1e-6 ? "0" : attenuationValue.ToString("0.###");
+            var inputReturnLoss = double.IsFinite(inputValue) ? inputValue.ToString("0.#") : "N/A";
+            var outputReturnLoss = double.IsFinite(outputValue) ? outputValue.ToString("0.#") : "N/A";
+            var planStatus = bandMetrics.Count == 0 ? "—" : bandMetrics.All(item => item.Passed) ? "Pass" : "Fail";
             var index = candidateGrid.Rows.Add(candidate.Rank, candidate.TopologyName, candidate.Status.ToString(), candidate.Components.Count,
-                attenuation, inputReturnLoss);
+                attenuation, inputReturnLoss, outputReturnLoss, planStatus);
             candidateGrid.Rows[index].Tag = candidate;
         }
-        selectedIndex = Math.Clamp(selectedIndex, 0, Math.Max(0, result.Candidates.Count - 1));
-        if (candidateGrid.Rows.Count > 0) candidateGrid.Rows[selectedIndex].Selected = true;
+        var selectableIndex = result.Candidates.ToList().FindIndex(candidate => candidate.Status != DesignStatus.Failed);
+        selectedIndex = selectableIndex;
+        if (selectableIndex >= 0 && candidateGrid.Rows.Count > selectableIndex)
+            candidateGrid.Rows[selectableIndex].Selected = true;
+        else
+            candidateGrid.ClearSelection();
         if (candidateGrid.Rows.Count == 0)
         {
             outputStatus.Text = result.Message;
             netlistView.Text = string.Empty;
             reportView.DocumentText = string.Empty;
+        }
+        if (selectableIndex < 0)
+        {
+            outputStatus.Text = result.Message;
+            schematicView.Document = null;
+            responsePlot.Sweep = null;
+            smithChart.Sweep = null;
+            componentGrid.Rows.Clear();
+            netlistView.Text = string.Empty;
+            reportView.DocumentText = string.Empty;
+            return;
         }
         SelectCandidate();
     }
@@ -727,9 +986,11 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             schematicView.Zoom = 1.0;
             responsePlot.Sweep = candidate.Sweep;
             responsePlot.DesignFrequencyHz = result?.Request.DesignFrequencyHz ?? 0;
+            responsePlot.Request = result?.Request;
             smithChart.Sweep = candidate.Sweep;
             smithChart.ReferenceImpedanceOhm = candidate.Metrics.SourceImpedance.Real > 0 ? candidate.Metrics.SourceImpedance.Real : 50;
             smithChart.DesignFrequencyHz = result?.Request.DesignFrequencyHz ?? 0;
+            smithChart.Request = result?.Request;
             UpdatePreviewTabs(candidate);
             componentGrid.Rows.Clear();
             foreach (var component in candidate.Components)
@@ -793,6 +1054,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         outputSchematic.Zoom = 1.0;
         outputResponse.Sweep = selected.Sweep;
         outputResponse.DesignFrequencyHz = result?.Request.DesignFrequencyHz ?? 0;
+        outputResponse.Request = result?.Request;
         outputSpice.Text = new AttenuationMatchingSpiceExportService().ExportDesign(selected, result!.Request);
     }
     private void ExportNetlist(SpiceNetlistDialect dialect)
@@ -895,13 +1157,82 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     {
         var mode = SelectedMode();
         attenuationGroup.Visible = mode is AttenuationDesignMode.Attenuation;
-        matchingGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching;
+        matchingGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching && selectedMatchingKind == MatchingDesignKind.SingleFrequency;
         if (frequencyGroup is not null) frequencyGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching;
         if (resistorGroup is not null) resistorGroup.Visible = mode is AttenuationDesignMode.Attenuation;
         if (capacitorGroup is not null) capacitorGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching;
         if (inductorGroup is not null) inductorGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching;
+        var distributed = mode == AttenuationDesignMode.ImpedanceMatching && selectedMatchingKind != MatchingDesignKind.SingleFrequency;
+        matchingPlanPanel.Visible = distributed;
+        designFrequency.Visible = !distributed;
+        if (designFrequencyLabel is not null) designFrequencyLabel.Visible = !distributed;
+        startFrequency.Visible = true;
+        stopFrequency.Visible = true;
+        if (startFrequencyLabel is not null) startFrequencyLabel.Visible = true;
+        if (stopFrequencyLabel is not null) stopFrequencyLabel.Visible = true;
+        UpdateFrequencySettingsLayout(distributed);
+        targetBandwidth.Enabled = !distributed;
         UpdatePortControls();
         UpdateTopologyFamilies();
+    }
+
+    private void ConfigureMatchingPlanGrid()
+    {
+        if (matchingPlanGrid.IsDisposed) return;
+        var existingKind = matchingPlanGrid.Tag is MatchingDesignKind kind ? kind : (MatchingDesignKind?)null;
+        // Do not query Control.Visible here: mode selection happens while the
+        // Source & Load page is hidden, and WinForms then reports child controls
+        // as not visible even when their local Visible flag is true.
+        var shouldShow = selectedMode == AttenuationDesignMode.ImpedanceMatching && selectedMatchingKind != MatchingDesignKind.SingleFrequency;
+        matchingPlanPanel.Visible = shouldShow;
+        if (!shouldShow || existingKind == selectedMatchingKind) return;
+        configuringMatchingPlanGrid = true;
+        try
+        {
+            matchingPlanGrid.Columns.Clear();
+            matchingPlanGrid.Rows.Clear();
+            if (selectedMatchingKind == MatchingDesignKind.MultiFrequency)
+            {
+                matchingPlanGrid.Columns.Add("frequency", "Frequency (MHz)");
+                matchingPlanHint.Text = "Multi-frequency targets — enter one frequency per row; use the blank last row to add another point.";
+            }
+            else
+            {
+                matchingPlanGrid.Columns.Add("start", "Start (MHz)");
+                matchingPlanGrid.Columns.Add("stop", "Stop (MHz)");
+                matchingPlanHint.Text = "Broadband targets — enter the start and stop frequency of each required band.";
+            }
+            matchingPlanGrid.Columns.Add("rlin", "Min RL In (dB)");
+            matchingPlanGrid.Columns.Add("rlout", "Min RL Out (dB)");
+            matchingPlanGrid.Columns.Add("il", "Max IL (dB)");
+            matchingPlanGrid.Columns.Add("weight", "Weight");
+            if (selectedMatchingKind == MatchingDesignKind.MultiFrequency)
+            {
+                matchingPlanGrid.Rows.Add(10d, (double)matchingInputRl.Value, (double)matchingOutputRl.Value, (double)maximumInsertionLoss.Value, 1d);
+                matchingPlanGrid.Rows.Add(20d, (double)matchingInputRl.Value, (double)matchingOutputRl.Value, (double)maximumInsertionLoss.Value, 1d);
+            }
+            else
+                matchingPlanGrid.Rows.Add(10d, 20d, (double)matchingInputRl.Value, (double)matchingOutputRl.Value, (double)maximumInsertionLoss.Value, 1d);
+            matchingPlanGrid.Tag = selectedMatchingKind;
+        }
+        finally
+        {
+            configuringMatchingPlanGrid = false;
+        }
+        UpdateAutomaticSweepRange();
+    }
+
+    private void MatchingPlanChanged(DataGridViewCellEventArgs? eventArgs = null)
+    {
+        if (configuringMatchingPlanGrid) return;
+        var frequencyChanged = eventArgs is null;
+        if (eventArgs is { ColumnIndex: >= 0 } && eventArgs.ColumnIndex < matchingPlanGrid.Columns.Count)
+        {
+            var columnName = matchingPlanGrid.Columns[eventArgs.ColumnIndex].Name;
+            frequencyChanged = columnName is "frequency" or "start" or "stop";
+        }
+        if (frequencyChanged) UpdateAutomaticSweepRange();
+        MarkStale();
     }
 
     private void UpdateTopologyFamilies()
@@ -911,6 +1242,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         var families = SelectedMode() switch
         {
             AttenuationDesignMode.Attenuation => new[] { TopologyFamily.TPads, TopologyFamily.PiPads, TopologyFamily.LPads, TopologyFamily.CascadedPads },
+            AttenuationDesignMode.ImpedanceMatching when selectedMatchingKind != MatchingDesignKind.SingleFrequency => new[] { TopologyFamily.PiMatching, TopologyFamily.TMatching },
             _ => new[] { TopologyFamily.LMatching, TopologyFamily.PiMatching, TopologyFamily.TMatching }
         };
         topologyFamily.Items.Clear();
@@ -986,11 +1318,13 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             table.ColumnStyles[column] = new ColumnStyle(SizeType.Absolute, width);
         }
     }
-    private static void AddPair(TableLayoutPanel table, int column, int row, string label, Control control)
+    private static Label AddPair(TableLayoutPanel table, int column, int row, string label, Control control)
     {
-        table.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(4, 7, 4, 0) }, column, row);
+        var caption = new Label { Text = label, AutoSize = true, Margin = new Padding(4, 7, 4, 0) };
+        table.Controls.Add(caption, column, row);
 
         table.Controls.Add(control, column + 1, row);
+        return caption;
     }
     private static DataGridView Grid()
     {

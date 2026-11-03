@@ -16,6 +16,7 @@ public sealed class AttenuationMatchingDesignEngine
 {
     private readonly CandidateSelectionEngine candidates = new();
     private readonly StandardValueOptimizer optimizer = new();
+    private readonly BroadbandMatchingOptimizer broadbandOptimizer = new();
     private readonly AttenuationMatchingCircuitVerifier verifier = new();
     private readonly TwoPortNetworkAnalyzer analyzer = new();
 
@@ -60,7 +61,11 @@ public sealed class AttenuationMatchingDesignEngine
             if (attempt.Topology is null) continue;
             index++;
             OptimizedNetwork optimized;
-            try { optimized = optimizer.Optimize(attempt.Topology, normalized); }
+            try
+            {
+                var multiPointTopology = broadbandOptimizer.Optimize(attempt.Topology, normalized);
+                optimized = optimizer.Optimize(multiPointTopology, normalized);
+            }
             catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or ArithmeticException)
             {
                 attemptFailures.Add(new("SYNTHESIS_FAILED", DiagnosticSeverity.Warning,
@@ -92,6 +97,7 @@ public sealed class AttenuationMatchingDesignEngine
                     $"{attempt.Name} failed independent verification: {exception.Message}", "Topology", null, null, "Try another topology."));
                 continue;
             }
+            var planningWarnings = validation.Where(item => item.Code == "FANO_BANDWIDTH_SCREEN").ToArray();
             var candidate = new TopologyCandidate
             {
                 Id = initial.Id,
@@ -103,11 +109,13 @@ public sealed class AttenuationMatchingDesignEngine
                 Components = verification.Components,
                 Metrics = verification.Metrics,
                 Sweep = verification.Sweep,
-                Diagnostics = [.. verification.Diagnostics],
+                Diagnostics = [.. verification.Diagnostics, .. planningWarnings],
                 IsStandardValueDesign = initial.IsStandardValueDesign,
                 TopologyDescription = initial.TopologyDescription,
                 LimitNote = initial.LimitNote,
-                Status = verification.Status,
+                Status = planningWarnings.Length > 0 && verification.Status == DesignStatus.Supported
+                    ? DesignStatus.Warning
+                    : verification.Status,
                 StatusMessage = verification.Status switch
                 {
                     DesignStatus.Supported => "All hard constraints pass independent final-graph verification.",
@@ -142,6 +150,21 @@ public sealed class AttenuationMatchingDesignEngine
             .Take(normalized.Components.MaximumCandidateCount)
             .ToList();
         for (var rank = 0; rank < built.Count; rank++) built[rank].Rank = rank + 1;
+        if (built.All(candidate => candidate.Status == DesignStatus.Failed))
+        {
+            var bestFailure = built[0];
+            return new AttenuationMatchingDesignResult
+            {
+                Request = normalized,
+                Status = DesignStatus.Failed,
+                Message = normalized.MatchingPlan.Kind == MatchingDesignKind.SingleFrequency
+                    ? "No topology passed independent verification. Failed trials are retained for diagnostics only."
+                    : "No Pi/T topology meets all multi-frequency/broadband targets. Failed trials are retained for diagnostics only; no topology is selected.",
+                Candidates = built,
+                SelectedIndex = -1,
+                Diagnostics = bestFailure.Diagnostics.Concat(attemptFailures).Concat(validation).ToArray()
+            };
+        }
         var selected = built[0];
         var status = selected.Status;
         var message = status switch
@@ -150,7 +173,7 @@ public sealed class AttenuationMatchingDesignEngine
             DesignStatus.Warning => $"Selected {selected.TopologyName} with warnings: {selected.StatusMessage}",
             _ => $"No supported candidate; best failed candidate is {selected.TopologyName}: {selected.StatusMessage}"
         };
-        var diagnostics = selected.Diagnostics.Concat(attemptFailures).ToArray();
+        var diagnostics = selected.Diagnostics.Concat(attemptFailures).Concat(validation.Where(item => item.Severity == DiagnosticSeverity.Warning)).ToArray();
         return new AttenuationMatchingDesignResult
         {
             Request = normalized,
@@ -214,18 +237,32 @@ public sealed class AttenuationMatchingDesignEngine
     }
     private static double Score(TopologyCandidate candidate, AttenuationMatchingDesignRequest request)
     {
+        var distributed = request.Mode is DesignMode.ImpedanceMatching && request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency;
         var attenuationError = request.Mode is DesignMode.Attenuation
             ? Math.Abs(candidate.Metrics.AttenuationDb - request.Attenuation.TargetAttenuationDb)
             : 0;
-        var inputMiss = Math.Max(0, (request.Mode is DesignMode.ImpedanceMatching
+        var inputMiss = !distributed ? Math.Max(0, (request.Mode is DesignMode.ImpedanceMatching
             ? request.Matching.TargetInputReturnLossDb
-            : request.Attenuation.MinimumInputReturnLossDb) - candidate.Metrics.InputReturnLossDb);
-        var outputMiss = Math.Max(0, (request.Mode is DesignMode.ImpedanceMatching
+            : request.Attenuation.MinimumInputReturnLossDb) - candidate.Metrics.InputReturnLossDb) : 0;
+        var outputMiss = !distributed ? Math.Max(0, (request.Mode is DesignMode.ImpedanceMatching
             ? request.Matching.TargetOutputReturnLossDb ?? 0
-            : request.Attenuation.MinimumOutputReturnLossDb) - candidate.Metrics.OutputReturnLossDb);
-        var bandwidthShortfall = request.Matching.TargetBandwidthHz > 0 && (request.Mode is DesignMode.ImpedanceMatching)
+            : request.Attenuation.MinimumOutputReturnLossDb) - candidate.Metrics.OutputReturnLossDb) : 0;
+        var bandwidthShortfall = !distributed && request.Matching.TargetBandwidthHz > 0 && (request.Mode is DesignMode.ImpedanceMatching)
             ? Math.Max(0, request.Matching.TargetBandwidthHz - (candidate.Sweep.BandwidthHz ?? 0)) / Math.Max(1, request.Matching.TargetBandwidthHz)
             : 0;
+        var planPenalty = 0d;
+        if (distributed)
+        {
+            var bands = request.MatchingPlan.EffectiveBands(request);
+            foreach (var metrics in candidate.Sweep.BandMetrics.Where(item => item.BandIndex >= 0 && item.BandIndex < bands.Count))
+            {
+                var band = bands[metrics.BandIndex];
+                planPenalty += Math.Max(0, band.TargetInputReturnLossDb - metrics.WorstInputReturnLossDb)
+                    + Math.Max(0, (band.TargetOutputReturnLossDb ?? 0) - metrics.WorstOutputReturnLossDb)
+                    + Math.Max(0, metrics.MaximumInsertionLossDb - band.MaximumInsertionLossDb);
+                if (!metrics.Passed) planPenalty += 20;
+            }
+        }
         var objective = request.Objective switch
         {
             OptimizationObjective.BestAttenuationAccuracy => attenuationError * 20 + inputMiss + outputMiss,
@@ -236,6 +273,5 @@ public sealed class AttenuationMatchingDesignEngine
             OptimizationObjective.MinimumComponentStress => candidate.Metrics.MaximumResistorDissipationWatt * 100 + attenuationError,
             _ => attenuationError * 5 + inputMiss * 2 + outputMiss * 2 + bandwidthShortfall * 5 + candidate.Components.Count * .05
         };
-        return (candidate.Status == DesignStatus.Failed ? 10000 : 0) + objective;
-    }
-}
+        return (candidate.Status == DesignStatus.Failed ? 10000 : 0) + objective + planPenalty * 10;
+    }}

@@ -6,14 +6,20 @@ using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Topology;
 
 namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Analysis;
 
+public sealed record ComponentStress(double VoltageRms, double CurrentRms)
+{
+    public double VoltagePeak => Math.Sqrt(2) * VoltageRms;
+    public double CurrentPeak => Math.Sqrt(2) * CurrentRms;
+}
+
 public sealed record NetworkSolution(
     NetworkMetrics Metrics,
     Complex InputVoltage,
     Complex OutputVoltage,
     Complex InputCurrent,
     Complex LoadCurrent,
-    IReadOnlyDictionary<string, double> ResistorDissipationWatt);
-
+    IReadOnlyDictionary<string, double> ResistorDissipationWatt,
+    IReadOnlyDictionary<string, ComponentStress>? ComponentStress = null);
 /// <summary>
 /// Independent nodal (MNA) analysis of the final passive CircuitGraph. The design
 /// synthesizer never supplies cached performance values to this service.
@@ -67,8 +73,8 @@ public sealed class TwoPortNetworkAnalyzer
         var inputReturnLoss = ReturnLoss(gammaIn);
         var outputReturnLoss = ReturnLoss(gammaOut);
         var warnings = new List<string>();
-        if (request.Source.IsFrequencyDependent) warnings.Add("The source uses a frequency-dependent series R-L/R-C port model; reactance is swept with frequency.");
-        if (request.Load.IsFrequencyDependent) warnings.Add("The load uses a frequency-dependent series R-L/R-C port model; reactance is swept with frequency.");
+        if (request.Source.IsFrequencyDependent) warnings.Add("The source uses a frequency-dependent impedance model evaluated at every analysis frequency.");
+        if (request.Load.IsFrequencyDependent) warnings.Add("The load uses a frequency-dependent impedance model evaluated at every analysis frequency.");
 
         double? s11 = null, s21 = null, s22 = null, matchedAttenuation = null;
         if (Math.Abs(source.Imaginary) < 1e-12 && Math.Abs(load.Imaginary) < 1e-12 && includeSWeepWarnings)
@@ -87,6 +93,7 @@ public sealed class TwoPortNetworkAnalyzer
         var vswrIn = Math.Abs(source.Imaginary) < 1e-12 ? Vswr(gammaIn) : null;
         var vswrOut = Math.Abs(load.Imaginary) < 1e-12 ? Vswr(gammaOut) : null;
         var dissipation = ResistorDissipation(graph, nodes, index, solution);
+        var stress = ComponentStressAt(graph, nodes, index, solution, frequencyHz);
         var totalDissipation = dissipation.Values.Sum();
         var maximumDissipation = dissipation.Count == 0 ? 0 : dissipation.Values.Max();
         var passive = transducerGain <= 1 + 1e-7 && totalDissipation >= -1e-12;
@@ -116,7 +123,7 @@ public sealed class TwoPortNetworkAnalyzer
             IsPassive = passive,
             Warnings = warnings
         };
-        return new NetworkSolution(metrics, inputVoltage, outputVoltage, inputCurrent, loadCurrent, dissipation);
+        return new NetworkSolution(metrics, inputVoltage, outputVoltage, inputCurrent, loadCurrent, dissipation, stress);
     }
 
     public AcSweepResult Sweep(CircuitGraph graph, AttenuationMatchingDesignRequest request)
@@ -139,8 +146,8 @@ public sealed class TwoPortNetworkAnalyzer
         var designIndex = NearestIndex(results.Select(result => result.Point.FrequencyHz).ToArray(), request.DesignFrequencyHz);
         // The design point itself must satisfy the same gate before a band can be reported.
         if (designIndex < 0 || !BandwidthPass(results[designIndex].Point, request))
-            return new AcSweepResult(results.Select(result => result.Point).ToArray(), null, null, null, null, false,
-                ["The design-frequency point does not meet the matching/insertion-loss gate; no valid matching bandwidth is reported."]);
+            return WithBandMetrics(new AcSweepResult(results.Select(result => result.Point).ToArray(), null, null, null, null, false,
+                ["The design-frequency point does not meet the matching/insertion-loss gate; no valid matching bandwidth is reported."]), graph, request);
 
         var lower = designIndex;
         while (lower > 0 && BandwidthPass(results[lower - 1].Point, request)) lower--;
@@ -153,7 +160,14 @@ public sealed class TwoPortNetworkAnalyzer
         double? loadedQ = bandwidth > 0 ? request.DesignFrequencyHz / bandwidth : null;
         var warnings = new List<string>();
         if (limited) warnings.Add("The reported matching bandwidth touches a sweep boundary; it is not a device bandwidth limit.");
-        return new AcSweepResult(results.Select(result => result.Point).ToArray(), lowerEdge, upperEdge, bandwidth, loadedQ, limited, warnings);
+        return WithBandMetrics(new AcSweepResult(results.Select(result => result.Point).ToArray(), lowerEdge, upperEdge, bandwidth, loadedQ, limited, warnings), graph, request);
+    }
+
+    private static AcSweepResult WithBandMetrics(AcSweepResult sweep, CircuitGraph graph, AttenuationMatchingDesignRequest request)
+    {
+        if (request.Mode != DesignMode.ImpedanceMatching) return sweep;
+        var evaluation = new MatchingPlanEvaluator().Evaluate(graph, request, request.MatchingPlan.MinimumPointsPerBand);
+        return sweep with { BandMetrics = evaluation.Bands };
     }
 
     private static bool BandwidthPass(AcSweepPoint point, AttenuationMatchingDesignRequest request)
@@ -184,6 +198,11 @@ public sealed class TwoPortNetworkAnalyzer
                 : start + (stop - start) * fraction);
         }
         points.Add(request.DesignFrequencyHz);
+        if (request.Mode == DesignMode.ImpedanceMatching)
+        {
+            foreach (var band in request.MatchingPlan.EffectiveBands(request))
+                points.AddRange(MatchingPlanEvaluator.Frequencies(band, request.MatchingPlan.MinimumPointsPerBand));
+        }
         // A user sweep can be coarse (for example 121 points over two decades).
         // Add a deterministic local grid around the match point so a narrow but
         // real matching band is not collapsed to a single sample.
@@ -258,6 +277,38 @@ public sealed class TwoPortNetworkAnalyzer
         return Solve(matrix, right)[outputNode];
     }
 
+    private static IReadOnlyDictionary<string, ComponentStress> ComponentStressAt(CircuitGraph graph, IReadOnlyList<string> nodes,
+        IReadOnlyDictionary<string, int> index, Complex[] solution, double frequencyHz)
+    {
+        var result = new Dictionary<string, ComponentStress>(StringComparer.OrdinalIgnoreCase);
+        var omega = 2 * Math.PI * frequencyHz;
+        foreach (var component in graph.Components)
+        {
+            var first = NodeIndex(graph.GetNetForPin(component.GetPin("1"))?.Name, index);
+            var second = NodeIndex(graph.GetNetForPin(component.GetPin("2"))?.Name, index);
+            var firstVoltage = first >= 0 ? solution[first] : Complex.Zero;
+            var secondVoltage = second >= 0 ? solution[second] : Complex.Zero;
+            var voltage = firstVoltage - secondVoltage;
+            Complex impedance;
+            switch (component.Type)
+            {
+                case ComponentType.Resistor:
+                    impedance = new Complex(component.Parameters.GetRequiredValue(ComponentParameterNames.ResistanceOhm), 0);
+                    break;
+                case ComponentType.Capacitor:
+                    impedance = new Complex(0, -1 / (omega * component.Parameters.GetRequiredValue(ComponentParameterNames.CapacitanceFarad)));
+                    break;
+                case ComponentType.Inductor:
+                    impedance = new Complex(0, omega * component.Parameters.GetRequiredValue(ComponentParameterNames.InductanceHenry));
+                    break;
+                default:
+                    continue;
+            }
+            var current = voltage / impedance;
+            result[component.Reference] = new ComponentStress(voltage.Magnitude, current.Magnitude);
+        }
+        return result;
+    }
     private static IReadOnlyDictionary<string, double> ResistorDissipation(CircuitGraph graph, IReadOnlyList<string> nodes, IReadOnlyDictionary<string, int> index, Complex[] solution)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);

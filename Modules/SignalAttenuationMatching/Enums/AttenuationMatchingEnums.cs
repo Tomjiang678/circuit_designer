@@ -6,6 +6,14 @@ public enum DesignMode
     ImpedanceMatching
 }
 
+/// <summary>Defines how impedance-matching targets are distributed in frequency.</summary>
+public enum MatchingDesignKind
+{
+    SingleFrequency,
+    MultiFrequency,
+    Broadband
+}
+
 public enum TopologyFamily
 {
     DirectConnection,
@@ -29,7 +37,8 @@ public enum PortImpedanceType
 {
     PureResistance,
     SeriesRL,
-    SeriesRC
+    SeriesRC,
+    Vna
 }
 
 public enum OptimizationObjective

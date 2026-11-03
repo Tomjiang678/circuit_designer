@@ -33,6 +33,7 @@ public sealed class AttenuationMatchingJsonReportBuilder
                 Signal = new { Value = result.Request.Signal.Value, Unit = result.Request.Signal.Unit.ToString(), Description = result.Request.Signal.Description },
                 Attenuation = result.Request.Attenuation,
                 Matching = result.Request.Matching,
+                MatchingPlan = result.Request.MatchingPlan,
                 Components = result.Request.Components,
                 Topology = result.Request.Topology,
                 result.Request.Objective
@@ -48,7 +49,7 @@ public sealed class AttenuationMatchingJsonReportBuilder
                 candidate.StatusMessage,
                 ComponentCount = candidate.Components.Count,
                 Metrics = Metrics(candidate.Metrics),
-                Sweep = new { candidate.Sweep.LowerBandEdgeHz, candidate.Sweep.UpperBandEdgeHz, candidate.Sweep.BandwidthHz, candidate.Sweep.LoadedQ, candidate.Sweep.BandwidthLimitedBySweep, candidate.Sweep.Warnings },
+                Sweep = new { candidate.Sweep.LowerBandEdgeHz, candidate.Sweep.UpperBandEdgeHz, candidate.Sweep.BandwidthHz, candidate.Sweep.LoadedQ, candidate.Sweep.BandwidthLimitedBySweep, candidate.Sweep.Warnings, candidate.Sweep.BandMetrics },
                 candidate.Score
             }).ToArray(),
             Selected = selected is null ? null : new
@@ -76,13 +77,15 @@ public sealed class AttenuationMatchingJsonReportBuilder
                 Diagnostics = selected.Diagnostics,
                 Sweep = Sweep(selected.Sweep),
                 DesignNetlist = spice.ExportDesign(selected, result.Request),
-                TestbenchNetlist = spice.ExportTestbench(selected, result.Request)
+                TestbenchAvailable = AttenuationMatchingSpiceExportService.SupportsTestbench(result.Request),
+                TestbenchUnavailableReason = AttenuationMatchingSpiceExportService.SupportsTestbench(result.Request) ? null : AttenuationMatchingSpiceExportService.VnaTestbenchUnavailable,
+                TestbenchNetlist = AttenuationMatchingSpiceExportService.SupportsTestbench(result.Request) ? spice.ExportTestbench(selected, result.Request) : null
             },
             result.Diagnostics,
             Assumptions = new[]
             {
                 "Only ideal lumped R/L/C elements are modeled.",
-                "Series R-L/R-C port reactances are frequency-dependent; the design-frequency X selects the equivalent L or C. VNA imports are reduced to this design-frequency equivalent; the broadband measured curve is not fitted.",
+                "Series R-L/R-C port reactances are frequency-dependent. Full VNA port tables are interpolated across their measured range and do not have an automatic lumped SPICE testbench equivalent.",
                 "Source and load are external test conditions, not part of the design CircuitGraph.",
                 "Matching bandwidth is derived from the finite frequency sweep and the stated return-loss/insertion-loss gates.",
                 "No transmission lines, PCB parasitics, vendor component models or electromagnetic simulation are included."
@@ -144,6 +147,7 @@ public sealed class AttenuationMatchingJsonReportBuilder
         sweep.LoadedQ,
         sweep.BandwidthLimitedBySweep,
         sweep.Warnings,
+        sweep.BandMetrics,
         Points = sweep.Points.Select(point => new
         {
             point.FrequencyHz,

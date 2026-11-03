@@ -62,6 +62,7 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
 {
     private AcSweepResult? sweep;
     private double designFrequencyHz;
+    private AttenuationMatchingDesignRequest? request;
 
     public AttenuationMatchingResponsePlotControl()
     {
@@ -84,6 +85,13 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
     {
         get => designFrequencyHz;
         set { designFrequencyHz = value; Invalidate(); }
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public AttenuationMatchingDesignRequest? Request
+    {
+        get => request;
+        set { request = value; Invalidate(); }
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -126,7 +134,7 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
         }
 
         var attenuation = points.Select(point => point.AttenuationDb).Where(double.IsFinite).ToArray();
-        var returnLoss = points.Select(point => point.InputReturnLossDb).Where(double.IsFinite).ToArray();
+        var returnLoss = points.SelectMany(point => new[] { point.InputReturnLossDb, point.OutputReturnLossDb }).Where(double.IsFinite).ToArray();
         var attenuationMin = Math.Min(0, Math.Floor(attenuation.DefaultIfEmpty(0).Min() / 5) * 5);
         var attenuationMax = Math.Max(attenuationMin + 10, ChartTheme.NiceMaximum(attenuation.DefaultIfEmpty(10).Max() * 1.08));
         var returnLossMax = Math.Max(20, ChartTheme.NiceMaximum(returnLoss.DefaultIfEmpty(20).Max() * 1.05));
@@ -135,7 +143,13 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
         float YLoss(double value) => top + (float)((attenuationMax - Math.Clamp(value, attenuationMin, attenuationMax)) / (attenuationMax - attenuationMin) * height);
         float YRl(double value) => top + (float)((returnLossMax - Math.Clamp(value, 0, returnLossMax)) / returnLossMax * height);
 
-        g.DrawString("Frequency response", title, new SolidBrush(ChartTheme.Ink), left, 14);
+        var modeTitle = request?.Mode == CircuitModuleDesigner.Modules.SignalAttenuationMatching.Enums.DesignMode.ImpedanceMatching ? request.MatchingPlan.Kind switch
+        {
+            MatchingDesignKind.MultiFrequency => "Multi-frequency matching response",
+            MatchingDesignKind.Broadband => "Broadband matching response",
+            _ => "Single-frequency matching response"
+        } : "Frequency response";
+        g.DrawString(modeTitle, title, new SolidBrush(ChartTheme.Ink), left, 14);
 
         using var grid = new Pen(ChartTheme.Grid, 1);
         using var axis = new Pen(ChartTheme.Axis, 1.2f);
@@ -161,10 +175,29 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
         var plot = new RectangleF(left, top, width, height);
         var oldClip = g.Clip;
         g.SetClip(plot);
+        if (request?.Mode == CircuitModuleDesigner.Modules.SignalAttenuationMatching.Enums.DesignMode.ImpedanceMatching)
+        {
+            using var targetFill = new SolidBrush(Color.FromArgb(28, 34, 139, 94));
+            using var targetPen = new Pen(Color.FromArgb(52, 120, 74), 1.2f) { DashStyle = DashStyle.Dot };
+            foreach (var band in request.MatchingPlan.EffectiveBands(request))
+            {
+                if (band.StopFrequencyHz < points[0].FrequencyHz || band.StartFrequencyHz > points[^1].FrequencyHz) continue;
+                var x1 = X(Math.Clamp(band.StartFrequencyHz, points[0].FrequencyHz, points[^1].FrequencyHz));
+                var x2 = X(Math.Clamp(band.StopFrequencyHz, points[0].FrequencyHz, points[^1].FrequencyHz));
+                if (band.IsPoint)
+                    g.DrawLine(targetPen, x1, top, x1, top + height);
+                else
+                    g.FillRectangle(targetFill, Math.Min(x1, x2), top, Math.Max(2, Math.Abs(x2 - x1)), height);
+                g.DrawLine(targetPen, x1, YRl(band.TargetInputReturnLossDb), Math.Max(x1 + 1, x2), YRl(band.TargetInputReturnLossDb));
+                g.DrawLine(targetPen, x1, YLoss(band.MaximumInsertionLossDb), Math.Max(x1 + 1, x2), YLoss(band.MaximumInsertionLossDb));
+            }
+        }
         using var lossPen = new Pen(ChartTheme.Loss, 2.3f) { LineJoin = LineJoin.Round };
         using var rlPen = new Pen(ChartTheme.Accent, 2.1f) { LineJoin = LineJoin.Round, DashStyle = DashStyle.Dash };
+        using var rlOutPen = new Pen(Color.FromArgb(100, 116, 139), 1.8f) { LineJoin = LineJoin.Round, DashStyle = DashStyle.Dot };
         g.DrawLines(lossPen, points.Select(point => new PointF(X(point.FrequencyHz), YLoss(point.AttenuationDb))).ToArray());
         g.DrawLines(rlPen, points.Select(point => new PointF(X(point.FrequencyHz), YRl(point.InputReturnLossDb))).ToArray());
+        g.DrawLines(rlOutPen, points.Select(point => new PointF(X(point.FrequencyHz), YRl(point.OutputReturnLossDb))).ToArray());
         if (designFrequencyHz > 0 && designFrequencyHz >= points[0].FrequencyHz && designFrequencyHz <= points[^1].FrequencyHz)
         {
             using var design = new Pen(ChartTheme.Design, 1.3f) { DashStyle = DashStyle.Dash };
@@ -174,6 +207,16 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
             using var marker = new SolidBrush(ChartTheme.Design);
             g.FillEllipse(marker, x - 3.5f, YLoss(nearest.AttenuationDb) - 3.5f, 7, 7);
             g.FillEllipse(marker, x - 3.5f, YRl(nearest.InputReturnLossDb) - 3.5f, 7, 7);
+        }
+        if (sweep?.BandMetrics is { Count: > 0 })
+        {
+            foreach (var band in sweep.BandMetrics)
+            {
+                var nearest = points.MinBy(point => Math.Abs(Math.Log(point.FrequencyHz) - Math.Log(band.WorstFrequencyHz)))!;
+                using var marker = new SolidBrush(band.Passed ? Color.FromArgb(35, 130, 75) : Color.FromArgb(190, 45, 45));
+                var x = X(nearest.FrequencyHz); var y = YRl(nearest.InputReturnLossDb);
+                g.FillEllipse(marker, x - 4, y - 4, 8, 8);
+            }
         }
         g.Clip = oldClip;
 
@@ -185,11 +228,13 @@ public sealed class AttenuationMatchingResponsePlotControl : UserControl
         var legendX = left + 10;
         var legendY = top + 8;
         using var legendBack = new SolidBrush(Color.FromArgb(238, 255, 255, 255));
-        g.FillRectangle(legendBack, legendX - 3, legendY - 2, 160, 38);
+        g.FillRectangle(legendBack, legendX - 3, legendY - 2, 180, 55);
         g.DrawLine(lossPen, legendX, legendY + 6, legendX + 22, legendY + 6);
         g.DrawString("Attenuation", body, new SolidBrush(ChartTheme.Ink), legendX + 28, legendY - 2);
         g.DrawLine(rlPen, legendX, legendY + 22, legendX + 22, legendY + 22);
         g.DrawString("Input return loss", body, new SolidBrush(ChartTheme.Ink), legendX + 28, legendY + 14);
+        g.DrawLine(rlOutPen, legendX, legendY + 38, legendX + 22, legendY + 38);
+        g.DrawString("Output return loss", body, new SolidBrush(ChartTheme.Ink), legendX + 28, legendY + 30);
         if (cursor is { } pointer && pointer.X >= left && pointer.X <= left + width && pointer.Y >= top && pointer.Y <= top + height)
         {
             var frequency = Math.Pow(10, minLog + (pointer.X - left) / width * (maxLog - minLog));
@@ -212,6 +257,7 @@ public sealed class AttenuationMatchingSmithChartControl : UserControl
     private AcSweepResult? sweep;
     private double referenceImpedanceOhm = 50;
     private double designFrequencyHz;
+    private AttenuationMatchingDesignRequest? request;
 
     public AttenuationMatchingSmithChartControl()
     {
@@ -241,6 +287,13 @@ public sealed class AttenuationMatchingSmithChartControl : UserControl
     {
         get => designFrequencyHz;
         set { designFrequencyHz = value; Invalidate(); }
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public AttenuationMatchingDesignRequest? Request
+    {
+        get => request;
+        set { request = value; Invalidate(); }
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -298,6 +351,24 @@ public sealed class AttenuationMatchingSmithChartControl : UserControl
         {
             var circleRadius = (float)(radius * gamma);
             g.DrawEllipse(vswrGrid, cx - circleRadius, cy - circleRadius, circleRadius * 2, circleRadius * 2);
+        }
+
+        if (request?.Mode == CircuitModuleDesigner.Modules.SignalAttenuationMatching.Enums.DesignMode.ImpedanceMatching &&
+            request.MatchingPlan.Kind != MatchingDesignKind.SingleFrequency)
+        {
+            var requiredReturnLossDb = request.MatchingPlan.EffectiveBands(request)
+                .Max(band => band.TargetInputReturnLossDb);
+            var allowableGamma = Math.Pow(10, -requiredReturnLossDb / 20);
+            if (allowableGamma is > 0 and < 1 && double.IsFinite(allowableGamma))
+            {
+                var requirementRadius = (float)(radius * allowableGamma);
+                using var requirementPen = new Pen(Color.FromArgb(58, 118, 82), 1.7f)
+                {
+                    DashStyle = DashStyle.Dash
+                };
+                g.DrawEllipse(requirementPen, cx - requirementRadius, cy - requirementRadius,
+                    requirementRadius * 2, requirementRadius * 2);
+            }
         }
 
         foreach (var resistance in new[] { .2, .5, 1d, 2d, 5d })
