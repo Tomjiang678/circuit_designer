@@ -10,18 +10,20 @@ public static class DesignRequestValidator
     {
         ArgumentNullException.ThrowIfNull(request);
         var diagnostics = new List<AttenuationMatchingDiagnostic>();
+        var effectiveReferenceFrequency = request.DesignFrequencyHz;
+        var singleFrequencyMatching = request.Mode == DesignMode.ImpedanceMatching && request.MatchingPlan.Kind == MatchingDesignKind.SingleFrequency;
         void Error(string code, string description, string? parameter = null, double? actual = null, string? expected = null, string? action = null) =>
             diagnostics.Add(new(code, DiagnosticSeverity.Error, description, parameter, actual, expected, action));
 
         ValidatePort(request.Source, "Source", Error);
         ValidatePort(request.Load, "Load", Error);
-        if (!(request.DesignFrequencyHz > 0) || !double.IsFinite(request.DesignFrequencyHz))
-            Error("INVALID_DESIGN_FREQUENCY", "The design frequency must be finite and greater than zero.", "Design frequency", request.DesignFrequencyHz, "> 0 Hz", null);
+        if (!(effectiveReferenceFrequency > 0) || !double.IsFinite(effectiveReferenceFrequency))
+            Error("INVALID_DESIGN_FREQUENCY", "The design frequency must be finite and greater than zero.", "Design frequency", effectiveReferenceFrequency, "> 0 Hz", null);
         if (!(request.StartFrequencyHz > 0) || !(request.StopFrequencyHz > request.StartFrequencyHz) ||
             !double.IsFinite(request.StartFrequencyHz) || !double.IsFinite(request.StopFrequencyHz))
             Error("INVALID_SWEEP_RANGE", "The sweep range must be finite, positive and ordered.", "Start/stop frequency", null, "0 < start < stop");
-        if (request.DesignFrequencyHz < request.StartFrequencyHz || request.DesignFrequencyHz > request.StopFrequencyHz)
-            Error("DESIGN_FREQUENCY_OUTSIDE_SWEEP", "The design frequency must lie inside the sweep range.", "Design frequency", request.DesignFrequencyHz, $"{request.StartFrequencyHz:G6}..{request.StopFrequencyHz:G6} Hz");
+        if (singleFrequencyMatching && (effectiveReferenceFrequency < request.StartFrequencyHz || effectiveReferenceFrequency > request.StopFrequencyHz))
+            Error("DESIGN_FREQUENCY_OUTSIDE_SWEEP", "The design frequency must lie inside the sweep range.", "Design frequency", effectiveReferenceFrequency, $"{request.StartFrequencyHz:G6}..{request.StopFrequencyHz:G6} Hz");
         if (request.SweepPoints is < 21 or > 4001)
             Error("INVALID_SWEEP_POINTS", "The sweep point count must be between 21 and 4001.", "Sweep points", request.SweepPoints, "21..4001");
         if (!double.IsFinite(request.Signal.Value) || request.Signal.Value <= 0)
@@ -78,8 +80,8 @@ public static class DesignRequestValidator
                 if (port.Type != PortImpedanceType.Vna || port.VnaData is not { Count: >= 2 } table) continue;
                 var minimum = table[0].FrequencyHz;
                 var maximum = table[^1].FrequencyHz;
-                if (request.DesignFrequencyHz < minimum || request.DesignFrequencyHz > maximum)
-                    Error("VNA_DESIGN_FREQUENCY_OUTSIDE_DATA", $"{port.Name} design frequency is outside the measured range.", $"{port.Name} VNA range", request.DesignFrequencyHz, $"{minimum:G6}..{maximum:G6} Hz");
+                if (effectiveReferenceFrequency < minimum || effectiveReferenceFrequency > maximum)
+                    Error("VNA_DESIGN_FREQUENCY_OUTSIDE_DATA", $"{port.Name} design frequency is outside the measured range.", $"{port.Name} VNA range", effectiveReferenceFrequency, $"{minimum:G6}..{maximum:G6} Hz");
                 if (request.StartFrequencyHz < minimum || request.StopFrequencyHz > maximum)
                     Error("VNA_SWEEP_OUTSIDE_DATA", $"{port.Name} analysis sweep is outside the measured range.", $"{port.Name} VNA range", null, $"{minimum:G6}..{maximum:G6} Hz");
                 foreach (var band in request.MatchingPlan.EffectiveBands(request))
@@ -93,6 +95,8 @@ public static class DesignRequestValidator
         ValidateConstraints(request.Components, Error);
         if (request.MaximumComponentCount is { } count && count < 1)
             Error("INVALID_COMPONENT_COUNT", "Maximum component count must be at least one.", "Maximum component count", count, ">= 1");
+        if (request.Topology.MaximumSections is < 1 or > 4)
+            Error("INVALID_SECTION_COUNT", "Maximum matching sections must be between one and four.", "Maximum sections", request.Topology.MaximumSections, "1..4");
         if (request.Topology.Mode == TopologySelectionMode.Manual && request.Topology.Family is null)
             Error("MISSING_TOPOLOGY", "Manual topology selection requires a topology family.", "Topology family", null, "A topology family");
         if (request.Topology.Mode == TopologySelectionMode.Manual && request.Topology.Family is { } family && !FamilyAllowed(family, request.Mode))

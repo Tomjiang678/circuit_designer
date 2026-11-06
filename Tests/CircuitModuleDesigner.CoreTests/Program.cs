@@ -4193,8 +4193,8 @@ static void TestSignalAttenuationEngineeringCoverage()
         MatchingPlan = new() { Kind = MatchingDesignKind.Broadband, Bands = [new(8e6, 12e6, 20, 20, 1)] },
         Components = new() { ValueMode = ComponentValueMode.Continuous }
     });
-    Require(highQ.Diagnostics.Any(item => item.Code == "FANO_BANDWIDTH_SCREEN"),
-        "A high-Q wideband request did not run the Fano/Bode screening.");
+    Require(!highQ.Success && highQ.Diagnostics.Any(item => item.Code == "FANO_BANDWIDTH_LIMIT" && item.Severity == DiagnosticSeverity.Error),
+        "A canonical high-Q wideband request was not rejected by the hard Fano/Bode feasibility constraint.");
     var edgeQRequest = highQ.Request with
     {
         Load = new PortImpedanceModel("Load", 50, -10, PortImpedanceType.Vna, 10e6,
@@ -4202,6 +4202,70 @@ static void TestSignalAttenuationEngineeringCoverage()
     };
     Require(FanoLimitEvaluator.Screen(edgeQRequest).Any(item => item.Code == "FANO_BANDWIDTH_SCREEN"),
         "Fano/Bode screening missed a high-Q band edge because only the center point was considered.");
+    var vnaFanoRatingRequest = edgeQRequest with
+    {
+        Components = edgeQRequest.Components with { CapacitorMaximumVoltageVolt = 1e-12 }
+    };
+    var vnaFanoRating = new ComponentRatingEvaluator().Evaluate(broadband.SelectedCandidate!.Graph, vnaFanoRatingRequest);
+    Require(FanoLimitEvaluator.Screen(vnaFanoRatingRequest).Any(item => item.Code == "FANO_BANDWIDTH_SCREEN" && item.Severity == DiagnosticSeverity.Warning) &&
+            !vnaFanoRating.Passed && vnaFanoRating.Diagnostics.Any(item => item.Code == "CAPACITOR_VOLTAGE_EXCEEDED"),
+        "The combined VNA/Fano/component-rating path did not preserve advisory Fano semantics and hard rating enforcement.");
+
+    var farBandRequest = new AttenuationMatchingDesignRequest
+    {
+        Mode = DesignMode.ImpedanceMatching,
+        Source = new("Source", 50, 0, PortImpedanceType.PureResistance),
+        Load = new("Load", 100, 0, PortImpedanceType.PureResistance),
+        DesignFrequencyHz = 10e6, StartFrequencyHz = 900e6, StopFrequencyHz = 1.1e9, SweepPoints = 41,
+        Matching = new(3, 3, 6),
+        MatchingPlan = new() { Kind = MatchingDesignKind.Broadband, Bands = [new(950e6, 1.05e9, 3, 3, 6)] },
+        Components = new() { ValueMode = ComponentValueMode.Continuous, MaximumCandidateCount = 2 },
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching, MatchingResponse.LowPass, 1, false, 1)
+    };
+    var farBandResult = engine.Design(farBandRequest);
+    Require(Nearly(farBandResult.Request.DesignFrequencyHz, 10e6, 1e-12) &&
+            !farBandResult.Diagnostics.Any(item => item.Code == "DESIGN_FREQUENCY_OUTSIDE_SWEEP") &&
+            !DesignRequestValidator.Validate(farBandRequest).Any(item => item.Code == "DESIGN_FREQUENCY_OUTSIDE_SWEEP"),
+        "Distributed matching did not preserve the explicit design-frequency port reference.");
+    var referenceRequest = farBandRequest with
+    {
+        Source = new("Source", 50, 50, PortImpedanceType.SeriesRL, 10e6),
+        Topology = new(TopologySelectionMode.Manual, TopologyFamily.PiMatching, MatchingResponse.LowPass, 1, false, 2)
+    };
+    var referenceResult = engine.Design(referenceRequest);
+    Require(Nearly(referenceResult.Request.Source.ReferenceFrequencyHz, 10e6, 1e-12) &&
+            Nearly(referenceResult.Request.Source.EquivalentInductanceHenry, 50 / (2 * Math.PI * 10e6), 1e-18),
+        "Distributed matching reinterpreted the scalar port X at a different reference frequency.");
+
+    var multiSectionAttempts = new CandidateSelectionEngine().Generate(farBandRequest with
+    {
+        Topology = new(TopologySelectionMode.Automatic, null, MatchingResponse.LowPass, null, false, 2)
+    });
+    Require(multiSectionAttempts.Any(attempt => attempt.Name.StartsWith("2-Section", StringComparison.Ordinal) &&
+                                                attempt.Topology is { Elements.Count: >= 6 } topology &&
+                                                topology.Elements.Select(element => element.Reference).Distinct(StringComparer.OrdinalIgnoreCase).Count() == topology.Elements.Count),
+        "Automatic broadband synthesis did not generate a real multi-section ladder with independent component variables.");
+    var multiSectionRequest = farBandRequest with
+    {
+        Components = farBandRequest.Components with { MaximumCandidateCount = 12 },
+        Topology = new(TopologySelectionMode.Automatic, null, MatchingResponse.LowPass, null, false, 2)
+    };
+    var multiSectionResult = engine.Design(multiSectionRequest);
+    Require(multiSectionResult.Candidates.Any(candidate => candidate.TopologySpec is { Elements.Count: >= 6 } &&
+                                                                   candidate.Sweep.BandMetrics.Count == 1),
+        "The multi-section seed was not continuously optimized and independently verified as a complete ladder.");
+    var cascadedSeed = multiSectionAttempts.First(attempt => attempt.Topology is { Elements.Count: >= 6 }).Topology!;
+    var boundedStandard = new StandardValueOptimizer().Optimize(cascadedSeed, multiSectionRequest with
+    {
+        Components = multiSectionRequest.Components with
+        {
+            ValueMode = ComponentValueMode.E12,
+            MaximumSearchCombinations = 5
+        }
+    }, enforceObjectiveHardLimits: false);
+    Require(boundedStandard.CombinationsEvaluated == 5 && boundedStandard.Spec.Elements.Count == cascadedSeed.Elements.Count &&
+            boundedStandard.Diagnostics.Any(item => item.Code == "STANDARD_VALUE_SEARCH_BOUNDED"),
+        "Bounded standard-value optimization truncated a multi-section vector or failed to report the bounded search.");
     var hardGrid = MatchingPlanEvaluator.RequiredFrequencies(highQ.Request);
     Require(hardGrid.Count == highQ.Request.MatchingPlan.MinimumPointsPerBand &&
             Nearly(hardGrid[0], 8e6, 1e-9) && Nearly(hardGrid[^1], 12e6, 1e-9),

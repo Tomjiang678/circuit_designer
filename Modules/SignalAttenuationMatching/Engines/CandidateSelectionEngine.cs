@@ -39,6 +39,21 @@ public sealed class CandidateSelectionEngine
                 if (manual is null or TopologyFamily.TMatching)
                     foreach (var response in Responses(request))
                         attempts.Add(tMatching.Synthesize(request, response));
+                if (distributed && request.Topology.MaximumSections > 1)
+                {
+                    var sectionSeeds = attempts.Where(attempt => attempt.Feasible && attempt.Topology?.Family is
+                        TopologyFamily.PiMatching or TopologyFamily.TMatching).ToArray();
+                    for (var sections = 2; sections <= request.Topology.MaximumSections; sections++)
+                    {
+                        foreach (var seed in sectionSeeds)
+                        {
+                            var expanded = CascadedMatchingSynthesizer.Expand(seed, request, sections);
+                            if (expanded.Feasible && expanded.Topology is not null &&
+                                (request.MaximumComponentCount is not { } maximum || expanded.Topology.Elements.Count <= maximum))
+                                attempts.Add(expanded);
+                        }
+                    }
+                }
                 break;
 
             default:

@@ -344,3 +344,8 @@ D:\jzh_doc\circuit designer\obj\ui-review-out\CircuitModuleDesigner.deps.json
 D:\jzh_doc\circuit designer\obj\ui-review-out\CircuitModuleDesigner.runtimeconfig.json
 D:\jzh_doc\circuit designer\obj\ui-review-out\CircuitModuleDesigner.dll
 D:\jzh_doc\circuit designer\obj\ui-review-out\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.pdb

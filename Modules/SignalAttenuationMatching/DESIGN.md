@@ -177,7 +177,8 @@ Status is Supported only when no errors exist; Warning only when non-blocking mo
 
 ## 8. Known limitations
 
-- Ideal lumped R/L/C baseline; ESR/Q is a series-resistance approximation. Supplied capacitor voltage/ripple/SRF and inductor RMS/saturation/SRF limits constrain optimization and final verification; blank ratings are nullable, not zero.\n- Fano/Bode screening samples band edges and interior points and uses the normalized π/Q integral bound.
+- Ideal lumped R/L/C baseline; ESR/Q is a series-resistance approximation. Supplied capacitor voltage/ripple/SRF and inductor RMS/saturation/SRF limits constrain optimization and final verification; blank ratings are nullable, not zero.
+- Fano/Bode screening samples band edges and interior points and uses the normalized π/Q integral bound. Canonical series R-L/R-C violations are hard feasibility errors; sampled VNA equivalents remain advisory.
 - No distributed/transmission-line/microstrip/EM simulation.
 - Scalar port reactance is defined at the design frequency and swept as the equivalent series L/C; full VNA tables are interpolated only inside their measured range.
 - No transformer/balun/vendor matching IC or encrypted model support.

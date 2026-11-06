@@ -153,6 +153,7 @@ public sealed record MatchingPlan
         : [new MatchingBand(request.DesignFrequencyHz, request.DesignFrequencyHz,
             request.Matching.TargetInputReturnLossDb, request.Matching.TargetOutputReturnLossDb,
             request.Matching.MaximumInsertionLossDb)];
+
 }
 
 public sealed record ComponentConstraints(
@@ -182,7 +183,8 @@ public sealed record TopologySelection(
     TopologyFamily? Family = null,
     MatchingResponse Response = MatchingResponse.LowPass,
     double? DesignQ = null,
-    bool AllowMixedReactance = false)
+    bool AllowMixedReactance = false,
+    int MaximumSections = 2)
 {
     public bool IsAutomatic => Mode == TopologySelectionMode.Automatic;
 }

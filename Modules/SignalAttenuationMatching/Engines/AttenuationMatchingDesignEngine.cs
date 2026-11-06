@@ -23,10 +23,12 @@ public sealed class AttenuationMatchingDesignEngine
     public AttenuationMatchingDesignResult Design(AttenuationMatchingDesignRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var referenceFrequency = request.DesignFrequencyHz;
         var normalized = request with
         {
-            Source = request.Source.WithReferenceFrequency(request.DesignFrequencyHz),
-            Load = request.Load.WithReferenceFrequency(request.DesignFrequencyHz)
+            DesignFrequencyHz = referenceFrequency,
+            Source = request.Source.WithReferenceFrequency(referenceFrequency),
+            Load = request.Load.WithReferenceFrequency(referenceFrequency)
         };
         var validation = DesignRequestValidator.Validate(normalized);
         if (validation.Any(item => item.Severity == DiagnosticSeverity.Error))
@@ -38,7 +40,7 @@ public sealed class AttenuationMatchingDesignEngine
                 Diagnostics = validation
             };
 
-        if (normalized.Mode == DesignMode.ImpedanceMatching && IsDirectlyMatched(normalized))
+        if (normalized.Mode == DesignMode.ImpedanceMatching && normalized.MatchingPlan.Kind == MatchingDesignKind.SingleFrequency && IsDirectlyMatched(normalized))
             return BuildDirectResult(normalized, validation);
         var attempts = candidates.Generate(normalized);
         if (attempts.Count == 0)
@@ -98,6 +100,12 @@ public sealed class AttenuationMatchingDesignEngine
                 continue;
             }
             var planningWarnings = validation.Where(item => item.Code == "FANO_BANDWIDTH_SCREEN").ToArray();
+            var combinedDiagnostics = verification.Diagnostics.Concat(initial.Diagnostics).Concat(planningWarnings).ToArray();
+            var combinedStatus = combinedDiagnostics.Any(item => item.Severity == DiagnosticSeverity.Error)
+                ? DesignStatus.Failed
+                : combinedDiagnostics.Any(item => item.Severity == DiagnosticSeverity.Warning)
+                    ? DesignStatus.Warning
+                    : verification.Status;
             var candidate = new TopologyCandidate
             {
                 Id = initial.Id,
@@ -109,18 +117,16 @@ public sealed class AttenuationMatchingDesignEngine
                 Components = verification.Components,
                 Metrics = verification.Metrics,
                 Sweep = verification.Sweep,
-                Diagnostics = [.. verification.Diagnostics, .. planningWarnings],
+                Diagnostics = [.. combinedDiagnostics],
                 IsStandardValueDesign = initial.IsStandardValueDesign,
                 TopologyDescription = initial.TopologyDescription,
                 LimitNote = initial.LimitNote,
-                Status = planningWarnings.Length > 0 && verification.Status == DesignStatus.Supported
-                    ? DesignStatus.Warning
-                    : verification.Status,
-                StatusMessage = verification.Status switch
+                Status = combinedStatus,
+                StatusMessage = combinedStatus switch
                 {
                     DesignStatus.Supported => "All hard constraints pass independent final-graph verification.",
                     DesignStatus.Warning => "Hard constraints pass with engineering warnings.",
-                    _ => verification.Diagnostics.FirstOrDefault(item => item.Severity == DiagnosticSeverity.Error)?.Description ?? "Independent verification failed."
+                    _ => combinedDiagnostics.FirstOrDefault(item => item.Severity == DiagnosticSeverity.Error)?.Description ?? "Independent verification failed."
                 }
             };
             candidate.Score = Score(candidate, normalized);

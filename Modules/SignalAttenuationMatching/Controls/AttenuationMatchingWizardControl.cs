@@ -58,12 +58,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private readonly NumericUpDown signalValue = Number(-1000, 1000, 1, 3);
     private readonly ComboBox signalUnit = Choice(Enum.GetValues<SignalLevelUnit>());
     private GroupBox? frequencyGroup;
-    private TableLayoutPanel? frequencySettingsGrid;
-    private Label? designFrequencyLabel;
-    private Label? startFrequencyLabel;
-    private Label? stopFrequencyLabel;
-    private Label? sweepPointsLabel;
-    private Label? sweepTypeLabel;
+    private GroupBox? referenceGroup;
     private GroupBox? capacitorGroup;
     private GroupBox? inductorGroup;
     private GroupBox? resistorGroup;
@@ -159,6 +154,11 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
     private readonly DataGridView performanceGrid = Grid();
     private readonly RichTextBox outputDiagnostics = TextView();
     private readonly Label outputStatus = new() { AutoSize = true, Dock = DockStyle.Fill, AutoEllipsis = true, Font = new Font("Segoe UI Semibold", 10F) };
+    private readonly List<(Button Button, SpiceNetlistDialect Dialect)> spiceExportButtons = [];
+    private bool refreshingCandidates;
+    private string? previewCandidateId;
+    private string? renderedReportCandidateId;
+    private AttenuationMatchingDesignResult? displayedCandidateResult;
 
     public string ModuleTitle => "Signal Attenuation & Impedance Matching";
     public bool HasDesign => result is { Success: true } && SelectedCandidate is { Status: not DesignStatus.Failed };
@@ -326,17 +326,24 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         FillPortGroup(target, loadR, loadX, includeSignal: false, isSource: false);
         layout.Controls.Add(source, 0, 0); layout.Controls.Add(target, 1, 0);
 
-        var frequency = Group("Frequency & Sweep");
+        var reference = Group("Impedance Reference");
+        referenceGroup = reference;
+        var referenceGrid = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2 };
+        referenceGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        referenceGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360));
+        AddPair(referenceGrid, 0, 0, "Design frequency (X reference):", designFrequency);
+        reference.Controls.Add(referenceGrid);
+        layout.Controls.Add(reference, 0, 1); layout.SetColumnSpan(reference, 2);
+
+        var frequency = Group("Analysis Sweep");
         frequencyGroup = frequency;
         var grid = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 4 };
-        frequencySettingsGrid = grid;
         for (var index = 0; index < 4; index++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         InputColumns(grid, 280, 1, 3);
-        designFrequencyLabel = AddPair(grid, 0, 0, "Design frequency:", designFrequency);
-        sweepPointsLabel = AddPair(grid, 2, 0, "Sweep points:", sweepPoints);
-        startFrequencyLabel = AddPair(grid, 0, 1, "Start frequency:", startFrequency);
-        stopFrequencyLabel = AddPair(grid, 2, 1, "Stop frequency:", stopFrequency);
-        sweepTypeLabel = AddPair(grid, 0, 2, "Sweep type:", sweepType);
+        AddPair(grid, 0, 0, "Start frequency:", startFrequency);
+        AddPair(grid, 2, 0, "Stop frequency:", stopFrequency);
+        AddPair(grid, 0, 1, "Sweep points:", sweepPoints);
+        AddPair(grid, 2, 1, "Sweep type:", sweepType);
         matchingPlanPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         matchingPlanPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 155));
         matchingPlanPanel.Controls.Add(matchingPlanHint, 0, 0);
@@ -615,6 +622,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         previewTabs.TabPages.Add(netlistPage);
         reportPage = PreviewPage("Design Report", reportView);
         previewTabs.TabPages.Add(reportPage);
+        previewTabs.SelectedIndexChanged += (_, _) => RenderSelectedReportIfNeeded();
 
         outputStatus.AutoSize = true;
         outputStatus.Dock = DockStyle.Top;
@@ -622,9 +630,9 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         footer.RowStyles.Add(new RowStyle(SizeType.AutoSize)); footer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         footer.Controls.Add(outputStatus, 0, 0);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
-        actions.Controls.Add(ActionButton("LTspice Netlist...", () => ExportNetlist(SpiceNetlistDialect.Ltspice)));
-        actions.Controls.Add(ActionButton("Multisim Netlist...", () => ExportNetlist(SpiceNetlistDialect.Multisim)));
-        actions.Controls.Add(ActionButton("Generic SPICE...", () => ExportNetlist(SpiceNetlistDialect.GenericSpice)));
+        AddSpiceButton("LTspice Netlist...", SpiceNetlistDialect.Ltspice);
+        AddSpiceButton("Multisim Netlist...", SpiceNetlistDialect.Multisim);
+        AddSpiceButton("Generic SPICE...", SpiceNetlistDialect.GenericSpice);
         actions.Controls.Add(ActionButton("HTML Report...", () => ExportReport(html: true)));
         actions.Controls.Add(ActionButton("JSON Snapshot...", () => ExportReport(html: false)));
         actions.Controls.Add(ActionButton("Save Design...", SaveDesign));
@@ -632,6 +640,13 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         layout.Controls.Add(footer, 0, 3);
         page.Controls.Add(layout);
         return page;
+
+        void AddSpiceButton(string text, SpiceNetlistDialect dialect)
+        {
+            var button = ActionButton(text, () => ExportNetlist(dialect));
+            spiceExportButtons.Add((button, dialect));
+            actions.Controls.Add(button);
+        }
     }
 
     private Panel BuildOutputPage()
@@ -727,7 +742,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         var bands = ReadMatchingBands();
         var distributed = mode == AttenuationDesignMode.ImpedanceMatching && selectedMatchingKind != MatchingDesignKind.SingleFrequency;
         if (distributed && bands.Count == 0) throw new InvalidOperationException("Add at least one frequency target row.");
-        var referenceFrequency = SelectedReferenceFrequency(bands);
+        var referenceFrequency = SelectedReferenceFrequency();
         var analysisStart = startFrequency.ValueBaseUnit;
         var analysisStop = stopFrequency.ValueBaseUnit;
         static PortImpedanceType PortType(double reactance) =>
@@ -813,57 +828,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         return bands;
     }
 
-    private double SelectedReferenceFrequency(IReadOnlyList<MatchingBand>? parsedBands = null)
-    {
-        if (selectedMode != AttenuationDesignMode.ImpedanceMatching || selectedMatchingKind == MatchingDesignKind.SingleFrequency)
-            return designFrequency.ValueBaseUnit;
-        var bands = parsedBands ?? ReadMatchingBands();
-        if (bands.Count == 0) return designFrequency.ValueBaseUnit;
-        return Math.Sqrt(bands.Min(band => band.StartFrequencyHz) * bands.Max(band => band.StopFrequencyHz));
-    }
-
-    private void UpdateFrequencySettingsLayout(bool distributed)
-    {
-        if (frequencySettingsGrid is null || designFrequencyLabel is null || sweepPointsLabel is null || sweepTypeLabel is null) return;
-        frequencySettingsGrid.SuspendLayout();
-        try
-        {
-            if (distributed)
-            {
-                frequencySettingsGrid.SetCellPosition(designFrequencyLabel, new TableLayoutPanelCellPosition(0, 3));
-                frequencySettingsGrid.SetCellPosition(designFrequency, new TableLayoutPanelCellPosition(1, 3));
-                if (startFrequencyLabel is not null)
-                    frequencySettingsGrid.SetCellPosition(startFrequencyLabel, new TableLayoutPanelCellPosition(0, 0));
-                frequencySettingsGrid.SetCellPosition(startFrequency, new TableLayoutPanelCellPosition(1, 0));
-                if (stopFrequencyLabel is not null)
-                    frequencySettingsGrid.SetCellPosition(stopFrequencyLabel, new TableLayoutPanelCellPosition(2, 0));
-                frequencySettingsGrid.SetCellPosition(stopFrequency, new TableLayoutPanelCellPosition(3, 0));
-                frequencySettingsGrid.SetCellPosition(sweepPointsLabel, new TableLayoutPanelCellPosition(0, 1));
-                frequencySettingsGrid.SetCellPosition(sweepPoints, new TableLayoutPanelCellPosition(1, 1));
-                frequencySettingsGrid.SetCellPosition(sweepTypeLabel, new TableLayoutPanelCellPosition(2, 1));
-                frequencySettingsGrid.SetCellPosition(sweepType, new TableLayoutPanelCellPosition(3, 1));
-            }
-            else
-            {
-                frequencySettingsGrid.SetCellPosition(designFrequencyLabel, new TableLayoutPanelCellPosition(0, 0));
-                frequencySettingsGrid.SetCellPosition(designFrequency, new TableLayoutPanelCellPosition(1, 0));
-                frequencySettingsGrid.SetCellPosition(sweepPointsLabel, new TableLayoutPanelCellPosition(2, 0));
-                frequencySettingsGrid.SetCellPosition(sweepPoints, new TableLayoutPanelCellPosition(3, 0));
-                if (startFrequencyLabel is not null)
-                    frequencySettingsGrid.SetCellPosition(startFrequencyLabel, new TableLayoutPanelCellPosition(0, 1));
-                frequencySettingsGrid.SetCellPosition(startFrequency, new TableLayoutPanelCellPosition(1, 1));
-                if (stopFrequencyLabel is not null)
-                    frequencySettingsGrid.SetCellPosition(stopFrequencyLabel, new TableLayoutPanelCellPosition(2, 1));
-                frequencySettingsGrid.SetCellPosition(stopFrequency, new TableLayoutPanelCellPosition(3, 1));
-                frequencySettingsGrid.SetCellPosition(sweepTypeLabel, new TableLayoutPanelCellPosition(0, 2));
-                frequencySettingsGrid.SetCellPosition(sweepType, new TableLayoutPanelCellPosition(1, 2));
-            }
-        }
-        finally
-        {
-            frequencySettingsGrid.ResumeLayout(true);
-        }
-    }
+    private double SelectedReferenceFrequency() => designFrequency.ValueBaseUnit;
 
     private void UpdateAutomaticSweepRange(IReadOnlyList<MatchingBand>? parsedBands = null)
     {
@@ -934,28 +899,42 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
 
     private void RefreshCandidates()
     {
-        candidateGrid.Rows.Clear();
-        if (result is null) { outputStatus.Text = "No design."; netlistView.Text = string.Empty; reportView.DocumentText = string.Empty; return; }
-        foreach (var candidate in result.Candidates)
+        if (result is not null && ReferenceEquals(displayedCandidateResult, result) && candidateGrid.Rows.Count == result.Candidates.Count)
+            return;
+        refreshingCandidates = true;
+        previewCandidateId = null;
+        renderedReportCandidateId = null;
+        try
         {
-            var bandMetrics = candidate.Sweep.BandMetrics;
-            var attenuationValue = bandMetrics.Count > 0 ? bandMetrics.Max(item => item.MaximumInsertionLossDb) : candidate.Metrics.AttenuationDb;
-            var inputValue = bandMetrics.Count > 0 ? bandMetrics.Min(item => item.WorstInputReturnLossDb) : candidate.Metrics.InputReturnLossDb;
-            var outputValue = bandMetrics.Count > 0 ? bandMetrics.Min(item => item.WorstOutputReturnLossDb) : candidate.Metrics.OutputReturnLossDb;
-            var attenuation = Math.Abs(attenuationValue) < 1e-6 ? "0" : attenuationValue.ToString("0.###");
-            var inputReturnLoss = double.IsFinite(inputValue) ? inputValue.ToString("0.#") : "N/A";
-            var outputReturnLoss = double.IsFinite(outputValue) ? outputValue.ToString("0.#") : "N/A";
-            var planStatus = bandMetrics.Count == 0 ? "—" : bandMetrics.All(item => item.Passed) ? "Pass" : "Fail";
-            var index = candidateGrid.Rows.Add(candidate.Rank, candidate.TopologyName, candidate.Status.ToString(), candidate.Components.Count,
-                attenuation, inputReturnLoss, outputReturnLoss, planStatus);
-            candidateGrid.Rows[index].Tag = candidate;
+            candidateGrid.Rows.Clear();
+            if (result is null) { outputStatus.Text = "No design."; netlistView.Text = string.Empty; reportView.DocumentText = string.Empty; return; }
+            foreach (var candidate in result.Candidates)
+            {
+                var bandMetrics = candidate.Sweep.BandMetrics;
+                var attenuationValue = bandMetrics.Count > 0 ? bandMetrics.Max(item => item.MaximumInsertionLossDb) : candidate.Metrics.AttenuationDb;
+                var inputValue = bandMetrics.Count > 0 ? bandMetrics.Min(item => item.WorstInputReturnLossDb) : candidate.Metrics.InputReturnLossDb;
+                var outputValue = bandMetrics.Count > 0 ? bandMetrics.Min(item => item.WorstOutputReturnLossDb) : candidate.Metrics.OutputReturnLossDb;
+                var attenuation = Math.Abs(attenuationValue) < 1e-6 ? "0" : attenuationValue.ToString("0.###");
+                var inputReturnLoss = double.IsFinite(inputValue) ? inputValue.ToString("0.#") : "N/A";
+                var outputReturnLoss = double.IsFinite(outputValue) ? outputValue.ToString("0.#") : "N/A";
+                var planStatus = bandMetrics.Count == 0 ? "—" : bandMetrics.All(item => item.Passed) ? "Pass" : "Fail";
+                var index = candidateGrid.Rows.Add(candidate.Rank, candidate.TopologyName, candidate.Status.ToString(), candidate.Components.Count,
+                    attenuation, inputReturnLoss, outputReturnLoss, planStatus);
+                candidateGrid.Rows[index].Tag = candidate;
+            }
+            var firstSelectableIndex = result.Candidates.ToList().FindIndex(candidate => candidate.Status != DesignStatus.Failed);
+            selectedIndex = firstSelectableIndex;
+            if (firstSelectableIndex >= 0 && candidateGrid.Rows.Count > firstSelectableIndex)
+                candidateGrid.Rows[firstSelectableIndex].Selected = true;
+            else
+                candidateGrid.ClearSelection();
         }
-        var selectableIndex = result.Candidates.ToList().FindIndex(candidate => candidate.Status != DesignStatus.Failed);
-        selectedIndex = selectableIndex;
-        if (selectableIndex >= 0 && candidateGrid.Rows.Count > selectableIndex)
-            candidateGrid.Rows[selectableIndex].Selected = true;
-        else
-            candidateGrid.ClearSelection();
+        finally
+        {
+            refreshingCandidates = false;
+            displayedCandidateResult = result;
+        }
+        var selectableIndex = selectedIndex;
         if (candidateGrid.Rows.Count == 0)
         {
             outputStatus.Text = result.Message;
@@ -978,8 +957,14 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
 
     private void SelectCandidate()
     {
+        if (refreshingCandidates) return;
         if (candidateGrid.SelectedRows.Count == 0 || candidateGrid.SelectedRows[0].Tag is not TopologyCandidate candidate) return;
         selectedIndex = candidateGrid.SelectedRows[0].Index;
+        if (previewCandidateId == candidate.Id)
+        {
+            RenderSelectedReportIfNeeded();
+            return;
+        }
         try
         {
             schematicView.Document = new AttenuationMatchingLayoutService().Layout(candidate);
@@ -996,7 +981,11 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             foreach (var component in candidate.Components)
                 componentGrid.Rows.Add(component.Reference, component.TypeName, component.IdealValue.ToString("G6"), component.SelectedValue.ToString("G6"), component.Unit, component.ErrorPercent.ToString("G5"), component.Rating);
             netlistView.Text = new AttenuationMatchingSpiceExportService().ExportDesign(candidate, result!.Request);
-            reportView.DocumentText = new AttenuationMatchingDesignReportService().ExportHtml(ResultWithSelection());
+            previewCandidateId = candidate.Id;
+            renderedReportCandidateId = null;
+            reportView.DocumentText = string.Empty;
+            UpdateSpiceExportButtons();
+            RenderSelectedReportIfNeeded();
             outputStatus.Text = candidate.Status + " - " + candidate.TopologyName;
         }
         catch (Exception exception)
@@ -1004,6 +993,30 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
             netlistView.Text = string.Empty;
             reportView.DocumentText = string.Empty;
             outputStatus.Text = exception.Message;
+        }
+    }
+
+    private void RenderSelectedReportIfNeeded()
+    {
+        if (reportPage is null || previewTabs.SelectedTab != reportPage || SelectedCandidate is not { } candidate || result is null) return;
+        if (renderedReportCandidateId == candidate.Id) return;
+        reportView.DocumentText = new AttenuationMatchingDesignReportService().ExportHtml(ResultWithSelection());
+        renderedReportCandidateId = candidate.Id;
+    }
+
+    private void UpdateSpiceExportButtons()
+    {
+        if (result is null) return;
+        var testbench = AttenuationMatchingSpiceExportService.SupportsTestbench(result.Request);
+        foreach (var (button, dialect) in spiceExportButtons)
+        {
+            var name = dialect switch
+            {
+                SpiceNetlistDialect.Ltspice => "LTspice",
+                SpiceNetlistDialect.Multisim => "Multisim",
+                _ => "Generic SPICE"
+            };
+            button.Text = testbench ? $"{name} Netlist..." : $"{name} Design Netlist...";
         }
     }
     private static bool IsAttenuationOnly(TopologyCandidate candidate) =>
@@ -1075,8 +1088,14 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
         try
         {
-            new AttenuationMatchingSpiceExportService().SaveTestbench(SelectedCandidate!, result!.Request, dialog.FileName, dialect);
-            MessageBox.Show(this, "Netlist exported successfully.\r\n" + dialog.FileName, "SPICE Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var service = new AttenuationMatchingSpiceExportService();
+            var testbench = AttenuationMatchingSpiceExportService.SupportsTestbench(result!.Request);
+            if (testbench)
+                service.SaveTestbench(SelectedCandidate!, result.Request, dialog.FileName, dialect);
+            else
+                service.SaveDesign(SelectedCandidate!, result.Request, dialog.FileName, dialect);
+            MessageBox.Show(this, (testbench ? "Testbench" : "Passive design netlist") + " exported successfully.\r\n" + dialog.FileName,
+                "SPICE Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception exception) { MessageBox.Show(this, exception.Message, "SPICE Export", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
@@ -1164,13 +1183,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         if (inductorGroup is not null) inductorGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching;
         var distributed = mode == AttenuationDesignMode.ImpedanceMatching && selectedMatchingKind != MatchingDesignKind.SingleFrequency;
         matchingPlanPanel.Visible = distributed;
-        designFrequency.Visible = !distributed;
-        if (designFrequencyLabel is not null) designFrequencyLabel.Visible = !distributed;
-        startFrequency.Visible = true;
-        stopFrequency.Visible = true;
-        if (startFrequencyLabel is not null) startFrequencyLabel.Visible = true;
-        if (stopFrequencyLabel is not null) stopFrequencyLabel.Visible = true;
-        UpdateFrequencySettingsLayout(distributed);
+        if (referenceGroup is not null) referenceGroup.Visible = mode is AttenuationDesignMode.ImpedanceMatching;
         targetBandwidth.Enabled = !distributed;
         UpdatePortControls();
         UpdateTopologyFamilies();

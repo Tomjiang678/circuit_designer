@@ -33,7 +33,7 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
 - Low-pass and high-pass Pi/T using a virtual intermediate resistance and two L-section solves.
 - A 0 dB equal-port attenuation design and an already-matched port pair use a true zero-component direct connection: VIN and VOUT alias the same graph node. The SPICE representation emits an explicit 0 V ideal source (`V_DIRECT`) because SPICE has no native wire element.
 - Mixed-reactance Pi/T networks (four elements) are supported when `Allow mixed reactance` is enabled and the resulting network is verified.
-- Real and complex ports: enter `R` and `X @ f0` directly. Positive X becomes a series R-L, negative X becomes a series R-C, and zero X is a pure resistance. The same physical L/C model drives the internal sweep and the exported SPICE testbench.
+- Real and complex ports: enter `R` and `X` directly; the visible **Design frequency (X reference)** on the Source & Load page is the frequency at which X is defined. Positive X becomes a series R-L, negative X becomes a series R-C, and zero X is a pure resistance. The same physical L/C model drives the internal sweep and the scalar-port SPICE testbench in single-frequency and distributed modes.
 - Design Q is a synthesis choice. Loaded Q is calculated separately from the final frequency sweep; the two are not treated as the same number.
 
 ## Mathematics and verification
@@ -44,7 +44,7 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
 - **Matched-port attenuation**: separately reported as `-20·log10(|S21|)` for real reference impedances.
 - **Return loss**: conjugate power-wave reference `Γ = (Zport − Zref*)/(Zport + Zref)`; VSWR is reported only when the reference is real.
 - **S parameters**: S11, S21 and S22 computed from a separate real-reference solve; S12 is left N/A when not required by the module.
-- **Bandwidth**: continuous band around the design frequency satisfying input/output return-loss and insertion-loss gates. The local sweep is dense enough not to collapse a narrow match to a single sample; sweep-boundary limitations are reported.
+- **Bandwidth**: continuous band around the design frequency satisfying input/output return-loss and insertion-loss gates for single-frequency matching; multi-frequency/broadband designs report the per-band mask results. The local sweep is dense enough not to collapse a narrow match to a single sample; sweep-boundary limitations are reported.
 - **Power**: resistor dissipation is calculated from the solved node voltages; passive power conservation is checked.
 - **Standard values**: Continuous, E12, E24, E48 and E96. E-series optimization evaluates every bounded combination of actual selected values and re-verifies the complete network; the ideal solution is never used as the claimed standard-value performance.
 - **ESR / inductor Q**: when enabled, series parasitic resistors are added to the final CircuitGraph and therefore enter MNA, verification, reports and SPICE export.
@@ -53,7 +53,7 @@ The fourth first-class design module in Circuit Module Designer. It synthesizes 
 ## Wizard
 
 1. **Select Design Mode** — Attenuation, Single-frequency Matching, Multi-frequency Matching or Broadband Matching.
-2. **Source & Load Configuration** — R and Reactance directly, VNA import (`S1P` / `S2P` Touchstone) in each port, signal level, design frequency, sweep range/points/type.
+2. **Source & Load Configuration** — R and Reactance directly, VNA import (`S1P` / `S2P` Touchstone) in each port, signal level, the visible design frequency (X reference), sweep range/points/type.
 3. **Performance Requirements** — attenuation/error/return-loss/power or matching/bandwidth requirements, optimization objective.
 4. **Network Topology** — automatic/manual selection, family/response/Q, actual topology preview, unsupported combinations disabled.
 5. **Component Selection & Optimization** — value mode, R/C/L ranges, ESR/Q, dissipation, capacitor voltage/ripple/SRF, inductor RMS/saturation/SRF, search budget.
@@ -65,7 +65,7 @@ Changing any parameter marks the previous result stale and blocks export until r
 
 - Each port has an **Import VNA...** button.
 - Supported files: Touchstone `.s1p` and `.s2p`, with `RI`, `MA` or `DB` data and Hz/kHz/MHz/GHz frequency units.
-- The selected reflection coefficient is interpolated at the current design frequency and converted with `Z = Z0 (1+Γ)/(1−Γ)`. No extrapolation is performed.
+- The selected reflection coefficient is converted with `Z = Z0 (1+Γ)/(1−Γ)`; the complete table is retained and interpolated at each analysis frequency. No extrapolation is performed.
 - `.s1p` uses S11; `.s2p` opens an explicit port selector (S11/Port 1 or S22/Port 2), defaulting to S11 for the load and S22 for the source.
 - Touchstone 2.0 metadata (`[Version]`, `[Number of Ports]`, `[Two-Port Data Order]`, `[Network Data]`) and backslash continuation lines are supported.
 - The imported R and X are written directly into the two port fields, and the complete measured table is retained for multi-point/broadband analysis. The table is interpolated over its measured range; no extrapolation is allowed.
@@ -76,7 +76,7 @@ Changing any parameter marks the previous result stale and blocks export until r
 Two netlists are produced:
 
 - **Design netlist**: only the passive network and its `VIN`/`VOUT` ports.
-- **Testbench netlist**: the design network plus explicit source and load R/L/C equivalents, `V_SRC`, and the AC analysis.
+- **Testbench netlist**: the design network plus explicit source and load R/L/C equivalents, `V_SRC`, and the AC analysis. For a full VNA table, only the design network is exported with an explanatory comment because a measured frequency-dependent port cannot be represented by fixed R/L/C elements.
 
 Source/load impedance is never added twice (as a graph element and as an exporter option). LTspice output omits `.PRINT`; Multisim/Berkeley retain it.
 
@@ -93,7 +93,7 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 
 - Only ideal lumped R/L/C is the baseline. Optional ESR/Q is a series-resistance approximation, not a full vendor model.
 - Capacitor voltage/ripple/SRF and inductor RMS/saturation/SRF limits are nullable engineering inputs. Supplied limits participate in continuous/standard-value optimization and final verification; blank fields remain explicitly unspecified.
-- Fano/Bode screening samples band edges and interior points and compares the requested mask with the normalized π/Q integral bound; it is advisory for measured/non-canonical loads.
+- Fano/Bode screening samples band edges and interior points and compares the requested mask with the normalized π/Q integral bound. A violation is a hard feasibility error for canonical series R-L/R-C ports and remains advisory for measured/non-canonical VNA loads.
 - Series R-L/R-C port reactance follows the equivalent L/C over the sweep; full VNA tables are interpolated only inside the measured frequency range.
 - No transmission lines, microstrip, PCB electromagnetic simulation, or distributed matching.
 - No transformer matching, baluns, or vendor-specific matching ICs.
@@ -102,7 +102,7 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 - LTspice `.asc` coordinate export is not provided.
 - A resistive pad cannot cancel complex port reactance; use the Impedance Matching mode.
 - Fully differential and multi-port networks are outside v1.
-- Multi-frequency/broadband v1 optimizes the existing single-section L/Pi/T topology set; automatic cascaded multi-section synthesis is still future work.
+- Multi-frequency/broadband matching evaluates single-section Pi/T and automatic 2-section cascaded Pi/T ladders by default. The section limit is part of the request model (1–4); every section's elements are independent optimization variables and the complete final graph is verified.
 ## Visuals
 
 The topology preview uses real resistor/inductor/capacitor symbols rather than generic boxes. The T-pad is drawn as series–shunt–series, the Pi-pad as shunt–series–shunt, and LC previews use L/C symbols with the correct low-pass/high-pass/mixed positions.

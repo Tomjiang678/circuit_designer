@@ -35,8 +35,9 @@ public sealed class AttenuationMatchingCircuitVerifier
             diagnostics.Add(new(code, DiagnosticSeverity.Warning, message, parameter, actual, expected));
 
         var graph = candidate.Graph;
-        if (!graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet))
-        {
+        var directConnection = false;
+        try { directConnection = graph.AreConnected(NetworkTopologyBuilder.InputNet, NetworkTopologyBuilder.OutputNet); }
+        catch (KeyNotFoundException) { }
         foreach (var component in graph.Components)
         {
             if (component.Type is not (ComponentType.Resistor or ComponentType.Capacitor or ComponentType.Inductor))
@@ -53,11 +54,12 @@ public sealed class AttenuationMatchingCircuitVerifier
                 Error("COMPONENT_NOT_STANDARD_VALUE", $"Component {component.Reference} is not a standard value.", "Component value", value, request.Components.ValueMode.ToString());
         }
         if (!graph.Nets.Any(net => net.Name.Equals(NetworkTopologyBuilder.InputNet, StringComparison.OrdinalIgnoreCase)) ||
-            !graph.Nets.Any(net => net.Name.Equals(NetworkTopologyBuilder.OutputNet, StringComparison.OrdinalIgnoreCase)))
+            !directConnection && !graph.Nets.Any(net => net.Name.Equals(NetworkTopologyBuilder.OutputNet, StringComparison.OrdinalIgnoreCase)))
             Error("PORT_NET_MISSING", "The final CircuitGraph must expose VIN and VOUT port nets.", "Port nets");
-        if (graph.Components.Count == 0)
+        if (graph.Components.Count == 0 && !directConnection)
             Error("EMPTY_NETWORK", "The final CircuitGraph contains no components.", "Component count", 0, ">= 1");
-        foreach (var net in graph.Nets.Where(net => !net.Name.Equals(NetworkTopologyBuilder.GroundNet, StringComparison.OrdinalIgnoreCase)))
+        foreach (var net in graph.Nets.Where(net => !directConnection &&
+                     !net.Name.Equals(NetworkTopologyBuilder.GroundNet, StringComparison.OrdinalIgnoreCase)))
         {
             if (net.Pins.Count == 0)
                 Error("FLOATING_NET", $"Net {net.Name} has no pins.", "Connectivity", null, "At least one connected pin");
@@ -89,7 +91,6 @@ public sealed class AttenuationMatchingCircuitVerifier
             }
         }
 
-        }
         NetworkSolution solution;
         AcSweepResult sweep;
         try

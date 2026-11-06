@@ -43,6 +43,9 @@ public sealed class StandardValueOptimizer
         }
         var modes = ValueSets(ideal, request.Components);
         if (modes is null) return Fail(ideal, request, "No standard component values exist inside the selected ranges for one or more elements.");
+        var searchSpaceSize = modes.Aggregate(1L, (total, set) => total > long.MaxValue / Math.Max(1, set.Count)
+            ? long.MaxValue
+            : total * set.Count);
         var combinations = Cartesian(modes, request.Components.MaximumSearchCombinations);
         if (combinations.Count == 0) return Fail(ideal, request, "The standard-value search space is empty.");
 
@@ -93,6 +96,16 @@ public sealed class StandardValueOptimizer
                 "Attenuation/return loss", null, "Check the selected E-series, component ranges, or relax a requirement.",
                 "Use a denser series, continuous values, a different topology, or relax the specification.")]).ToArray();
             best = best with { HardConstraintsPass = false, Diagnostics = diagnostics };
+        }
+        if (searchSpaceSize > combinations.Count)
+        {
+            best = best with
+            {
+                Diagnostics = best.Diagnostics.Concat([new AttenuationMatchingDiagnostic(
+                    "STANDARD_VALUE_SEARCH_BOUNDED", DiagnosticSeverity.Warning,
+                    $"The standard-value search evaluated {combinations.Count} of {searchSpaceSize} local combinations.",
+                    "Search budget", combinations.Count, $"{searchSpaceSize} local combinations")]).ToArray()
+            };
         }
         return best;
     }
@@ -152,7 +165,8 @@ public sealed class StandardValueOptimizer
             }
             var series = ToSeries(constraints.ValueMode);
             IReadOnlyList<double> nearby;
-            try { nearby = StandardValueSeries.GetNearby(element.Value, series, minimum, maximum, 2); }
+            var neighborRadius = ideal.Elements.Count > 4 ? 1 : 2;
+            try { nearby = StandardValueSeries.GetNearby(element.Value, series, minimum, maximum, neighborRadius); }
             catch { return null; }
             if (nearby.Count == 0) return null;
             sets.Add(nearby.Distinct().OrderBy(value => Math.Abs(Math.Log(value / element.Value))).ToArray());
@@ -165,25 +179,16 @@ public sealed class StandardValueOptimizer
         var results = new List<IReadOnlyList<double>> { Array.Empty<double>() };
         foreach (var set in sets)
         {
-            if (results.Count * set.Count > maximum)
-            {
-                // Deterministic, lossless truncation: keep the values nearest the
-                // ideal target, then stop; the UI reports the bounded search.
-                var limited = new List<IReadOnlyList<double>>(maximum);
-                foreach (var prefix in results)
-                {
-                    foreach (var value in set)
-                    {
-                        limited.Add(prefix.Concat([value]).ToArray());
-                        if (limited.Count >= maximum) return limited;
-                    }
-                }
-                return limited;
-            }
-            var next = new List<IReadOnlyList<double>>(results.Count * set.Count);
+            var next = new List<IReadOnlyList<double>>(Math.Min(maximum, results.Count * set.Count));
             foreach (var prefix in results)
+            {
                 foreach (var value in set)
+                {
                     next.Add(prefix.Concat([value]).ToArray());
+                    if (next.Count >= maximum) break;
+                }
+                if (next.Count >= maximum) break;
+            }
             results = next;
         }
         return results;

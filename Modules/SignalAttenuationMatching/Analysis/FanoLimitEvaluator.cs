@@ -4,9 +4,9 @@ using CircuitModuleDesigner.Modules.SignalAttenuationMatching.Models;
 namespace CircuitModuleDesigner.Modules.SignalAttenuationMatching.Analysis;
 
 /// <summary>
-/// Advisory Bode-Fano pre-screen. It uses the normalized narrow-band integral
-/// bound B·ln(1/|Γ|) ≤ π/Q and samples every band including both edges.
-/// It intentionally emits no arbitrary Q-threshold verdict.
+/// Bode-Fano pre-screen. For canonical series R-L/R-C port models the normalized
+/// integral violation is a hard feasibility error. Measured VNA data has no
+/// guaranteed one-pole equivalent, so its sampled local-Q result remains advisory.
 /// </summary>
 public static class FanoLimitEvaluator
 {
@@ -49,9 +49,11 @@ public static class FanoLimitEvaluator
                 var limiting = sampledQ.MaxBy(item => item.Q);
                 var bound = Math.PI / limiting.Q;
                 if (requiredIntegral <= bound) continue;
-                var model = port.Type == PortImpedanceType.Vna ? "sampled local-equivalent" : "series R-L/R-C";
+                var measuredModel = port.Type == PortImpedanceType.Vna;
+                var model = measuredModel ? "sampled local-equivalent" : "series R-L/R-C";
                 diagnostics.Add(new AttenuationMatchingDiagnostic(
-                    "FANO_BANDWIDTH_SCREEN", DiagnosticSeverity.Warning,
+                    measuredModel ? "FANO_BANDWIDTH_SCREEN" : "FANO_BANDWIDTH_LIMIT",
+                    measuredModel ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
                     $"Frequency target {bandIndex + 1} exceeds the {model} Bode-Fano integral screen for {port.Name}; limiting Q={limiting.Q:G3} at {limiting.Frequency:G6} Hz.",
                     "Fano/Bode normalized integral", requiredIntegral, $"<= {bound:G6} (π/Q)",
                     "Reduce bandwidth or return-loss target, or use a different load/network architecture."));

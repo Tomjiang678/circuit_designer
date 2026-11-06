@@ -70,6 +70,12 @@ public sealed class AttenuationMatchingSpiceExportService
                ExportDesign(candidate, request, dialect);
     }
 
+    public void SaveDocumentNetlist(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, string fileName, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) throw new ArgumentException("A netlist file path is required.", nameof(fileName));
+        File.WriteAllText(fileName, ExportDocumentNetlist(candidate, request, dialect), new UTF8Encoding(false));
+    }
+
     public void SaveTestbench(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, string fileName, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
     {
         if (string.IsNullOrWhiteSpace(fileName)) throw new ArgumentException("A netlist file path is required.", nameof(fileName));
