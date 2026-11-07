@@ -13,6 +13,9 @@ public interface IDesignModuleHost
     /// <summary>True when the module currently holds a generated, verified design.</summary>
     bool HasDesign { get; }
 
+    /// <summary>True when editable inputs changed after the last generated design.</summary>
+    bool IsStale { get; }
+
     /// <summary>Module-specific JSON snapshot of the current design. Empty when there is no design.</summary>
     string BuildDesignJson();
 

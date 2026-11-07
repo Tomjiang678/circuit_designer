@@ -349,3 +349,8 @@ D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.deps.json
 D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.runtimeconfig.json
 D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.dll
 D:\jzh_doc\circuit designer\obj\probe-multi-out\CircuitModuleDesigner.pdb
+D:\jzh_doc\circuit designer\obj\release-smoke-out\CircuitModuleDesigner.exe
+D:\jzh_doc\circuit designer\obj\release-smoke-out\CircuitModuleDesigner.deps.json
+D:\jzh_doc\circuit designer\obj\release-smoke-out\CircuitModuleDesigner.runtimeconfig.json
+D:\jzh_doc\circuit designer\obj\release-smoke-out\CircuitModuleDesigner.dll
+D:\jzh_doc\circuit designer\obj\release-smoke-out\CircuitModuleDesigner.pdb

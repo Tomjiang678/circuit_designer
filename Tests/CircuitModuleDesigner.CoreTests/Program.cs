@@ -4175,6 +4175,12 @@ static void TestSignalAttenuationEngineeringCoverage()
     };
     Require(!DesignRequestValidator.Validate(vnaRequest).Any(item => item.Severity == DiagnosticSeverity.Error),
         "A VNA port table with a valid analysis range was rejected.");
+    var vnaResult = engine.Design(vnaRequest);
+    var vnaJson = new AttenuationMatchingJsonReportBuilder().Build(vnaResult);
+    var vnaHtml = new AttenuationMatchingDesignReportService().ExportHtml(vnaResult);
+    Require(vnaJson.Contains("\"vnaData\"", StringComparison.Ordinal) && vnaJson.Contains("200", StringComparison.Ordinal) &&
+            vnaHtml.Contains("VNA Port Tables", StringComparison.Ordinal),
+        "The VNA report/snapshot did not preserve the full measured port table.");
     var vnaDocumentNetlist = new AttenuationMatchingSpiceExportService().ExportDocumentNetlist(broadband.SelectedCandidate!, vnaRequest);
     Require(vnaDocumentNetlist.Contains(AttenuationMatchingSpiceExportService.VnaTestbenchUnavailable, StringComparison.Ordinal) &&
             vnaDocumentNetlist.Contains("passive design network only", StringComparison.OrdinalIgnoreCase),
@@ -4408,6 +4414,15 @@ static void TestDesignDocument()
     Require(document.SnapshotJson.Contains("\"answer\"", StringComparison.Ordinal), "The design document lost the module snapshot.");
     Require(document.Summary.Contains("Fake summary", StringComparison.Ordinal) && document.Netlist == "* fake netlist",
         "The design document lost its summary or netlist.");
+    host.IsStale = true;
+    var staleRejected = false;
+    try { DesignDocumentService.Create(host, "Filters"); } catch (InvalidOperationException) { staleRejected = true; }
+    Require(staleRejected, "A stale module result was accepted as a design document.");
+    host.IsStale = false;
+    host.ThrowNetlist = true;
+    var withoutNetlist = DesignDocumentService.Create(host, "Filters");
+    Require(withoutNetlist.Netlist is null, "An unavailable optional netlist prevented the design document from being created.");
+    host.ThrowNetlist = false;
 
     var service = new DesignDocumentService();
     var restored = service.Deserialize(service.Serialize(document));
@@ -4470,11 +4485,15 @@ sealed class FakeDesignModuleHost : IDesignModuleHost
 {
     public string ModuleTitle => "Fake module";
     public bool HasDesign { get; set; } = true;
+    public bool IsStale { get; set; }
+    public bool ThrowNetlist { get; set; }
     public bool Calculated { get; private set; }
     public bool Detached { get; private set; }
     public string BuildDesignJson() => HasDesign ? "{\"answer\":42}" : string.Empty;
     public string BuildDesignSummary() => HasDesign ? "Fake summary" : string.Empty;
-    public string? BuildNetlist() => HasDesign ? "* fake netlist" : null;
+    public string? BuildNetlist() => ThrowNetlist
+        ? throw new InvalidOperationException("Netlist unavailable.")
+        : HasDesign ? "* fake netlist" : null;
     public void Calculate() => Calculated = true;
     public void DetachNavigation() => Detached = true;
 }
@@ -4492,6 +4511,7 @@ sealed class SignalAttenuationTestHost : IDesignModuleHost
 
     public string ModuleTitle => "Signal Attenuation & Impedance Matching";
     public bool HasDesign => result.Success;
+    public bool IsStale => false;
     public string BuildDesignJson() => snapshot;
     public string BuildDesignSummary() => result.Message;
     public string? BuildNetlist() => result.SelectedCandidate is { } candidate

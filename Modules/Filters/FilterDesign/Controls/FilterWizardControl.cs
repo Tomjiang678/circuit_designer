@@ -41,17 +41,18 @@ public sealed class FilterWizardControl : UserControl, IDesignModuleHost
 
     public string ModuleTitle => "Filters";
     public bool HasDesign => lastResult is { IsImplemented: true };
+    public bool IsStale => resultIsStale;
 
     public string BuildDesignJson()
     {
-        if (lastResult is not { IsImplemented: true } result) return string.Empty;
+        if (resultIsStale || lastResult is not { IsImplemented: true } result) return string.Empty;
         var report = new FilterDesignReportService().Build(result);
         return new JsonFilterDesignSnapshotExporter().Export(report.Snapshot);
     }
 
     public string BuildDesignSummary()
     {
-        if (lastResult is not { IsImplemented: true } result) return string.Empty;
+        if (resultIsStale || lastResult is not { IsImplemented: true } result) return string.Empty;
         var summary = new StringBuilder()
             .AppendLine($"Filter design: {result.Status}")
             .AppendLine($"Message: {result.Message}")
@@ -67,7 +68,7 @@ public sealed class FilterWizardControl : UserControl, IDesignModuleHost
     }
 
     public string? BuildNetlist() =>
-        lastResult is { IsImplemented: true } result && !string.IsNullOrWhiteSpace(result.SpiceNetlist)
+        !resultIsStale && lastResult is { IsImplemented: true } result && !string.IsNullOrWhiteSpace(result.SpiceNetlist)
             ? result.SpiceNetlist
             : null;
 
@@ -212,7 +213,11 @@ public sealed class FilterWizardControl : UserControl, IDesignModuleHost
         step.StateChanged += (_, _) =>
         {
             stateRevision++;
-            if (lastResult is not null) resultIsStale = true;
+            if (lastResult is not null)
+            {
+                resultIsStale = true;
+                outputControl?.MarkStale();
+            }
             InvalidateStepsAfter(currentIndex);
             if (currentIndex == 0) ShowStep(0); else UpdateNavigationState();
         };

@@ -46,6 +46,8 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
 
         html.Append("<h2>2. Source &amp; Load Conditions</h2><table><thead><tr><th>Port</th><th>Type</th><th>R (Ω)</th><th>X @ f0 (Ω)</th><th>Frequency model</th></tr></thead><tbody>")
             .Append(PortRow(result.Request.Source)).Append(PortRow(result.Request.Load)).Append("</tbody></table>");
+        var vnaTables = PortVnaTable(result.Request.Source) + PortVnaTable(result.Request.Load);
+        if (vnaTables.Length > 0) html.Append("<h3>VNA Port Tables</h3>").Append(vnaTables);
         html.Append("<p class=\"note\">Source and load are external test conditions. The design CircuitGraph contains only the passive matching/attenuation network.</p>");
 
         html.Append("<h2>3. Design Requirements</h2><table><tbody>")
@@ -245,6 +247,18 @@ svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media p
 
     private static string PortRow(PortImpedanceModel port) =>
         $"<tr><td>{E(port.Name)}</td><td>{E(port.Type.ToString())}</td><td class=\"num\">{N(port.ResistanceOhm)}</td><td class=\"num\">{N(port.ReactanceOhm)}</td><td>{E(port.ModelDescription)}</td></tr>";
+
+    private static string PortVnaTable(PortImpedanceModel port)
+    {
+        if (port.VnaData is not { Count: > 0 } points) return string.Empty;
+        var html = new StringBuilder();
+        html.Append("<h3>").Append(E(port.Name)).Append("</h3><table><thead><tr><th>Frequency (Hz)</th><th>R (Ω)</th><th>X (Ω)</th></tr></thead><tbody>");
+        foreach (var point in points)
+            html.Append("<tr><td class=\"num\">").Append(N(point.FrequencyHz)).Append("</td><td class=\"num\">")
+                .Append(N(point.ResistanceOhm)).Append("</td><td class=\"num\">").Append(N(point.ReactanceOhm)).Append("</td></tr>");
+        html.Append("</tbody></table>");
+        return html.ToString();
+    }
 
     private static string MetricRow(string name, string value, string definition) =>
         $"<tr><td>{E(name)}</td><td class=\"num\">{E(value)}</td><td>{E(definition)}</td></tr>";

@@ -162,6 +162,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
 
     public string ModuleTitle => "Signal Attenuation & Impedance Matching";
     public bool HasDesign => result is { Success: true } && SelectedCandidate is { Status: not DesignStatus.Failed };
+    public bool IsStale => stale;
     public void Calculate() => _ = RunDesignAsync();
     public void DetachNavigation() => navigation.AfterSelect -= NavigationAfterSelect;
 
@@ -176,15 +177,15 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
         initializing = false;
         UpdateModeVisibility();
         UpdateTopologyFamilies();
-        HookInvalidation(this);
+        for (var index = 0; index < pages.Count - 1; index++) HookInvalidation(pages[index]);
         ShowStep(0);
     }
 
-    public string BuildDesignJson() => result is { Success: true } ? new AttenuationMatchingDesignSnapshotService().Build(ResultWithSelection()) : string.Empty;
+    public string BuildDesignJson() => !stale && result is { Success: true } ? new AttenuationMatchingDesignSnapshotService().Build(ResultWithSelection()) : string.Empty;
 
     public string BuildDesignSummary()
     {
-        if (result is null) return string.Empty;
+        if (stale || result is null) return string.Empty;
         var selected = SelectedCandidate;
         var summary = new StringBuilder()
             .AppendLine($"Signal attenuation / impedance matching design: {result.Status}")
@@ -205,7 +206,7 @@ public sealed class AttenuationMatchingWizardControl : UserControl, IDesignModul
 
     public string? BuildNetlist()
     {
-        if (SelectedCandidate is not { Status: not DesignStatus.Failed } selected) return null;
+        if (stale || SelectedCandidate is not { Status: not DesignStatus.Failed } selected) return null;
         try
         {
             var service = new AttenuationMatchingSpiceExportService();

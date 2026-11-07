@@ -63,18 +63,21 @@ public sealed class ComparatorWizardControl : UserControl, IDesignModuleHost
     private TreeNode? navigationRoot;
     private ComparatorDesignerKind selectedKind;
     private ComparatorDesignResult? renderedResult;
+    private bool resultIsStale;
 
     public ComparatorWizardControl()
     {
         Dock = DockStyle.Fill; AutoScaleMode = AutoScaleMode.Dpi; BackColor = SystemColors.Control; selectedKind = ComparatorDesignerKind.SchmittTrigger;
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.Controls.Add(BuildParameters(), 0, 0); root.Controls.Add(BuildResults(), 0, 1); Controls.Add(root);
+        var parameters = BuildParameters();
+        root.Controls.Add(parameters, 0, 0); root.Controls.Add(BuildResults(), 0, 1); Controls.Add(root);
         topology.SelectedItem = SchmittTopology.Inverting; outputMode.SelectedItem = WindowOutputMode.InsideWindowHigh; series.SelectedItem = StandardComponentSeries.E96;
         design.Click += (_, _) => RunDesign();
         advanced.CheckedChanged += (_, _) => UpdateModeControls();
         optimize.CheckedChanged += (_, _) => series.Enabled = optimize.Checked;
         UpdateModeControls();
+        HookParameters(parameters);
     }
 
     public void AttachNavigation(TreeView tree)
@@ -86,20 +89,21 @@ public sealed class ComparatorWizardControl : UserControl, IDesignModuleHost
 
     public string ModuleTitle => "Comparators & Threshold Control";
     public bool HasDesign => renderedResult is { Success: true };
+    public bool IsStale => resultIsStale;
 
     public string BuildDesignJson() =>
-        renderedResult is { Success: true } result
+        !resultIsStale && renderedResult is { Success: true } result
             ? new ComparatorDesignReportService().ExportJson(result)
             : string.Empty;
 
     public string BuildDesignSummary() =>
-        renderedResult is { Success: true } result
+        !resultIsStale && renderedResult is { Success: true } result
             ? new ComparatorDesignReportBuilder().BuildText(result)
             : string.Empty;
 
     public string? BuildNetlist()
     {
-        if (renderedResult is not { Success: true } result) return null;
+        if (resultIsStale || renderedResult is not { Success: true } result) return null;
         try
         {
             return new ComparatorSpiceExportService().Export(result);
@@ -130,7 +134,9 @@ public sealed class ComparatorWizardControl : UserControl, IDesignModuleHost
             if(selectedKind==ComparatorDesignerKind.RelaxationOscillator)
                 request=request with{OptimizeStandardValues=true,ResistorSeries=StandardComponentSeries.E96,
                     MinimumResistanceOhm=1_000,MaximumResistanceOhm=1_000_000};
-            renderedResult = new ComparatorDesignEngine().Design(request); Render(renderedResult);
+            renderedResult = new ComparatorDesignEngine().Design(request);
+            resultIsStale = false;
+            Render(renderedResult);
             switch (renderedResult.Status)
             {
                 case ComparatorDesignStatus.Pass:
@@ -231,6 +237,11 @@ public sealed class ComparatorWizardControl : UserControl, IDesignModuleHost
 
     private bool EnsureExportableDesign()
     {
+        if (resultIsStale)
+        {
+            MessageBox.Show(this, "Parameters changed; run the design again before exporting.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return false;
+        }
         if (renderedResult is { Success: true }) return true;
         MessageBox.Show(this, "Generate and verify a design before exporting its netlist or report.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
         return false;
@@ -310,12 +321,33 @@ public sealed class ComparatorWizardControl : UserControl, IDesignModuleHost
         if (node is null || node.Parent != navigationRoot || node.Index is < 0 or > 2) return;
         selectedKind=node.Index switch{0=>ComparatorDesignerKind.SchmittTrigger,1=>ComparatorDesignerKind.WindowComparator,_=>ComparatorDesignerKind.RelaxationOscillator};
         UpdateModeControls(); status.Text = string.Empty;
+        if (renderedResult is not null) resultIsStale = true;
     }
     private void SetAnalysisMode(bool oscillator)
     {
         analysis.Visible=!oscillator;oscillatorAnalysis.Visible=oscillator;
         if(oscillator)oscillatorAnalysis.BringToFront();else analysis.BringToFront();
     }
+    private void HookParameters(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            switch (child)
+            {
+                case NumericUpDown number: number.ValueChanged += MarkStale; break;
+                case ComboBox combo: combo.SelectedIndexChanged += MarkStale; break;
+                case CheckBox check: check.CheckedChanged += MarkStale; break;
+                case TextBox text: text.TextChanged += MarkStale; break;
+            }
+            HookParameters(child);
+        }
+    }
+
+    private void MarkStale(object? sender, EventArgs e)
+    {
+        if (renderedResult is not null) resultIsStale = true;
+    }
+
     protected override void Dispose(bool disposing) { if (disposing) DetachNavigation(); base.Dispose(disposing); }
 
     private static TabPage Page(string title, Control child) { var page = new TabPage(title) { BackColor = SystemColors.Window }; page.Controls.Add(child); return page; }

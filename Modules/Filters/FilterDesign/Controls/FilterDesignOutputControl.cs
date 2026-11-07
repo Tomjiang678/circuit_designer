@@ -27,6 +27,7 @@ public sealed class FilterDesignOutputControl : UserControl
     private FilterDesignResult currentResult;
     private WebBrowser? reportBrowser;
     private bool reportDirty = true;
+    private bool stale;
 
     public FilterDesignOutputControl(FilterDesignResult result)
     {
@@ -41,8 +42,17 @@ public sealed class FilterDesignOutputControl : UserControl
         UpdateResult(result);
     }
 
+    public bool IsStale => stale;
+
+    public void MarkStale()
+    {
+        stale = true;
+        reportDirty = true;
+    }
+
     public void UpdateResult(FilterDesignResult result)
     {
+        stale = false;
         currentResult = result;
         SuspendLayout(); tabs.SuspendLayout(); analysisHost.SuspendLayout();
         try
@@ -76,12 +86,26 @@ public sealed class FilterDesignOutputControl : UserControl
     {
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(10) }; layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false }; var html = new Button { Text = "Export HTML Report...", AutoSize = true, MinimumSize = new Size(145, 28) }; var json = new Button { Text = "Export JSON Snapshot...", AutoSize = true, MinimumSize = new Size(155, 28) };
-        html.Click += (_, _) => ExportReport(this, currentResult, new FilterDesignReportService(), false); json.Click += (_, _) => ExportReport(this, currentResult, new FilterDesignReportService(), true); buttons.Controls.Add(html); buttons.Controls.Add(json);
+        html.Click += (_, _) => ExportCurrentReport(false); json.Click += (_, _) => ExportCurrentReport(true); buttons.Controls.Add(html); buttons.Controls.Add(json);
         layout.Controls.Add(buttons, 0, 0); layout.Controls.Add(reportHost, 0, 1); reportPage.Controls.Add(layout);
+    }
+
+    private bool EnsureCurrent()
+    {
+        if (!stale) return true;
+        MessageBox.Show(this, "Parameters changed; run the design again before exporting.", "Filter Design", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return false;
+    }
+
+    private void ExportCurrentReport(bool json)
+    {
+        if (!EnsureCurrent()) return;
+        ExportReport(this, currentResult, new FilterDesignReportService(), json);
     }
 
     private void SaveCurrentCir()
     {
+        if (!EnsureCurrent()) return;
         using var dialog = new SaveFileDialog { Filter = "LTspice netlist (*.cir)|*.cir|Multisim/Berkeley netlist (*.net)|*.net|All files (*.*)|*.*", DefaultExt = "cir", AddExtension = true, FileName = BuildCirFileName(currentResult) };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
         try

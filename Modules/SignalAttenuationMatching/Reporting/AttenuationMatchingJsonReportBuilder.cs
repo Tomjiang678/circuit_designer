@@ -103,6 +103,7 @@ public sealed class AttenuationMatchingJsonReportBuilder
         port.ReferenceFrequencyHz,
         port.EquivalentInductanceHenry,
         port.EquivalentCapacitanceFarad,
+        VnaData = port.VnaData,
         Model = port.ModelDescription
     };
 

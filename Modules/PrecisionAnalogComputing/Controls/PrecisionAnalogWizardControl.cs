@@ -81,6 +81,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHos
     private bool reportNeedsRefresh;
     private bool updatingUi;
     private bool designing;
+    private bool resultIsStale;
 
     public PrecisionAnalogWizardControl()
     {
@@ -108,6 +109,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHos
         };
         RebuildInputRows();
         OperationChanged();
+        HookParameters(this);
     }
 
     public PrecisionAnalogWizardControl(TreeView navigationTree) : this() => AttachNavigation(navigationTree);
@@ -136,20 +138,21 @@ public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHos
 
     public string ModuleTitle => "Precision Analog Computing";
     public bool HasDesign => renderedResult is { Success: true };
+    public bool IsStale => resultIsStale;
 
     public string BuildDesignJson() =>
-        renderedResult is { Success: true } result
+        !resultIsStale && renderedResult is { Success: true } result
             ? new PrecisionAnalogDesignReportService().ExportJson(result)
             : string.Empty;
 
     public string BuildDesignSummary() =>
-        renderedResult is { Success: true } result
+        !resultIsStale && renderedResult is { Success: true } result
             ? new PrecisionAnalogDesignReportBuilder().BuildText(result)
             : string.Empty;
 
     public string? BuildNetlist()
     {
-        if (renderedResult is not { Success: true } result) return null;
+        if (resultIsStale || renderedResult is not { Success: true } result) return null;
         try
         {
             return new PrecisionAnalogSpiceExportService().Export(result);
@@ -487,6 +490,7 @@ public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHos
 
     private void ShowResult(AnalogComputeDesignResult result)
     {
+        resultIsStale = false;
         renderedResult = result;
         results.SuspendLayout(); schematicResultPage.SuspendLayout(); analysisResultPage.SuspendLayout();
         try
@@ -682,6 +686,11 @@ public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHos
 
     private bool EnsureExportableDesign()
     {
+        if (resultIsStale)
+        {
+            MessageBox.Show(this, "Parameters changed; run the design again before exporting.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return false;
+        }
         if (renderedResult is { Success: true }) return true;
         MessageBox.Show(this, "Generate and verify a design before exporting its netlist or report.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
         return false;
@@ -824,6 +833,27 @@ public sealed class PrecisionAnalogWizardControl : UserControl, IDesignModuleHos
         UiFieldMetrics.FitCombo(box, 130, 240);
         return box;
     }
+    private void HookParameters(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            switch (child)
+            {
+                case NumericUpDown number: number.ValueChanged += MarkStale; break;
+                case ComboBox combo: combo.SelectedIndexChanged += MarkStale; break;
+                case CheckBox check: check.CheckedChanged += MarkStale; break;
+                case TextBox text: text.TextChanged += MarkStale; break;
+                case DataGridView grid: grid.CellValueChanged += MarkStale; break;
+            }
+            HookParameters(child);
+        }
+    }
+
+    private void MarkStale(object? sender, EventArgs e)
+    {
+        if (renderedResult is not null) resultIsStale = true;
+    }
+
     private static Label Label(string text, int top) => new() { Text = text, AutoSize = true, Margin = new Padding(5, top, 4, 0) };
     private static void AddField(Control row, string title, Control field) { row.Controls.Add(Label(title, 7)); row.Controls.Add(field); }
     private sealed class ResistanceInput : UserControl

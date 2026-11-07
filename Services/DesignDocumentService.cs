@@ -14,7 +14,7 @@ namespace CircuitModuleDesigner.Services;
 public sealed class DesignDocumentService
 {
     public const string Extension = ".cmddesign";
-    public const string FileFilter = "Circuit design (*.cmddesign)|*.cmddesign|JSON files (*.json)|*.json|All files (*.*)|*.*";
+    public const string FileFilter = "Circuit design (*.cmddesign)|*.cmddesign|All files (*.*)|*.*";
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -31,9 +31,13 @@ public sealed class DesignDocumentService
         ArgumentNullException.ThrowIfNull(host);
         if (!host.HasDesign)
             throw new InvalidOperationException("Generate a verified design before saving it.");
+        if (host.IsStale)
+            throw new InvalidOperationException("Parameters changed after the last design. Recalculate before saving it.");
         var snapshot = host.BuildDesignJson();
         ValidateSnapshot(snapshot);
-        var netlist = host.BuildNetlist();
+        string? netlist;
+        try { netlist = host.BuildNetlist(); }
+        catch { netlist = null; }
         return new DesignDocument
         {
             Category = category ?? string.Empty,

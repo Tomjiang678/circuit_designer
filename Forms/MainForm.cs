@@ -481,7 +481,12 @@ public sealed class MainForm : Form
 
     private bool EnsureDesignForSave()
     {
-        if (activeModule is { HasDesign: true }) return true;
+        if (activeModule is { HasDesign: true, IsStale: false }) return true;
+        if (activeModule is { HasDesign: true, IsStale: true })
+        {
+            ShowInfo("Parameters changed after the last design.\r\n\r\nRecalculate before saving.");
+            return false;
+        }
         ShowInfo("There is no generated design to save.\r\n\r\nRun the module's design step first (Design > Calculate or the module's own button).");
         return false;
     }
