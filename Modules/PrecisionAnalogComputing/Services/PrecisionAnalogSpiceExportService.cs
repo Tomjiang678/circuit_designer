@@ -64,7 +64,7 @@ public sealed class PrecisionAnalogSpiceExportService
             comments.Add(IsDynamic(request.Operation)
                 ? "Only the first input carries the AC stimulus; the other inputs are held at their nominal DC voltage. Use an explicit source/sweep setup for multi-input AC coverage."
                 : "The DC sweep drives the first input only; the other inputs are held at their nominal DC voltage. Use nested sweeps or .STEP for multidimensional coverage.");
-        var options = new CircuitSpiceExportOptions($"Circuit Module Designer - Precision Analog {request.Operation}")
+        var options = new CircuitSpiceExportOptions($"Analog Module Studio - Precision Analog {request.Operation}")
         {
             Dialect = SpiceNetlistDialect.Ltspice,
             Sources = sources,

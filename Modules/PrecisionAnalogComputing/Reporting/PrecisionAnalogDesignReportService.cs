@@ -17,7 +17,7 @@ public sealed class PrecisionAnalogDesignReportService
 body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24px auto;max-width:1120px;line-height:1.35}h1{font-size:22px;border-bottom:2px solid #315b83;padding-bottom:6px}h2{font-size:16px;color:#244f78;border-bottom:1px solid #9aafc3;margin-top:24px;padding-bottom:3px}h3{font-size:14px;color:#333}.meta{color:#555}table{border-collapse:collapse;width:100%;margin:7px 0 14px}th,td{border:1px solid #9ca6af;padding:4px 6px;text-align:left;vertical-align:top}th{background:#e8edf2}.num{font-family:Consolas,"Courier New",monospace;text-align:right}.pass{color:#176b2c;font-weight:600}.fail{color:#9e1d1d;font-weight:600}.warning{border-left:4px solid #c28a00;background:#fff8df;padding:5px 8px;margin:4px 0}.note{color:#555}pre{font:12px Consolas,"Courier New",monospace;background:#f5f5f5;border:1px solid #aaa;padding:8px;white-space:pre-wrap}@media print{body{margin:8mm;max-width:none}h2{break-after:avoid}table{break-inside:auto}tr{break-inside:avoid}.no-print{display:none}}
 </style></head><body>
 """);
-        html.Append("<h1>Circuit Module Designer - Precision Analog Computing Design Report</h1><p class=\"meta\">Generated ")
+        html.Append("<h1>Analog Module Studio - Precision Analog Computing Design Report</h1><p class=\"meta\">Generated ")
             .Append(E(DateTimeOffset.UtcNow.ToString("u"))).Append(" | Verified selected-value CircuitGraph</p>");
         html.Append("<h2>1. Design Summary</h2><table><tbody>")
             .Append(Row("Target", result.TargetRelation)).Append(Row("Topology", result.TopologyName))

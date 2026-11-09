@@ -1,10 +1,8 @@
-# Circuit Module Designer
+# Analog Module Studio
 
 一个面向模拟电路模块设计的 Windows 桌面工具：从设计指标出发，完成拓扑/参数综合、标准值选型、CircuitGraph 生成、独立验证、分析绘图、原理图、SPICE 网表和 HTML/JSON 报告。
 
 当前版本：**V0.0（既有模块冻结）**。本版本在保持既有三个模块行为不变的前提下，新增第四个“信号衰减与阻抗匹配”模块；既有模块只做缺陷修复和可靠性/文档整理。
-
-![Application shell](artifacts/UI_v0/shell-empty.png)
 
 ---
 
@@ -24,7 +22,6 @@ V0 已经打通了四个模拟设计模块的完整闭环：
    - `.cmddesign` 设计归档文件。
 7. **桌面应用外壳**：分类选择、导航树、统一主题、菜单、状态栏、设置持久化、设计文件查看器。
 
-当前自动化回归：**150 个测试全部通过**。另有 150 点比较器矩阵、500 点精密模拟矩阵、100 点张弛振荡器矩阵、300 点信号衰减/匹配矩阵等独立测试资料。
 
 ---
 
@@ -107,8 +104,6 @@ CircuitModuleDesigner/
 │  └─ CircuitModuleDesigner.CoreTests.csproj
 │
 ├─ NetlistSamples/LTspice/            # 可人工检查的 .cir 样例
-├─ artifacts/                         # UI 截图、测试矩阵、审计结果
-└─ 审计/设计文档（NETLIST_AUDIT.md、PRECISION_ANALOG_COMPUTING_AUDIT.md 等）
 ```
 
 **分层原则**：`MainForm` 只依赖 `IDesignModuleHost`，不引用任何模块的请求/结果类型；每个模块自己拥有引擎、验证、分析、原理图、导出和 UI。这样外壳不会随着模块增加而膨胀。
@@ -186,7 +181,7 @@ DesignRequest
 ```json
 {
   "schema": "CircuitModuleDesigner.Design.v1",
-  "application": "Circuit Module Designer",
+  "application": "Analog Module Studio",
   "appVersion": "0.0",
   "savedAtUtc": "2026-10-20T...",
   "category": "Comparators",
@@ -318,7 +313,6 @@ DesignRequest
 - 时域波形、原理图、瞬态 SPICE、报告；
 - **100 点测试矩阵**：10 频率 × 10 电源/占空比组合，50 点标准值优化 + 50 点连续值。
 
-测试结果：**100/100 通过验收，99 Pass + 1 E24 标准值 Warning，0 Failed**。最大频率误差 2.579%，最大占空比误差 0.471 个百分点。详见 [测试说明](artifacts/RelaxationOscillator/README.md) 和 [原始 CSV](artifacts/RelaxationOscillator/relaxation-oscillator-100.csv)。
 
 ### 明确的 V0 边界
 
@@ -363,9 +357,7 @@ DesignRequest
 - 状态栏：当前模块、操作状态；
 - 设置持久化到 `%LOCALAPPDATA%\CircuitModuleDesigner\settings.json`；
 - `.cmddesign` 保存/打开，打开为只读设计查看器；
-- 统一 `UiTheme`，无深色标题带；窗口标题为 `Circuit Module Designer — <module>`。
-
-![Comparator workspace](artifacts/UI_v0/shell-comparator.png)
+- 统一 `UiTheme`，无深色标题带；窗口标题为 `Analog Module Studio — <module>`。
 
 ---
 
@@ -411,23 +403,10 @@ dotnet build Tests\CircuitModuleDesigner.CoreTests\CircuitModuleDesigner.CoreTes
 
 ---
 
-## 10. 测试与审计资料
+## 10. 测试资料
 
-| 资料 | 内容 |
-|---|---|
-| [100 点振荡器测试](artifacts/RelaxationOscillator/README.md) | 覆盖范围、结果、E24 限制说明 |
-| [300 点信号衰减/匹配矩阵](artifacts/SignalAttenuationMatching/300-point-matrix.csv) | 衰减、L 匹配、Pi/T 匹配的确定性结果 |
-| [振荡器 CSV](artifacts/RelaxationOscillator/relaxation-oscillator-100.csv) | 100 行请求/实际/误差/RT/CT/状态 |
-| [150 点比较器矩阵](artifacts/Comparator_150_TestPoints.txt) | 比较器测试点 |
-| [比较器结果](artifacts/Comparator_150_RESULTS.txt) | 对应结果 |
-| [500 点精密模拟矩阵](artifacts/PrecisionAnalogComputing_500_TestPoints.txt) | 精密模拟测试点 |
-| [精密模拟结果](artifacts/PrecisionAnalogComputing_500_RESULTS_FINAL_ROUND.txt) | 对应结果 |
-| [信号衰减/匹配审计](SIGNAL_ATTENUATION_MATCHING_AUDIT.md) | 模块实现、拓扑矩阵、149 测试、300 点矩阵、已知限制 |
-| [信号衰减/匹配设计说明](Modules/SignalAttenuationMatching/DESIGN.md) | 架构、数学、验证规则、支持矩阵 |
-| [网表审计](NETLIST_AUDIT.md) | SPICE 方言、`.PRINT`、运放/二极管策略、未支持项 |
-| [精密模拟审计](PRECISION_ANALOG_COMPUTING_AUDIT.md) | 架构、数学、验证、性能、已知限制 |
-| [UI 性能审计](UI_PERFORMANCE_AUDIT.md) | 设计调用链、渲染性能、已知问题 |
-| [LTspice 网表样例](NetlistSamples/LTspice/) | RC 低通、二极管整流、外部运放子电路 |
+- 回归测试：`Tests/CircuitModuleDesigner.CoreTests`
+- LTspice 网表样例：`NetlistSamples/LTspice/`
 
 ---
 
@@ -436,10 +415,9 @@ dotnet build Tests\CircuitModuleDesigner.CoreTests\CircuitModuleDesigner.CoreTes
 - **既有三个模块已冻结**：V0 能力、界面和数据格式保持稳定；本版本新增第四个信号衰减/匹配模块，既有模块只做缺陷修复、文档和测试补充。
 - **暂不实现**：电源环路补偿器（此前讨论过，明确延后）、全差分滤波器、更多有源拓扑、厂商运放/二极管模型自动选择、PCB/寄生级仿真。
 - **明确不做**：生成 LTspice `.asc` 原理图坐标；对未知供应商加密模型作跨仿真器兼容承诺；把抽象运放当作真实器件宏模型。
-- 仓库中的 `功放模块设计草案.md` 是后续方向的草案，不属于 V0 已实现功能。
 
 ---
 
 ## 12. 一句话总结
 
-**Circuit Module Designer V0 是一个“从指标到可验证电路”的模拟模块设计工作台**：它不只算公式，而是把设计落实成统一电路图，再用独立验证、原理图、SPICE 和报告把结果交付出来。
+**Analog Module Studio V0 是一个“从指标到可验证电路”的模拟模块设计工作台**：它不只算公式，而是把设计落实成统一电路图，再用独立验证、原理图、SPICE 和报告把结果交付出来。

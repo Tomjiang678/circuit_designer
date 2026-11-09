@@ -24,6 +24,6 @@ internal static class SpiceText
     }
 
     public static string Node(string name) => name.Equals("GND", StringComparison.OrdinalIgnoreCase) || name == "0" ? "0" : Identifier(name, "N_UNNAMED");
-    public static string Title(string title) => string.IsNullOrWhiteSpace(title) ? "Circuit Module Designer" : title.Replace('\r', ' ').Replace('\n', ' ');
+    public static string Title(string title) => string.IsNullOrWhiteSpace(title) ? "Analog Module Studio" : title.Replace('\r', ' ').Replace('\n', ' ');
     public static string QuotePath(string path) => $"\"{path.Replace("\"", string.Empty).Replace('\\', '/')}\"";
 }

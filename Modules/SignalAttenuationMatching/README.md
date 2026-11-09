@@ -1,6 +1,6 @@
 # Signal Attenuation & Impedance Matching
 
-The fourth first-class design module in Circuit Module Designer. It synthesizes only passive R/L/C networks, produces a real `CircuitGraph`, and verifies the final graph independently before allowing export.
+The fourth first-class design module in Analog Module Studio. It synthesizes only passive R/L/C networks, produces a real `CircuitGraph`, and verifies the final graph independently before allowing export.
 
 ## Modes
 
@@ -83,7 +83,7 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 ## Tests
 
 - 6 module regression tests integrated in the 150-test suite, including the engineering-coverage test.
-- 300-point deterministic regression matrix: [CSV](../../artifacts/SignalAttenuationMatching/300-point-matrix.csv); separate engineering coverage covers E-series, expected failures, Touchstone 2.0/continuation, complex-port SPICE consistency, and bandwidth isolation.
+- 300-point deterministic regression matrix; separate engineering coverage covers E-series, expected failures, Touchstone 2.0/continuation, complex-port SPICE consistency, and bandwidth isolation.
   - 100 attenuation points across port values and attenuation targets.
   - 100 L-matching points across impedance ratios/frequencies.
   - 100 Pi/T matching points across families, responses and design Q values.
@@ -103,24 +103,6 @@ Source/load impedance is never added twice (as a graph element and as an exporte
 - A resistive pad cannot cancel complex port reactance; use the Impedance Matching mode.
 - Fully differential and multi-port networks are outside v1.
 - Multi-frequency/broadband matching evaluates single-section Pi/T and automatic 2-section cascaded Pi/T ladders by default. The section limit is part of the request model (1–4); every section's elements are independent optimization variables and the complete final graph is verified.
-## Visuals
-
-The topology preview uses real resistor/inductor/capacitor symbols rather than generic boxes. The T-pad is drawn as series–shunt–series, the Pi-pad as shunt–series–shunt, and LC previews use L/C symbols with the correct low-pass/high-pass/mixed positions.
-
-| T-pad | Pi-pad |
-|---|---|
-| ![T-pad preview](../../artifacts/SignalAttenuationMatching/topology-tpad.png) | ![Pi-pad preview](../../artifacts/SignalAttenuationMatching/topology-pipad.png) |
-| Pi LC match | T LC match |
-| ![Pi LC preview](../../artifacts/SignalAttenuationMatching/topology-pi-matching.png) | ![T LC preview](../../artifacts/SignalAttenuationMatching/topology-t-matching.png) |
-
-The actual schematic is generated from the final `CircuitGraph` layout, with junction dots, a ground rail and source/load port labels:
-
-![Actual passive matching schematic](../../artifacts/SignalAttenuationMatching/schematic.png)
-
-Frequency response uses separate left/right dB axes so a 200 dB return-loss trace does not flatten the attenuation curve. The Smith chart includes constant-resistance circles, constant-reactance arcs, dotted |Γ| circles, the Γin locus and a design-frequency marker. Hovering a curve or Smith chart displays a compact cursor readout; circuit schematics and topology previews intentionally have no cursor readout. The Smith tab is shown only when the sweep produces a meaningful locus; a perfectly matched resistive pad has Γ≈0 and no Smith tab is displayed.
-
-![Frequency response](../../artifacts/SignalAttenuationMatching/response.png)
-![Smith chart](../../artifacts/SignalAttenuationMatching/smith.png)
 ## Future work
 
 - [Broadband and multiband matching extension plan](BROADBAND_MATCHING_PLAN.md)

@@ -30,7 +30,7 @@ pre{font:11.5px Consolas,"Courier New",monospace;background:#f5f5f5;border:1px s
 svg{max-width:100%;height:auto;border:1px solid #d1d5db;background:#fff}@media print{body{margin:8mm;max-width:none}h2{break-after:avoid}tr{break-inside:avoid}}
 </style></head><body>
 """);
-        html.Append("<h1>Circuit Module Designer — Signal Attenuation &amp; Impedance Matching</h1>")
+        html.Append("<h1>Analog Module Studio — Signal Attenuation &amp; Impedance Matching</h1>")
             .Append("<p class=\"meta\">Generated ").Append(E(DateTimeOffset.UtcNow.ToString("u"))).Append(" | Mode: ").Append(E(result.Request.Mode.ToString())).Append(" | Status: <b>").Append(E(result.Status.ToString())).Append("</b></p>");
 
         html.Append("<h2>1. Design Overview</h2><table><tbody>")

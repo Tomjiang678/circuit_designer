@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This module is the fourth top-level wizard in Circuit Module Designer. It is a passive-only design module: R, L and C elements, no op-amps, comparators, attenuator ICs or RF matching ICs.
+This module is the fourth top-level wizard in Analog Module Studio. It is a passive-only design module: R, L and C elements, no op-amps, comparators, attenuator ICs or RF matching ICs.
 
 The three modes are:
 
@@ -164,7 +164,7 @@ Status is Supported only when no errors exist; Warning only when non-blocking mo
 ## 7. Tests and evidence
 
 - Full suite: **150 tests passed** (baseline + 6 module tests).
-- 300-point deterministic matrix: [CSV](../../artifacts/SignalAttenuationMatching/300-point-matrix.csv) — 300/300 accepted, 0 failed.
+- 300-point deterministic matrix: 300/300 accepted, 0 failed.
 - Specific checks:
   - 50 Ω → 50 Ω 3/6 dB T-pad; 10/20 dB Pi-pad.
   - 75 Ω ↔ 50 Ω unequal pads.

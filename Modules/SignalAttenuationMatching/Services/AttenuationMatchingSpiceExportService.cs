@@ -18,7 +18,7 @@ public sealed class AttenuationMatchingSpiceExportService
     public string ExportDesign(TopologyCandidate candidate, AttenuationMatchingDesignRequest request, SpiceNetlistDialect dialect = SpiceNetlistDialect.Ltspice)
     {
         ArgumentNullException.ThrowIfNull(candidate);
-        var options = new CircuitSpiceExportOptions($"Circuit Module Designer - {candidate.TopologyName}")
+        var options = new CircuitSpiceExportOptions($"Analog Module Studio - {candidate.TopologyName}")
         {
             Dialect = dialect,
             NetAliases = DirectAliases(candidate),
@@ -41,7 +41,7 @@ public sealed class AttenuationMatchingSpiceExportService
         ArgumentNullException.ThrowIfNull(candidate);
         if (!SupportsTestbench(request)) throw new NotSupportedException(VnaTestbenchUnavailable);
         var graph = BuildTestbenchGraph(candidate.Graph, request);
-        var options = new CircuitSpiceExportOptions($"Circuit Module Designer - {candidate.TopologyName} testbench")
+        var options = new CircuitSpiceExportOptions($"Analog Module Studio - {candidate.TopologyName} testbench")
         {
             Dialect = dialect,
             Sources = [new SpiceIndependentSource("V_SRC", SpiceSourceKind.Voltage, "VSRC", "0", AcMagnitude: 1)],

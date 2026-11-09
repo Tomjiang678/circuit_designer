@@ -45,7 +45,7 @@ public sealed class ComparatorDesignReportBuilder
 body{font:13px "Segoe UI",Arial,sans-serif;color:#111;background:#fff;margin:24px auto;max-width:1120px;line-height:1.35}h1{font-size:22px;border-bottom:2px solid #315b83;padding-bottom:6px}h2{font-size:16px;color:#244f78;border-bottom:1px solid #9aafc3;margin-top:24px;padding-bottom:3px}.meta{color:#555}table{border-collapse:collapse;width:100%;margin:7px 0 14px}th,td{border:1px solid #9ca6af;padding:4px 6px;text-align:left;vertical-align:top}th{background:#e8edf2}.num{font-family:Consolas,"Courier New",monospace;text-align:right}.warning{border-left:4px solid #c28a00;background:#fff8df;padding:5px 8px;margin:4px 0}.error{border-left:4px solid #9e1d1d;background:#fff0f0;padding:5px 8px;margin:4px 0}@media print{body{margin:8mm;max-width:none}h2{break-after:avoid}table{break-inside:auto}tr{break-inside:avoid}}
 </style></head><body>
 """);
-        html.Append("<h1>Circuit Module Designer - Comparator Design Report</h1><p class=\"meta\">Generated ")
+        html.Append("<h1>Analog Module Studio - Comparator Design Report</h1><p class=\"meta\">Generated ")
             .Append(E(DateTimeOffset.UtcNow.ToString("u", CultureInfo.InvariantCulture)))
             .Append(" | Selected-value CircuitGraph verification</p>");
 

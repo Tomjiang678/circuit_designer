@@ -1,0 +1,19 @@
+# Build outputs
+bin/
+obj/
+**/bin/
+**/obj/
+Tests/**/.build/
+artifacts/
+dist/
+_archive/
+
+# Local state
+.vs/
+*.user
+*.suo
+*.log
+.claude/settings.local.json
+
+# Test output
+TestResults/

@@ -2793,7 +2793,7 @@ static void TestFilterCirExport()
 {
     var active=new FilterDesignEngine().Design(Request(FilterMode.Active,FilterResponseType.LowPass,FilterApproximation.Butterworth,FilterImplementationType.SallenKey,1_000,4_000,manualOrder:2));
     Require(active.IsImplemented,active.Message);var netlist=new FilterSpiceExportService().Export(active);
-    Require(netlist.StartsWith("Circuit Module Designer",StringComparison.Ordinal),"The first CIR line must be a title line.");
+    Require(netlist.StartsWith("Analog Module Studio",StringComparison.Ordinal),"The first CIR line must be a title line.");
     Require(netlist.Contains("V_INPUT VIN 0 DC 0 AC 1",StringComparison.Ordinal),"CIR is missing its AC source.");
     Require(netlist.Contains("E_U1",StringComparison.Ordinal),"Abstract op-amp was not exported as a VCVS.");
     Require(netlist.Contains(".AC DEC 40",StringComparison.Ordinal)&&netlist.TrimEnd().EndsWith(".END",StringComparison.Ordinal),"CIR analysis/end directives are missing.");

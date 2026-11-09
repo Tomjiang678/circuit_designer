@@ -25,7 +25,7 @@ public sealed class FilterSpiceExportService : IFilterSpiceExportService
         var request = result.DesignRequest ?? throw new InvalidOperationException("The design result does not contain its design request.");
         var analysis = new FilterAnalysisService().CreateOptions(request);
         var passive = request.Mode == FilterMode.Passive;
-        var title = $"Circuit Module Designer - {request.Mode} {request.ResponseType} {request.Approximation} {request.Implementation}";
+        var title = $"Analog Module Studio - {request.Mode} {request.ResponseType} {request.Approximation} {request.Implementation}";
         return exporter.Export(graph, new CircuitSpiceExportOptions(title, analysis.StartFrequencyHz, analysis.StopFrequencyHz, analysis.PointsPerDecade,
             SourceResistanceOhm: passive && request.SourceResistanceOhm > 0 ? request.SourceResistanceOhm : null,
             LoadResistanceOhm: passive ? request.LoadResistanceOhm : null));
